@@ -178,14 +178,15 @@ export function JsonUpload({ onDataUploaded, onDataCleared }: JsonUploadProps) {
     }
 
     setProcessing(true);
-    const { status, uploadedData } = processJsonData(manualJson, 'Manual JSON Paste');
+    const { status, uploadedData } = processJsonData(manualJson, `Manual JSON Paste ${new Date().toLocaleTimeString()}`);
     
-    // Update file statuses to show the result
-    setFileStatuses([status]);
+    // Accumulate file statuses instead of replacing
+    setFileStatuses(prev => [...prev, status]);
     
     if (status.valid) {
       onDataUploaded(uploadedData);
-      // Don't clear the textarea immediately so user can see what was processed
+      // Clear the textarea after successful processing
+      setManualJson('');
     }
     
     setProcessing(false);
