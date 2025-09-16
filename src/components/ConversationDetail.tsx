@@ -24,7 +24,7 @@ import {
   Search,
   AlertCircle
 } from 'lucide-react';
-import { Conversation, MessageContent } from '../lib/types';
+import { Conversation, MessageContent, Thread } from '../lib/types';
 import { api, ApiError } from '../lib/api';
 import { formatTimestamp, parseThreadId } from '../lib/utils';
 
@@ -32,6 +32,7 @@ interface ConversationDetailProps {
   conversationId?: string;
   uploadedConversation?: Conversation;
   hasAnyUploadedConversations?: boolean;
+  selectedThread?: Thread;
   onThreadSelect?: (threadId: string) => void;
 }
 
@@ -39,6 +40,7 @@ export function ConversationDetail({
   conversationId, 
   uploadedConversation, 
   hasAnyUploadedConversations = false,
+  selectedThread,
   onThreadSelect 
 }: ConversationDetailProps) {
   // Initialize state with uploaded conversation if available
@@ -50,72 +52,9 @@ export function ConversationDetail({
   // Determine if we're in offline mode (any uploaded conversation data exists)
   const isOfflineMode = hasAnyUploadedConversations;
 
-  // Update conversation when props change
-  useEffect(() => {
-    console.log('🔄 ConversationDetail useEffect triggered:', {
-      conversationId,
-      hasUploadedConversation: !!uploadedConversation,
-      isOfflineMode,
-      hasAnyUploadedConversations
-    });
-
-    // FIRST CHECK: If there's ANY uploaded conversation data, we're in offline mode
-    if (hasAnyUploadedConversations) {
-      console.log('🔒 OFFLINE MODE DETECTED - No API calls allowed');
-      
-      if (uploadedConversation) {
-        console.log('✅ Using uploaded conversation data');
-        setConversation(uploadedConversation);
-        setSearchId(uploadedConversation.id);
-        setError(null);
-      } else if (conversationId) {
-        console.log('❌ Conversation not found in uploaded data');
-        setConversation(null);
-        setSearchId(conversationId);
-        setError(`Conversation "${conversationId}" not found in uploaded data. This conversation ID was referenced from thread data, but the actual conversation data was not uploaded. To view this conversation, please upload the conversation data or clear all data to use API mode.`);
-      } else {
-        console.log('🧹 Clearing state - no conversation selected');
-        setConversation(null);
-        setSearchId('');
-        setError(null);
-      }
-      setLoading(false);
-      return; // EXIT - No API operations allowed
-    }
-
-    // ONLY REACH HERE IF NO UPLOADED DATA EXISTS
-    console.log('🌐 Online mode - API operations allowed');
-    
-    if (conversationId) {
-      console.log('🌐 Attempting API fetch for:', conversationId);
-      setSearchId(conversationId);
-      // Safe to call API - no uploaded data exists
-      fetchConversation(conversationId);
-    } else {
-      console.log('🧹 Clearing conversation state');
-      setConversation(null);
-      setSearchId('');
-      setError(null);
-      setLoading(false);
-    }
-  }, [conversationId, uploadedConversation, hasAnyUploadedConversations, fetchConversation]);
-
   const fetchConversation = useCallback(async (id?: string) => {
-    console.log('🔍 fetchConversation called with:', {
-      id,
-      isOfflineMode,
-      hasAnyUploadedConversations,
-      hasUploadedConversation: !!uploadedConversation,
-      searchId
-    });
-
     // ABSOLUTE BLOCK: Never attempt API calls if we have any uploaded data
     if (isOfflineMode || hasAnyUploadedConversations || uploadedConversation) {
-      console.error('🚫 BLOCKED: API call attempted while in offline mode!', {
-        isOfflineMode,
-        hasAnyUploadedConversations,
-        hasUploadedConversation: !!uploadedConversation
-      });
       setError('🚫 API calls are disabled when uploaded conversation data is present. Please use the conversations from the dashboard or clear all data to use API mode.');
       setLoading(false);
       return;
@@ -126,8 +65,6 @@ export function ConversationDetail({
       setError('Please enter a conversation ID');
       return;
     }
-
-    console.log('🌐 Making API call for conversation:', targetId);
     setLoading(true);
     setError(null);
 
@@ -150,6 +87,51 @@ export function ConversationDetail({
       setLoading(false);
     }
   }, [isOfflineMode, hasAnyUploadedConversations, uploadedConversation, searchId]);
+
+  // Update conversation when props change
+  useEffect(() => {
+    // FIRST CHECK: If we have a selected thread, show thread details (no API call needed)
+    if (selectedThread) {
+      setConversation(null);
+      setSearchId(selectedThread.conversationId);
+      const errorMsg = `Conversation "${selectedThread.conversationId}" not found in uploaded data. This conversation ID was referenced from thread data, but the actual conversation data was not uploaded. To view this conversation, please upload the conversation data or clear all data to use API mode.`;
+      setError(errorMsg);
+      setLoading(false);
+      return; // EXIT - Show thread details, no API call
+    }
+
+    // SECOND CHECK: If there's ANY uploaded conversation data, we're in offline mode
+    if (hasAnyUploadedConversations) {
+      if (uploadedConversation) {
+        setConversation(uploadedConversation);
+        setSearchId(uploadedConversation.id);
+        setError(null);
+      } else if (conversationId) {
+        setConversation(null);
+        setSearchId(conversationId);
+        const errorMsg = `Conversation "${conversationId}" not found in uploaded data. This conversation ID was referenced from thread data, but the actual conversation data was not uploaded. To view this conversation, please upload the conversation data or clear all data to use API mode.`;
+        setError(errorMsg);
+      } else {
+        setConversation(null);
+        setSearchId('');
+        setError(null);
+      }
+      setLoading(false);
+      return; // EXIT - No API operations allowed
+    }
+
+    // ONLY REACH HERE IF NO UPLOADED DATA EXISTS
+    if (conversationId) {
+      setSearchId(conversationId);
+      // Safe to call API - no uploaded data exists
+      fetchConversation(conversationId);
+    } else {
+      setConversation(null);
+      setSearchId('');
+      setError(null);
+      setLoading(false);
+    }
+  }, [conversationId, uploadedConversation, hasAnyUploadedConversations, selectedThread, fetchConversation]);
 
   const analytics = useMemo(() => {
     if (!conversation) return null;
@@ -394,16 +376,17 @@ export function ConversationDetail({
         </Card>
       )}
 
-      {error && (
-        <Alert variant="destructive">
+      {error && !selectedThread && (
+        <Alert variant="destructive" className="border-2 border-red-500 bg-red-50">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
+          <AlertDescription className="text-red-800">
+            <div className="font-semibold mb-2">Conversation Not Available</div>
             {error}
             {error.includes('referenced from thread data') && (
-              <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded text-blue-800 text-sm">
-                <strong>Tip:</strong> You have uploaded thread data that references this conversation ID, but the actual conversation data is not available. 
+              <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded text-blue-800 text-sm">
+                <strong>💡 How to Fix This:</strong> You have uploaded thread data that references this conversation ID, but the actual conversation data is not available. 
                 To view the full conversation details, you can:
-                <ul className="mt-1 ml-4 list-disc">
+                <ul className="mt-2 ml-4 list-disc space-y-1">
                   <li>Upload the conversation data using the Upload Data tab</li>
                   <li>Clear all uploaded data to fetch conversations via API</li>
                 </ul>
@@ -411,6 +394,94 @@ export function ConversationDetail({
             )}
           </AlertDescription>
         </Alert>
+      )}
+
+      {/* Show thread details when conversation data isn't available but thread data is */}
+      {error && selectedThread && error.includes('referenced from thread data') && (
+        <div className="space-y-6">
+          <Alert className="border-2 border-blue-500 bg-blue-50">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="text-blue-800">
+              <div className="font-semibold mb-2">Thread Details Available</div>
+              The conversation data for this thread isn't uploaded, but here are the thread details from your uploaded data:
+            </AlertDescription>
+          </Alert>
+
+          {/* Thread Details Card */}
+          <Card>
+            <CardHeader>
+              <div className="flex justify-between items-start">
+                <div>
+                  <CardTitle>Thread Details</CardTitle>
+                  <CardDescription>ID: {selectedThread.id}</CardDescription>
+                </div>
+                <Badge variant="outline">
+                  {selectedThread.messages.length} messages
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div>
+                  <Label>Conversation ID</Label>
+                  <p className="text-sm font-mono">{selectedThread.conversationId}</p>
+                </div>
+                <div>
+                  <Label>Created At</Label>
+                  <p className="text-sm">{formatTimestamp(selectedThread.createdAt)}</p>
+                </div>
+              </div>
+
+              {/* Thread Messages */}
+              <div>
+                <h4 className="font-medium mb-4">Messages ({selectedThread.messages.length})</h4>
+                <div className="space-y-4 max-h-96 overflow-y-auto">
+                  {selectedThread.messages.map((message, index) => (
+                    <div key={index} className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        {message.role === 'user' ? (
+                          <User className="h-4 w-4 text-blue-600" />
+                        ) : (
+                          <Bot className="h-4 w-4 text-green-600" />
+                        )}
+                        <Badge variant={message.role === 'user' ? 'default' : 'secondary'}>
+                          {message.role}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {formatTimestamp(message.createdAt)}
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        {message.content.map((content, contentIndex) => (
+                          <div key={contentIndex} className="text-sm">
+                            <Badge variant="outline" className="text-xs mr-2">
+                              {content.kind}
+                            </Badge>
+                            {content.kind === 'text' && content.text && (
+                              <span>{content.text}</span>
+                            )}
+                            {content.kind === 'ui' && (
+                              <span className="text-blue-600">
+                                <Zap className="h-3 w-3 inline mr-1" />
+                                UI Component
+                              </span>
+                            )}
+                            {content.kind === 'linkout' && (
+                              <span className="text-purple-600">
+                                <ExternalLink className="h-3 w-3 inline mr-1" />
+                                External Link
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* Offline Mode Info - show when in offline mode but no conversation loaded and no error */}

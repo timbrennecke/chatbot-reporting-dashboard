@@ -91,8 +91,19 @@ export default function App() {
 
   const handleThreadSelect = (thread: Thread) => {
     setSelectedThread(thread);
-    setActiveTab('conversation');
     setSelectedConversationId(thread.conversationId);
+    
+    // Check if we have the actual conversation data for this thread
+    const hasConversationData = uploadedData.conversations?.some(c => c.id === thread.conversationId);
+    
+    if (hasConversationData) {
+      // Show conversation details if we have the data
+      setShowConversationOverlay(true);
+    } else {
+      // If we only have thread data, show thread details
+      // For now, still show the conversation overlay but it will show a helpful message
+      setShowConversationOverlay(true);
+    }
   };
 
   const handleConversationSelect = (conversationId: string) => {
@@ -273,6 +284,7 @@ export default function App() {
               conversationId={selectedConversationId}
               uploadedConversation={uploadedConversation}
               hasAnyUploadedConversations={hasAnyUploadedConversations}
+              selectedThread={selectedThread}
               onThreadSelect={(threadId) => {
                 const thread = uploadedThreads.find(t => t.id === threadId);
                 if (thread) {

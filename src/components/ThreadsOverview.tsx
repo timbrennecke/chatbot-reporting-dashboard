@@ -240,7 +240,7 @@ export function ThreadsOverview({
 
     try {
       const request: BulkAttributesRequest = {
-        threads: Array.from(selectedThreads).map(threadId => ({ threadId })),
+        threads: Array.from(selectedThreads as Set<string>).map(threadId => ({ threadId })),
       };
 
       console.log('🌐 ThreadsOverview making API call to getBulkAttributes');
