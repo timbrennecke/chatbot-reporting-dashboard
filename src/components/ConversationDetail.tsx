@@ -22,7 +22,9 @@ import {
   Zap, 
   Clock,
   Search,
-  AlertCircle
+  AlertCircle,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { Conversation, MessageContent, Thread } from '../lib/types';
 import { api, ApiError } from '../lib/api';
@@ -48,6 +50,7 @@ export function ConversationDetail({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchId, setSearchId] = useState('');
+  const [showSystemMessages, setShowSystemMessages] = useState(false);
 
   // Determine if we're in offline mode (any uploaded conversation data exists)
   const isOfflineMode = hasAnyUploadedConversations;
@@ -90,12 +93,28 @@ export function ConversationDetail({
 
   // Update conversation when props change
   useEffect(() => {
-    // FIRST CHECK: If we have a selected thread, show thread details (no API call needed)
+    // FIRST CHECK: If we have a selected thread, check if we have conversation data for it
     if (selectedThread) {
-      setConversation(null);
       setSearchId(selectedThread.conversationId);
-      const errorMsg = `Conversation "${selectedThread.conversationId}" not found in uploaded data. This conversation ID was referenced from thread data, but the actual conversation data was not uploaded. To view this conversation, please upload the conversation data or clear all data to use API mode.`;
-      setError(errorMsg);
+      
+      // Check if we have the actual conversation data for this thread
+      if (uploadedConversation) {
+        // We have the conversation data - show it!
+        setConversation(uploadedConversation);
+        setError(null);
+      } else {
+        // We only have thread data - create a conversation-like object from thread data
+        const threadAsConversation: Conversation = {
+          id: selectedThread.conversationId,
+          title: `Thread ${selectedThread.id}`,
+          createdAt: selectedThread.createdAt,
+          lastMessageAt: selectedThread.messages[selectedThread.messages.length - 1]?.sentAt || selectedThread.createdAt,
+          messages: selectedThread.messages,
+          threadIds: [selectedThread.id]
+        };
+        setConversation(threadAsConversation);
+        setError(null);
+      }
       setLoading(false);
       return; // EXIT - Show thread details, no API call
     }
@@ -211,36 +230,35 @@ export function ConversationDetail({
     }));
   }, [analytics]);
 
-  // Group consecutive text content items together
-  const groupMessageContent = (contents: MessageContent[]) => {
-    const grouped: Array<{ type: 'text'; content: string; startIndex: number } | { type: 'other'; content: MessageContent; index: number }> = [];
-    let currentTextGroup = '';
-    let textStartIndex = -1;
+  // Consolidate all text content into one string and separate other content
+  const consolidateMessageContent = (contents: MessageContent[]) => {
+    const textContents: string[] = [];
+    const otherContents: MessageContent[] = [];
 
-    contents.forEach((content, index) => {
-      if (content.kind === 'text') {
-        if (currentTextGroup === '') {
-          textStartIndex = index;
-        }
-        currentTextGroup += content.content;
+    contents.forEach((content) => {
+      if (content.kind === 'text' && content.content) {
+        textContents.push(content.content);
       } else {
-        // If we have accumulated text, add it as a group
-        if (currentTextGroup !== '') {
-          grouped.push({ type: 'text', content: currentTextGroup, startIndex: textStartIndex });
-          currentTextGroup = '';
-        }
-        // Add the non-text content
-        grouped.push({ type: 'other', content, index });
+        otherContents.push(content);
       }
     });
 
-    // Don't forget any remaining text at the end
-    if (currentTextGroup !== '') {
-      grouped.push({ type: 'text', content: currentTextGroup, startIndex: textStartIndex });
-    }
-
-    return grouped;
+    return {
+      consolidatedText: textContents.join(''),
+      otherContents
+    };
   };
+
+  // Filter messages based on system message visibility
+  const filteredMessages = useMemo(() => {
+    if (!conversation) return [];
+    
+    if (showSystemMessages) {
+      return conversation.messages;
+    }
+    
+    return conversation.messages.filter(message => message.role !== 'system');
+  }, [conversation, showSystemMessages]);
 
   const renderMessageContent = (content: MessageContent, index: number) => {
     switch (content.kind) {
@@ -250,6 +268,11 @@ export function ConversationDetail({
             <div className="flex items-center gap-2 mb-2">
               <Zap className="h-4 w-4 text-blue-600" />
               <Badge className="bg-blue-100 text-blue-800">UI Component</Badge>
+              {content.ui?.identifier && (
+                <Badge variant="outline" className="text-blue-600 border-blue-600">
+                  {content.ui.identifier}
+                </Badge>
+              )}
               {content.ui?.interactive && (
                 <Badge variant="outline" className="text-green-600 border-green-600">
                   Interactive
@@ -304,17 +327,6 @@ export function ConversationDetail({
     }
   };
 
-  const renderGroupedTextContent = (textContent: string, startIndex: number) => {
-    return (
-      <div key={`text-${startIndex}`} className="p-3 bg-muted/50 rounded-lg">
-        <div className="flex items-center gap-2 mb-2">
-          <MessageSquare className="h-4 w-4" />
-          <Badge variant="secondary">Text</Badge>
-        </div>
-        <p className="whitespace-pre-wrap">{textContent}</p>
-      </div>
-    );
-  };
 
   // Loading state while processing
   if (loading) {
@@ -334,47 +346,35 @@ export function ConversationDetail({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1>Conversation Detail</h1>
-        <p className="text-muted-foreground">
-          Analyze individual conversations and their message content
-        </p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h1>Conversation Detail</h1>
+          <p className="text-muted-foreground">
+            Analyze individual conversations and their message content
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowSystemMessages(!showSystemMessages)}
+          className="flex items-center gap-2"
+        >
+          {showSystemMessages ? (
+            <>
+              <EyeOff className="h-4 w-4" />
+              Hide System
+            </>
+          ) : (
+            <>
+              <Eye className="h-4 w-4" />
+              Show System
+            </>
+          )}
+        </Button>
       </div>
 
 
 
-      {/* Search - only show when not in offline mode */}
-      {!isOfflineMode && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Load Conversation</CardTitle>
-            <CardDescription>
-              Enter a conversation ID to fetch and analyze its details
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex gap-4">
-              <div className="flex-1">
-                <Label htmlFor="conversationId">Conversation ID</Label>
-                <Input
-                  id="conversationId"
-                  placeholder="01990f50-2c0a-76ff-8d8d-d13648d6bb15"
-                  value={searchId}
-                  onChange={(e) => setSearchId(e.target.value)}
-                />
-              </div>
-              <div className="flex items-end">
-                <Button 
-                  onClick={() => fetchConversation()} 
-                  disabled={loading || hasAnyUploadedConversations}
-                >
-                  {loading ? 'Loading...' : 'Fetch'}
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {error && !selectedThread && (
         <Alert variant="destructive" className="border-2 border-red-500 bg-red-50">
@@ -416,7 +416,7 @@ export function ConversationDetail({
                   <CardDescription>ID: {selectedThread.id}</CardDescription>
                 </div>
                 <Badge variant="outline">
-                  {selectedThread.messages.length} messages
+                  {selectedThread.messages.filter(m => m.role !== 'system').length} messages
                 </Badge>
               </div>
             </CardHeader>
@@ -434,49 +434,69 @@ export function ConversationDetail({
 
               {/* Thread Messages */}
               <div>
-                <h4 className="font-medium mb-4">Messages ({selectedThread.messages.length})</h4>
+                <h4 className="font-medium mb-4">Messages ({selectedThread.messages.filter(m => m.role !== 'system').length})</h4>
                 <div className="space-y-4 max-h-96 overflow-y-auto">
-                  {selectedThread.messages.map((message, index) => (
-                    <div key={index} className="border rounded-lg p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        {message.role === 'user' ? (
-                          <User className="h-4 w-4 text-blue-600" />
-                        ) : (
-                          <Bot className="h-4 w-4 text-green-600" />
-                        )}
-                        <Badge variant={message.role === 'user' ? 'default' : 'secondary'}>
-                          {message.role}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">
-                          {formatTimestamp(message.createdAt)}
-                        </span>
+                  {selectedThread.messages.filter(message => showSystemMessages || message.role !== 'system').map((message, index) => {
+                    const { consolidatedText, otherContents } = consolidateMessageContent(message.content);
+                    
+                    return (
+                      <div key={index} className={`border rounded-lg p-4 ${
+                        message.role === 'system' ? 'border-orange-200 bg-orange-50' : ''
+                      }`}>
+                        <div className="flex items-center gap-2 mb-2">
+                          {message.role === 'user' ? (
+                            <User className="h-4 w-4 text-blue-600" />
+                          ) : message.role === 'system' ? (
+                            <AlertCircle className="h-4 w-4 text-orange-600" />
+                          ) : (
+                            <Bot className="h-4 w-4 text-green-600" />
+                          )}
+                          <Badge variant={
+                            message.role === 'user' ? 'default' : 
+                            message.role === 'system' ? 'destructive' : 'secondary'
+                          }>
+                            {message.role}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {formatTimestamp(message.createdAt)}
+                          </span>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          {/* Consolidated text content */}
+                          {consolidatedText && (
+                            <div className="text-sm">
+                              <Badge variant="outline" className="text-xs mr-2">
+                                message
+                              </Badge>
+                              <span>{consolidatedText}</span>
+                            </div>
+                          )}
+                          
+                          {/* Other content types */}
+                          {otherContents.map((content, contentIndex) => (
+                            <div key={contentIndex} className="text-sm">
+                              <Badge variant="outline" className="text-xs mr-2">
+                                {content.kind}
+                              </Badge>
+                              {content.kind === 'ui' && (
+                                <span className="text-blue-600">
+                                  <Zap className="h-3 w-3 inline mr-1" />
+                                  UI Component {content.ui?.identifier && `(${content.ui.identifier})`}
+                                </span>
+                              )}
+                              {content.kind === 'linkout' && (
+                                <span className="text-purple-600">
+                                  <ExternalLink className="h-3 w-3 inline mr-1" />
+                                  External Link
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                      <div className="space-y-2">
-                        {message.content.map((content, contentIndex) => (
-                          <div key={contentIndex} className="text-sm">
-                            <Badge variant="outline" className="text-xs mr-2">
-                              {content.kind}
-                            </Badge>
-                            {content.kind === 'text' && content.text && (
-                              <span>{content.text}</span>
-                            )}
-                            {content.kind === 'ui' && (
-                              <span className="text-blue-600">
-                                <Zap className="h-3 w-3 inline mr-1" />
-                                UI Component
-                              </span>
-                            )}
-                            {content.kind === 'linkout' && (
-                              <span className="text-purple-600">
-                                <ExternalLink className="h-3 w-3 inline mr-1" />
-                                External Link
-                              </span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </CardContent>
@@ -498,6 +518,8 @@ export function ConversationDetail({
 
 
 
+
+
       {conversation && (
         <>
           {/* Conversation Header */}
@@ -509,7 +531,7 @@ export function ConversationDetail({
                   <CardDescription>ID: {conversation.id}</CardDescription>
                 </div>
                 <Badge variant="outline">
-                  {conversation.messages.length} messages
+                  {conversation.messages.filter(m => m.role !== 'system').length} messages
                 </Badge>
               </div>
             </CardHeader>
@@ -581,6 +603,9 @@ export function ConversationDetail({
                       <div>
                         <p className="text-sm text-muted-foreground">Final UI</p>
                         <p className="text-2xl font-bold">{analytics.finalCount}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          UI components marked as "final state"
+                        </p>
                       </div>
                       <Badge className="h-8 w-8 rounded-full bg-purple-100 text-purple-800 text-xs flex items-center justify-center">
                         F
@@ -602,48 +627,6 @@ export function ConversationDetail({
                 </Card>
               </div>
 
-              {/* Charts */}
-              {(uiKindData.length > 0 || namespaceData.length > 0) && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {uiKindData.length > 0 && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>UI Components by Kind</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <ResponsiveContainer width="100%" height={300}>
-                          <BarChart data={uiKindData}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="kind" />
-                            <YAxis />
-                            <Tooltip />
-                            <Bar dataKey="count" fill="#3b82f6" />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {namespaceData.length > 0 && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>UI Components by Namespace</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <ResponsiveContainer width="100%" height={300}>
-                          <BarChart data={namespaceData}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="namespace" />
-                            <YAxis />
-                            <Tooltip />
-                            <Bar dataKey="count" fill="#10b981" />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </CardContent>
-                    </Card>
-                  )}
-                </div>
-              )}
 
               {/* Linkouts */}
               {Object.keys(analytics.linkoutDomains).length > 0 && (
@@ -685,44 +668,86 @@ export function ConversationDetail({
           {/* Message Timeline */}
           <Card>
             <CardHeader>
-              <CardTitle>Message Timeline</CardTitle>
-              <CardDescription>
-                Chronological view of all messages in this conversation
-              </CardDescription>
+              <div className="flex justify-between items-center">
+                <div>
+                  <CardTitle>Message Timeline</CardTitle>
+                  <CardDescription>
+                    Chronological view of all messages in this conversation
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowSystemMessages(!showSystemMessages)}
+                  className="flex items-center gap-2"
+                >
+                  {showSystemMessages ? (
+                    <>
+                      <EyeOff className="h-4 w-4" />
+                      Hide System
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="h-4 w-4" />
+                      Show System
+                    </>
+                  )}
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {conversation.messages.map((message, index) => (
-                  <div key={message.id} className="border-l-4 border-l-primary pl-4 py-2">
-                    <div className="flex items-center gap-2 mb-3">
-                      {message.role === 'assistant' ? (
-                        <Bot className="h-5 w-5 text-blue-600" />
-                      ) : (
-                        <User className="h-5 w-5 text-green-600" />
-                      )}
-                      <Badge variant={message.role === 'assistant' ? 'default' : 'secondary'}>
-                        {message.role}
-                      </Badge>
-                      <span className="text-sm text-muted-foreground flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        {formatTimestamp(message.sentAt)}
-                      </span>
-                      <Badge variant="outline" className="text-xs">
-                        {message.content.length} content item(s)
-                      </Badge>
+                {filteredMessages.map((message, index) => {
+                  const { consolidatedText, otherContents } = consolidateMessageContent(message.content);
+                  
+                  return (
+                    <div key={message.id} className={`border-l-4 pl-4 py-2 ${
+                      message.role === 'system' ? 'border-l-orange-500 bg-orange-50/30' :
+                      message.role === 'assistant' ? 'border-l-blue-500' : 'border-l-green-500'
+                    }`}>
+                      <div className="flex items-center gap-2 mb-3">
+                        {message.role === 'assistant' ? (
+                          <Bot className="h-5 w-5 text-blue-600" />
+                        ) : message.role === 'system' ? (
+                          <AlertCircle className="h-5 w-5 text-orange-600" />
+                        ) : (
+                          <User className="h-5 w-5 text-green-600" />
+                        )}
+                        <Badge variant={
+                          message.role === 'assistant' ? 'default' : 
+                          message.role === 'system' ? 'destructive' : 'secondary'
+                        }>
+                          {message.role}
+                        </Badge>
+                        <span className="text-sm text-muted-foreground flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {formatTimestamp(message.sentAt)}
+                        </span>
+                        <Badge variant="outline" className="text-xs">
+                          {message.content.length} content item(s)
+                        </Badge>
+                      </div>
+                      
+                      <div className="space-y-3 ml-7">
+                        {/* Consolidated text content */}
+                        {consolidatedText && (
+                          <div className="p-3 bg-muted/50 rounded-lg">
+                            <div className="flex items-center gap-2 mb-2">
+                              <MessageSquare className="h-4 w-4" />
+                              <Badge variant="secondary">Message</Badge>
+                            </div>
+                            <p className="whitespace-pre-wrap">{consolidatedText}</p>
+                          </div>
+                        )}
+                        
+                        {/* Other content types (UI, linkouts, etc.) */}
+                        {otherContents.map((content, contentIndex) => 
+                          renderMessageContent(content, contentIndex)
+                        )}
+                      </div>
                     </div>
-                    
-                    <div className="space-y-3 ml-7">
-                      {groupMessageContent(message.content).map((group, groupIndex) => {
-                        if (group.type === 'text') {
-                          return renderGroupedTextContent(group.content, group.startIndex);
-                        } else {
-                          return renderMessageContent(group.content, group.index);
-                        }
-                      })}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </CardContent>
           </Card>

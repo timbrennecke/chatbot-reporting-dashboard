@@ -15,6 +15,14 @@ import {
   TableRow 
 } from './ui/table';
 import { 
+  Pagination, 
+  PaginationContent, 
+  PaginationItem, 
+  PaginationLink, 
+  PaginationNext, 
+  PaginationPrevious 
+} from './ui/pagination';
+import { 
   BarChart, 
   Bar, 
   XAxis, 
@@ -68,6 +76,10 @@ export function ThreadsOverview({
   const [hasUiFilter, setHasUiFilter] = useState(false);
   const [hasLinkoutFilter, setHasLinkoutFilter] = useState(false);
   const [assistantOnlyFilter, setAssistantOnlyFilter] = useState(false);
+  
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
 
   // Set default date range to today
   useEffect(() => {
@@ -171,6 +183,18 @@ export function ThreadsOverview({
     });
   }, [threads, searchTerm, hasUiFilter, hasLinkoutFilter, assistantOnlyFilter]);
 
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredThreads.length / itemsPerPage);
+  const paginatedThreads = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredThreads.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredThreads, currentPage, itemsPerPage]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, hasUiFilter, hasLinkoutFilter, assistantOnlyFilter]);
+
   const analytics = useMemo(() => calculateThreadAnalytics(filteredThreads), [filteredThreads]);
 
   // Calculate conversation analytics
@@ -183,7 +207,10 @@ export function ThreadsOverview({
     let totalConversations = uploadedConversations.length;
     
     uploadedConversations.forEach(conversation => {
-      totalMessages += conversation.messages?.length || 0;
+      // Count only non-system messages
+      const nonSystemMessages = conversation.messages?.filter((message: any) => message.role !== 'system') || [];
+      totalMessages += nonSystemMessages.length;
+      
       conversation.messages?.forEach((message: any) => {
         message.content?.forEach((content: any) => {
           if (content.kind === 'ui') totalUiEvents++;
@@ -520,7 +547,7 @@ export function ThreadsOverview({
                         ID: {conversation.id}
                       </p>
                       <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                        <span>{conversation.messages?.length || 0} messages</span>
+                        <span>{conversation.messages?.filter((msg: any) => msg.role !== 'system').length || 0} messages</span>
                         <span>{conversation.threadIds?.length || 0} threads</span>
                         <span>{formatTimestamp(conversation.createdAt)}</span>
                       </div>
@@ -628,10 +655,10 @@ export function ThreadsOverview({
                 <TableRow>
                   <TableHead className="w-12">
                     <Checkbox
-                      checked={selectedThreads.size === filteredThreads.length && filteredThreads.length > 0}
+                      checked={paginatedThreads.length > 0 && paginatedThreads.every(thread => selectedThreads.has(thread.id))}
                       onCheckedChange={(checked) => {
                         if (checked) {
-                          setSelectedThreads(new Set(filteredThreads.map(t => t.id)));
+                          setSelectedThreads(new Set(paginatedThreads.map(t => t.id)));
                         } else {
                           setSelectedThreads(new Set());
                         }
@@ -647,7 +674,7 @@ export function ThreadsOverview({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredThreads.map((thread) => {
+                {paginatedThreads.map((thread) => {
                   const parsed = parseThreadId(thread.id);
                   const uiCount = thread.messages.reduce(
                     (acc, msg) => acc + msg.content.filter(c => c.kind === 'ui').length, 
@@ -695,7 +722,7 @@ export function ThreadsOverview({
                         {formatTimestamp(thread.createdAt)}
                       </TableCell>
                       <TableCell onClick={() => onThreadSelect?.(thread)}>
-                        {thread.messages.length}
+                        {thread.messages.filter(msg => msg.role !== 'system').length}
                       </TableCell>
                       <TableCell onClick={() => onThreadSelect?.(thread)}>
                         {uiCount > 0 ? (
@@ -717,6 +744,60 @@ export function ThreadsOverview({
               </TableBody>
               </Table>
             </div>
+            
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-6 py-4 border-t">
+                <div className="text-sm text-muted-foreground">
+                  Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredThreads.length)} of {filteredThreads.length} threads
+                </div>
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationLink
+                        onClick={() => setCurrentPage(1)}
+                        className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      >
+                        First
+                      </PaginationLink>
+                    </PaginationItem>
+                    
+                    {/* Show page numbers */}
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNum;
+                      if (totalPages <= 5) {
+                        pageNum = i + 1;
+                      } else if (currentPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + i;
+                      } else {
+                        pageNum = currentPage - 2 + i;
+                      }
+                      
+                      return (
+                        <PaginationItem key={pageNum}>
+                          <PaginationLink
+                            onClick={() => setCurrentPage(pageNum)}
+                            isActive={currentPage === pageNum}
+                            className="cursor-pointer"
+                          >
+                            {pageNum}
+                          </PaginationLink>
+                        </PaginationItem>
+                      );
+                    })}
+                    
+                    <PaginationItem>
+                      <PaginationNext 
+                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                        className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

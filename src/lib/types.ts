@@ -19,7 +19,7 @@ export interface MessageContent {
 
 export interface Message {
   id: string;
-  role: 'assistant' | 'user';
+  role: 'assistant' | 'user' | 'system';
   content: MessageContent[];
   sentAt: string;
 }

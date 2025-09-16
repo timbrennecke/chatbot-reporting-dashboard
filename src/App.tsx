@@ -41,7 +41,12 @@ export default function App() {
           ...(prevData.conversations || []),
           ...(data.conversations || [])
         ],
-        threadsResponse: data.threadsResponse || prevData.threadsResponse,
+        threadsResponse: data.threadsResponse ? {
+          threads: [
+            ...(prevData.threadsResponse?.threads || []),
+            ...(data.threadsResponse.threads || [])
+          ]
+        } : prevData.threadsResponse,
         attributesResponses: [
           ...(prevData.attributesResponses || []),
           ...(data.attributesResponses || [])

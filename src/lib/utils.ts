@@ -53,11 +53,14 @@ export function calculateThreadAnalytics(threads: Thread[]): ThreadAnalytics {
     namespaceBreakdown[parsed.namespace] = (namespaceBreakdown[parsed.namespace] || 0) + 1;
 
     thread.messages.forEach(message => {
-      totalMessages++;
-      if (message.role === 'assistant') {
-        assistantMessages++;
-      } else if (message.role === 'user') {
-        userMessages++;
+      // Skip system messages for metrics calculation
+      if (message.role !== 'system') {
+        totalMessages++;
+        if (message.role === 'assistant') {
+          assistantMessages++;
+        } else if (message.role === 'user') {
+          userMessages++;
+        }
       }
 
       message.content.forEach(content => {
