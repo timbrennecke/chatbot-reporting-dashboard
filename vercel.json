@@ -4,6 +4,32 @@
   "outputDirectory": "dist",
   "installCommand": "npm install",
   "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/api/conversation/(.*)",
+      "destination": "https://api.bot.check24.de/conversation/$1"
+    },
+    {
+      "source": "/api/thread",
+      "destination": "https://api.bot.check24.de/thread"
+    },
+    {
+      "source": "/api/attributes",
+      "destination": "https://api.bot.check24.de/attributes"
+    },
+    {
+      "source": "/api/attributes/bulk",
+      "destination": "https://api.bot.check24.de/attributes/bulk"
+    },
+    {
+      "source": "/api-test/conversation/(.*)",
+      "destination": "https://api.bot.check24-test.de/conversation/$1",
+      "headers": {
+        "X-Forwarded-Host": "$host",
+        "X-Forwarded-Proto": "$scheme"
+      }
+    }
+  ],
   "routes": [
     {
       "src": "/[^.]+",
