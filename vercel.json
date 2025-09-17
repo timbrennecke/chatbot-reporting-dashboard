@@ -36,10 +36,16 @@
   "headers": [
     {
       "source": "/api-test/conversation/(.*)",
-      "headers": {
-        "X-Forwarded-Host": "$host",
-        "X-Forwarded-Proto": "$scheme"
-      }
+      "headers": [
+        {
+          "key": "X-Forwarded-Host",
+          "value": "$host"
+        },
+        {
+          "key": "X-Forwarded-Proto",
+          "value": "$scheme"
+        }
+      ]
     }
   ]
 }
