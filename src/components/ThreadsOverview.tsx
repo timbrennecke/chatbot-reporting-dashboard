@@ -199,16 +199,57 @@ export function ThreadsOverview({
 
   // Calculate conversation analytics
   const conversationAnalytics = useMemo(() => {
-    if (!uploadedConversations.length) return null;
+    console.log('\n🔍 DATA CHECK:');
+    console.log('Uploaded conversations:', uploadedConversations.length);
+    console.log('Filtered threads:', filteredThreads.length);
+    
+    if (!uploadedConversations.length) {
+      console.log('❌ No conversation data - conversation analytics will be null');
+      return null;
+    }
+    
+    console.log('✅ Using conversation data for analytics');
 
     let totalMessages = 0;
     let totalUiEvents = 0;
     let totalLinkouts = 0;
     let totalConversations = uploadedConversations.length;
+    let totalExcludedMessages = 0;
     
-    uploadedConversations.forEach(conversation => {
-      // Count only non-system messages
-      const nonSystemMessages = conversation.messages?.filter((message: any) => message.role !== 'system') || [];
+    uploadedConversations.forEach((conversation, convIndex) => {
+      console.log(`\n=== CONVERSATION ${convIndex} ===`);
+      console.log('Conversation ID:', conversation.id);
+      console.log('Total messages in conversation:', conversation.messages?.length || 0);
+      
+      const allNonSystemMessages = conversation.messages?.filter((message: any) => message.role !== 'system') || [];
+      console.log('Non-system messages:', allNonSystemMessages.length);
+      
+      // Count only non-system messages that don't contain UI components
+      const nonSystemMessages = conversation.messages?.filter((message: any) => {
+        if (message.role === 'system') return false;
+        
+        // Debug each message
+        console.log(`Message ${message.id} (${message.role}):`);
+        console.log('  Content array length:', message.content?.length || 0);
+        message.content?.forEach((content: any, i: number) => {
+          console.log(`  Content[${i}]: kind="${content.kind}"`);
+        });
+        
+        // Exclude messages that contain UI components
+        const hasUiComponent = message.content?.some((content: any) => content.kind === 'ui');
+        console.log(`  Has UI component: ${hasUiComponent}`);
+        
+        if (hasUiComponent) {
+          totalExcludedMessages++;
+          console.log('  -> EXCLUDED from count');
+        } else {
+          console.log('  -> INCLUDED in count');
+        }
+        
+        return !hasUiComponent;
+      }) || [];
+      
+      console.log(`Messages after filtering: ${nonSystemMessages.length}`);
       totalMessages += nonSystemMessages.length;
       
       conversation.messages?.forEach((message: any) => {
@@ -221,12 +262,15 @@ export function ThreadsOverview({
 
     const avgMessagesPerConversation = totalConversations > 0 ? totalMessages / totalConversations : 0;
 
+    console.log(`Conversation Analytics: ${totalMessages} messages (${totalExcludedMessages} excluded due to UI), ${totalUiEvents} UI events`);
+    
     return {
       totalConversations,
       totalMessages,
       totalUiEvents,
       totalLinkouts,
-      avgMessagesPerConversation
+      avgMessagesPerConversation,
+      totalExcludedMessages
     };
   }, [uploadedConversations]);
 
@@ -330,7 +374,12 @@ export function ThreadsOverview({
 
       {/* Conversation KPIs (when uploaded) */}
       {conversationAnalytics && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+        <>
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+            <h3 className="text-lg font-semibold text-blue-700">📊 CONVERSATION ANALYTICS</h3>
+            <p className="text-sm text-blue-600">Showing data from uploaded conversation files</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
@@ -378,61 +427,10 @@ export function ThreadsOverview({
               </div>
             </CardContent>
           </Card>
-        </div>
+          </div>
+        </>
       )}
 
-      {/* Thread KPIs (when threads are available) */}
-      {threads.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-muted-foreground">Total Threads</p>
-                  <p className="text-lg font-bold">{analytics.totalThreads.toLocaleString()}</p>
-                </div>
-                <Activity className="h-6 w-6 text-blue-600" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-muted-foreground">Thread Conversations</p>
-                  <p className="text-lg font-bold">{analytics.totalConversations.toLocaleString()}</p>
-                </div>
-                <Users className="h-6 w-6 text-green-600" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-muted-foreground">Thread Messages</p>
-                  <p className="text-lg font-bold">{analytics.totalMessages.toLocaleString()}</p>
-                </div>
-                <MessageSquare className="h-6 w-6 text-yellow-600" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-muted-foreground">Avg Msgs/Thread</p>
-                  <p className="text-lg font-bold">{analytics.avgMessagesPerThread.toFixed(1)}</p>
-                </div>
-                <Clock className="h-6 w-6 text-purple-600" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
 
       {/* Search & Filters */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -547,7 +545,11 @@ export function ThreadsOverview({
                         ID: {conversation.id}
                       </p>
                       <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                        <span>{conversation.messages?.filter((msg: any) => msg.role !== 'system').length || 0} messages</span>
+                        <span>{conversation.messages?.filter((msg: any) => {
+                          if (msg.role === 'system') return false;
+                          const hasUiComponent = msg.content?.some((content: any) => content.kind === 'ui');
+                          return !hasUiComponent;
+                        }).length || 0} messages</span>
                         <span>{conversation.threadIds?.length || 0} threads</span>
                         <span>{formatTimestamp(conversation.createdAt)}</span>
                       </div>
@@ -722,7 +724,11 @@ export function ThreadsOverview({
                         {formatTimestamp(thread.createdAt)}
                       </TableCell>
                       <TableCell onClick={() => onThreadSelect?.(thread)}>
-                        {thread.messages.filter(msg => msg.role !== 'system').length}
+                        {thread.messages.filter(msg => {
+                          if (msg.role === 'system') return false;
+                          const hasUiComponent = msg.content.some(content => content.kind === 'ui');
+                          return !hasUiComponent;
+                        }).length}
                       </TableCell>
                       <TableCell onClick={() => onThreadSelect?.(thread)}>
                         {uiCount > 0 ? (

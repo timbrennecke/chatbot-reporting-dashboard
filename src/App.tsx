@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from './components/ui/card';
 import { Button } from './components/ui/button';
+import { Input } from './components/ui/input';
+import { Label } from './components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { Alert, AlertDescription } from './components/ui/alert';
 import { 
@@ -9,7 +11,10 @@ import {
   Settings, 
   Upload,
   Info,
-  Trash2
+  Trash2,
+  Key,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { Badge } from './components/ui/badge';
 
@@ -31,6 +36,46 @@ export default function App() {
   const [uploadedData, setUploadedData] = useState<UploadedData>({});
   const [selectedConversationId, setSelectedConversationId] = useState<string>();
   const [selectedThread, setSelectedThread] = useState<Thread>();
+  const [apiKey, setApiKey] = useState(() => {
+    // Load API key from localStorage on app start
+    return localStorage.getItem('chatbot-dashboard-api-key') || '';
+  });
+  const [showApiKey, setShowApiKey] = useState(false);
+
+  // Save API key to localStorage
+  const handleApiKeyChange = (newApiKey: string) => {
+    setApiKey(newApiKey);
+    localStorage.setItem('chatbot-dashboard-api-key', newApiKey);
+    console.log('🔑 API key saved to localStorage from dashboard');
+  };
+
+  // Handle Enter key press to save API key
+  const handleApiKeyKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleApiKeyChange(apiKey);
+    }
+  };
+
+  // Load data from localStorage on component mount
+  useEffect(() => {
+    try {
+      const savedData = localStorage.getItem('chatbot-dashboard-data');
+      if (savedData) {
+        const parsedData = JSON.parse(savedData);
+        setUploadedData(parsedData);
+        
+        // Enable global offline mode if we have any data
+        const hasAnyData = (parsedData.conversations?.length || 0) > 0 || 
+                          !!parsedData.threadsResponse || 
+                          (parsedData.attributesResponses?.length || 0) > 0 || 
+                          (parsedData.bulkAttributesResponses?.length || 0) > 0;
+        setGlobalOfflineMode(hasAnyData);
+      }
+    } catch (error) {
+      console.error('Failed to load saved data:', error);
+    }
+  }, []);
   const [showConversationOverlay, setShowConversationOverlay] = useState(false);
 
   const handleDataUploaded = (data: UploadedData) => {
@@ -69,6 +114,13 @@ export default function App() {
                         (merged.bulkAttributesResponses?.length || 0) > 0;
       setGlobalOfflineMode(hasAnyData);
       
+      // Save to localStorage
+      try {
+        localStorage.setItem('chatbot-dashboard-data', JSON.stringify(merged));
+      } catch (error) {
+        console.error('Failed to save data to localStorage:', error);
+      }
+      
       return merged;
     });
     
@@ -90,6 +142,13 @@ export default function App() {
     setSelectedThread(undefined);
     // Disable global offline mode when data is cleared
     setGlobalOfflineMode(false);
+    
+    // Clear from localStorage
+    try {
+      localStorage.removeItem('chatbot-dashboard-data');
+    } catch (error) {
+      console.error('Failed to clear data from localStorage:', error);
+    }
   };
 
 
@@ -154,7 +213,43 @@ export default function App() {
               </div>
             </div>
             
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-4">
+              {/* API Key Input */}
+              <div className="flex items-center gap-2">
+                <Label htmlFor="dashboard-api-key" className="text-sm font-medium">API Key:</Label>
+                <div className="relative">
+                  <Input
+                    id="dashboard-api-key"
+                    type={showApiKey ? "text" : "password"}
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    onBlur={() => handleApiKeyChange(apiKey)}
+                    onKeyDown={handleApiKeyKeyDown}
+                    placeholder="Enter API key"
+                    className="w-48 pr-10 text-sm"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-0 top-0 h-full px-2 hover:bg-transparent"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                  >
+                    {showApiKey ? (
+                      <EyeOff className="h-3 w-3" />
+                    ) : (
+                      <Eye className="h-3 w-3" />
+                    )}
+                  </Button>
+                </div>
+                {apiKey && (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Key className="h-3 w-3" />
+                    <span>Saved</span>
+                  </div>
+                )}
+              </div>
+              
               {(uploadedThreads.length > 0 || uploadedData.conversations?.length || uploadedData.attributesResponses?.length || uploadedData.bulkAttributesResponses?.length) && (
                 <>
                   <Badge variant="secondary" className="flex items-center gap-1 bg-blue-100 text-blue-800">
@@ -230,42 +325,9 @@ export default function App() {
             <JsonUpload 
               onDataUploaded={handleDataUploaded} 
               onDataCleared={handleDataCleared}
+              initialData={uploadedData}
             />
             
-            {/* Usage Instructions */}
-            <Card>
-              <CardContent className="p-6">
-                <h3 className="font-semibold mb-4">Data Source Modes</h3>
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="font-medium text-green-600">Live API Mode</h4>
-                    <p className="text-sm text-muted-foreground">
-                      Use the forms in each tab to fetch data directly from the CHECK24 API endpoints.
-                    </p>
-                  </div>
-                  
-                  <div>
-                    <h4 className="font-medium text-blue-600">Offline JSON Mode</h4>
-                    <p className="text-sm text-muted-foreground">
-                      Upload JSON files or paste JSON content that matches the exact API response schemas. 
-                      The dashboard will validate and process the data identically to live API responses.
-                    </p>
-                  </div>
-
-
-                </div>
-
-                <div className="mt-6 p-4 bg-muted/50 rounded-lg">
-                  <h4 className="font-medium mb-2">Supported JSON File Types:</h4>
-                  <ul className="text-sm space-y-1">
-                    <li>• <strong>Conversation:</strong> GET /conversation/:conversationId response</li>
-                    <li>• <strong>Threads:</strong> POST /thread response</li>
-                    <li>• <strong>Attributes:</strong> POST /attributes response</li>
-                    <li>• <strong>Bulk Attributes:</strong> POST /attributes/bulk response</li>
-                  </ul>
-                </div>
-              </CardContent>
-            </Card>
           </TabsContent>
         </Tabs>
       </main>

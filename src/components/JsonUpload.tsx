@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Alert, AlertDescription } from './ui/alert';
@@ -6,13 +6,14 @@ import { Badge } from './ui/badge';
 import { Textarea } from './ui/textarea';
 import { Label } from './ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { Upload, FileText, CheckCircle, XCircle, Clipboard, RefreshCw, Trash2 } from 'lucide-react';
+import { Upload, FileText, CheckCircle, XCircle, Clipboard, RefreshCw, Trash2, ChevronDown, ChevronRight, Eye } from 'lucide-react';
 import { validateJsonStructure, detectJsonType } from '../lib/utils';
 import { UploadedData } from '../lib/types';
 
 interface JsonUploadProps {
   onDataUploaded: (data: UploadedData) => void;
   onDataCleared?: () => void;
+  initialData?: UploadedData;
 }
 
 interface FileStatus {
@@ -23,12 +24,21 @@ interface FileStatus {
   data?: any;
 }
 
-export function JsonUpload({ onDataUploaded, onDataCleared }: JsonUploadProps) {
+export function JsonUpload({ onDataUploaded, onDataCleared, initialData }: JsonUploadProps) {
   const [dragOver, setDragOver] = useState(false);
   const [fileStatuses, setFileStatuses] = useState<FileStatus[]>([]);
   const [uploading, setUploading] = useState(false);
   const [manualJson, setManualJson] = useState('');
   const [processing, setProcessing] = useState(false);
+  const [showUploadedData, setShowUploadedData] = useState(false);
+  const [uploadedDataPreview, setUploadedDataPreview] = useState<string>('');
+
+  // Initialize preview from saved data
+  useEffect(() => {
+    if (initialData && Object.keys(initialData).length > 0) {
+      setUploadedDataPreview(JSON.stringify(initialData, null, 2));
+    }
+  }, [initialData]);
 
   const processJsonData = useCallback((jsonText: string, sourceName: string): { status: FileStatus; uploadedData: UploadedData } => {
     const uploadedData: UploadedData = {};
@@ -157,6 +167,8 @@ export function JsonUpload({ onDataUploaded, onDataCleared }: JsonUploadProps) {
     const validFiles = statuses.filter(s => s.valid);
     if (validFiles.length > 0) {
       onDataUploaded(combinedUploadedData);
+      // Update the uploaded data preview
+      setUploadedDataPreview(JSON.stringify(combinedUploadedData, null, 2));
     }
   }, [onDataUploaded, processJsonData]);
 
@@ -185,6 +197,8 @@ export function JsonUpload({ onDataUploaded, onDataCleared }: JsonUploadProps) {
     
     if (status.valid) {
       onDataUploaded(uploadedData);
+      // Update the uploaded data preview
+      setUploadedDataPreview(JSON.stringify(uploadedData, null, 2));
       // Clear the textarea after successful processing
       setManualJson('');
     }
@@ -195,6 +209,8 @@ export function JsonUpload({ onDataUploaded, onDataCleared }: JsonUploadProps) {
   const handleClearAll = useCallback(() => {
     setFileStatuses([]);
     setManualJson('');
+    setUploadedDataPreview('');
+    setShowUploadedData(false);
     onDataCleared?.();
   }, [onDataCleared]);
 
@@ -368,6 +384,32 @@ export function JsonUpload({ onDataUploaded, onDataCleared }: JsonUploadProps) {
               Data is now available for analysis in the dashboard.
             </AlertDescription>
           </Alert>
+        )}
+
+        {uploadedDataPreview && (
+          <div className="space-y-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowUploadedData(!showUploadedData)}
+              className="flex items-center gap-2"
+            >
+              {showUploadedData ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              <Eye className="h-4 w-4" />
+              {showUploadedData ? 'Hide' : 'Show'} Uploaded Data
+            </Button>
+            
+            {showUploadedData && (
+              <div className="mt-2">
+                <Label>Uploaded JSON Data:</Label>
+                <div className="mt-1 p-3 bg-muted/50 rounded-lg border max-h-96 overflow-y-auto">
+                  <pre className="text-xs text-muted-foreground whitespace-pre-wrap font-mono">
+                    {uploadedDataPreview}
+                  </pre>
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {(fileStatuses.length > 0 || fileStatuses.some(s => s.valid)) && (
