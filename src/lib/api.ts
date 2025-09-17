@@ -7,7 +7,7 @@ import {
   BulkAttributesResponse 
 } from './types';
 
-const API_BASE_URL = 'https://api.bot.check24.de';
+const API_BASE_URL = '/api';
 
 // Global offline mode flag
 let isGlobalOfflineMode = false;

@@ -148,13 +148,11 @@ export function ConversationDetail({
     setFetchResponse('');
     
     try {
-      const response = await fetch(`https://api.bot.check24-test.de/conversation/${paginationConversationId.trim()}`, {
+      const response = await fetch(`/api-test/conversation/${paginationConversationId.trim()}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${apiKey.trim()}`,
-          'Content-Type': 'application/json',
         },
-        mode: 'cors', // Enable CORS
       });
       const responseText = await response.text();
       console.log('📥 Raw response:', responseText.substring(0, 200) + '...');
