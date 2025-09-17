@@ -23,11 +23,7 @@
     },
     {
       "source": "/api-test/conversation/(.*)",
-      "destination": "https://api.bot.check24-test.de/conversation/$1",
-      "headers": {
-        "X-Forwarded-Host": "$host",
-        "X-Forwarded-Proto": "$scheme"
-      }
+      "destination": "https://api.bot.check24-test.de/conversation/$1"
     }
   ],
   "routes": [
@@ -35,6 +31,15 @@
       "src": "/[^.]+",
       "dest": "/",
       "status": 200
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api-test/conversation/(.*)",
+      "headers": {
+        "X-Forwarded-Host": "$host",
+        "X-Forwarded-Proto": "$scheme"
+      }
     }
   ]
 }
