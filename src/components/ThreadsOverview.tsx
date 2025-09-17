@@ -61,7 +61,31 @@ export function ThreadsOverview({
   onThreadSelect, 
   onConversationSelect 
 }: ThreadsOverviewProps) {
-  const [threads, setThreads] = useState<Thread[]>(uploadedThreads || []);
+  const [threads, setThreads] = useState<Thread[]>(() => {
+    // If we have uploaded threads, use them and clear any saved search results
+    if (uploadedThreads && uploadedThreads.length > 0) {
+      try {
+        localStorage.removeItem('chatbot-dashboard-search-results');
+        localStorage.removeItem('chatbot-dashboard-search-params');
+      } catch (error) {
+        console.error('Failed to clear saved search data:', error);
+      }
+      return uploadedThreads;
+    }
+    
+    // Try to load saved search results
+    try {
+      const savedThreads = localStorage.getItem('chatbot-dashboard-search-results');
+      if (savedThreads) {
+        const parsed = JSON.parse(savedThreads);
+        return parsed;
+      }
+    } catch (error) {
+      console.error('Failed to load saved search results:', error);
+    }
+    
+    return [];
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedThreads, setSelectedThreads] = useState<Set<string>>(new Set());
@@ -81,52 +105,118 @@ export function ThreadsOverview({
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
 
-  // Set default date range to today
+  // Set default date range to the last hour for more reasonable API calls
   useEffect(() => {
-    const today = new Date();
-    const startOfDay = new Date(today);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(today);
-    endOfDay.setHours(23, 59, 59, 999);
+    // Try to load saved search parameters first
+    try {
+      const savedParams = localStorage.getItem('chatbot-dashboard-search-params');
+      if (savedParams) {
+        const parsed = JSON.parse(savedParams);
+        setStartDate(parsed.startDate);
+        setEndDate(parsed.endDate);
+        return;
+      }
+    } catch (error) {
+      console.error('Failed to load saved search parameters:', error);
+    }
     
-    setStartDate(startOfDay.toISOString().slice(0, 16));
-    setEndDate(endOfDay.toISOString().slice(0, 16));
+    // Default to last hour if no saved parameters
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000); // 1 hour ago
+    
+    // Format for datetime-local input (YYYY-MM-DDTHH:mm)
+    setStartDate(oneHourAgo.toISOString().slice(0, 16));
+    setEndDate(now.toISOString().slice(0, 16));
   }, []);
 
   // Update threads when uploaded data changes
   useEffect(() => {
-    if (uploadedThreads) {
+    // Only act if we have actual uploaded threads (not empty array)
+    if (uploadedThreads && uploadedThreads.length > 0) {
       setThreads(uploadedThreads);
       setError(null);
+      
+      // Clear saved search results when using uploaded data
+      try {
+        localStorage.removeItem('chatbot-dashboard-search-results');
+        localStorage.removeItem('chatbot-dashboard-search-params');
+      } catch (error) {
+        console.error('Failed to clear saved search data:', error);
+      }
     }
   }, [uploadedThreads]);
 
   const fetchThreads = async () => {
-    console.log('🔍 ThreadsOverview.fetchThreads called - should only happen when no uploaded data');
-    
     if (!startDate || !endDate) {
       setError('Please select start and end dates');
       return;
     }
 
+    // Get API key from localStorage
+    const apiKey = localStorage.getItem('chatbot-dashboard-api-key');
+    if (!apiKey?.trim()) {
+      setError('API key is required. Please set it in the dashboard header.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
+    setThreads([]); // Clear existing threads
 
     try {
-      const request: ThreadsRequest = {
-        startTimestamp: new Date(startDate).toISOString(),
-        endTimestamp: new Date(endDate).toISOString(),
-      };
+      // Format timestamps for the API
+      const startTimestamp = new Date(startDate).toISOString();
+      const endTimestamp = new Date(endDate).toISOString();
 
-      console.log('🌐 ThreadsOverview making API call to getThreads');
-      const response = await api.getThreads(request);
-      setThreads(response.threads.map(t => t.thread));
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setError(`API Error (${err.endpoint}): ${err.message}${err.requestId ? ` [${err.requestId}]` : ''}`);
-      } else {
-        setError(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      // Make API call via proxy to avoid CORS issues
+      const response = await fetch('/api-test/thread', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey.trim()}`,
+        },
+        body: JSON.stringify({
+          startTimestamp,
+          endTimestamp,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
+
+      const data = await response.json();
+
+      // Extract threads from the response structure
+      const fetchedThreads = data.threads?.map((item: any) => item.thread) || [];
+      setThreads(fetchedThreads);
+      
+      // Save search results and parameters to localStorage for persistence
+      try {
+        localStorage.setItem('chatbot-dashboard-search-results', JSON.stringify(fetchedThreads));
+        localStorage.setItem('chatbot-dashboard-search-params', JSON.stringify({
+          startDate,
+          endDate
+        }));
+      } catch (error) {
+        console.error('Failed to save search data:', error);
+      }
+      
+      if (fetchedThreads.length === 0) {
+        setError('No threads found for the selected time range.');
+      }
+    } catch (err) {
+      let errorMessage = 'Failed to fetch threads';
+      if (err instanceof Error) {
+        if (err.message.includes('Failed to fetch')) {
+          errorMessage = 'Network error: Unable to connect to API. Check your internet connection and CORS settings.';
+        } else {
+          errorMessage = err.message;
+        }
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -355,21 +445,6 @@ export function ThreadsOverview({
             }
           </p>
         </div>
-        {!uploadedThreads && !uploadedConversations.length && (
-          <Button onClick={fetchThreads} disabled={loading}>
-            {loading ? (
-              <>
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                Loading...
-              </>
-            ) : (
-              <>
-                <Download className="h-4 w-4 mr-2" />
-                Fetch Threads
-              </>
-            )}
-          </Button>
-        )}
       </div>
 
       {/* Conversation KPIs (when uploaded) */}
@@ -477,16 +552,19 @@ export function ThreadsOverview({
         </div>
       </div>
 
-      {/* Time Range Filter - only show when no uploaded data */}
-      {!uploadedThreads && !uploadedConversations.length && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Time Range Filter</CardTitle>
-            <CardDescription>
-              Select the date range to analyze threads (required for API calls)
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* API Search Section - always show for direct API calls */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Search className="h-5 w-5" />
+            Search Threads via API
+          </CardTitle>
+          <CardDescription>
+            Search threads directly from the API using date/time filters. This will populate the threads table below.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
               <Label htmlFor="startDate">Start Date & Time</Label>
               <Input
@@ -494,6 +572,7 @@ export function ThreadsOverview({
                 type="datetime-local"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
+                className="mt-1"
               />
             </div>
             <div>
@@ -503,11 +582,49 @@ export function ThreadsOverview({
                 type="datetime-local"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
+                className="mt-1"
               />
             </div>
-          </CardContent>
-        </Card>
-      )}
+            <div className="flex items-end gap-2">
+              <Button 
+                onClick={fetchThreads} 
+                disabled={loading || !startDate || !endDate}
+                className="flex-1"
+              >
+                {loading ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    Searching...
+                  </>
+                ) : (
+                  <>
+                    <Search className="h-4 w-4 mr-2" />
+                    Search Threads
+                  </>
+                )}
+              </Button>
+              {threads.length > 0 && !uploadedThreads?.length && (
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setThreads([]);
+                    setError(null);
+                    try {
+                      localStorage.removeItem('chatbot-dashboard-search-results');
+                      localStorage.removeItem('chatbot-dashboard-search-params');
+                    } catch (error) {
+                      console.error('Failed to clear saved search data:', error);
+                    }
+                  }}
+                  className="flex-shrink-0"
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {error && (
         <Alert variant="destructive">

@@ -52,13 +52,89 @@ function countMessagesExcludingUI(messages: Message[]): number {
   }).length;
 }
 
+function cleanText(text: string): string {
+  // More conservative approach - only fix obvious fragmentation patterns
+  let cleaned = text
+    // Fix single character fragments with spaces (like "K ar ls" -> "Karls")
+    // Only join single characters or very short fragments that are clearly part of a word
+    .replace(/\b(\w{1,2})\s+(\w{1,3})\b/g, (match, part1, part2, offset, string) => {
+      // Check if this looks like a fragmented word by looking at context
+      const before = string.substring(Math.max(0, offset - 10), offset);
+      const after = string.substring(offset + match.length, offset + match.length + 10);
+      
+      // If surrounded by other short fragments, likely part of fragmentation
+      if (before.match(/\w\s+\w\s*$/) || after.match(/^\s*\w\s+\w/)) {
+        return part1 + part2;
+      }
+      
+      // Keep as separate words if it doesn't look like fragmentation
+      return match;
+    })
+    // Fix obvious cases where single letters are separated (like "a n d" -> "and")
+    .replace(/\b(\w)\s+(\w)\s+(\w)\b/g, (match, c1, c2, c3) => {
+      // Only join if all are single characters (likely fragmented short word)
+      if (c1.length === 1 && c2.length === 1 && c3.length === 1) {
+        return c1 + c2 + c3;
+      }
+      return match;
+    })
+    // Clean up excessive spaces (3+ spaces become 1)
+    .replace(/\s{3,}/g, ' ')
+    // Fix spaces around punctuation
+    .replace(/\s+([.,!?;:\-*])/g, '$1')
+    .replace(/([.,!?;:\-*])\s+/g, '$1 ')
+    .trim();
+  
+  return cleaned;
+}
+
+function processMessageText(content: MessageContent[]): string {
+  const textContents = content.filter(c => c.kind === 'text');
+  
+  if (textContents.length === 0) return '';
+  
+  // Enhanced logging to understand the structure
+  console.log('📝 Text content analysis:', {
+    totalTextItems: textContents.length,
+    textItems: textContents.map((item, i) => ({
+      index: i,
+      hasText: !!item.text,
+      hasContent: !!item.content,
+      textLength: item.text?.length || 0,
+      contentLength: item.content?.length || 0,
+      textPreview: (item.text || item.content || '').substring(0, 50),
+      fullItem: item
+    }))
+  });
+  
+  // Try different approaches based on the content structure
+  if (textContents.length === 1) {
+    // Single text item - use it directly
+    const text = textContents[0].text || textContents[0].content || '';
+    console.log('📝 Single text item:', { length: text.length, preview: text.substring(0, 100) });
+    return text;
+  } else {
+    // Multiple text items - they might be fragments that need to be joined properly
+    const combinedText = textContents
+      .map(item => item.text || item.content || '')
+      .filter(text => text.length > 0)
+      .join(''); // Try joining without spaces first
+      
+    console.log('📝 Multiple text items combined:', { 
+      itemCount: textContents.length,
+      combinedLength: combinedText.length, 
+      preview: combinedText.substring(0, 100) 
+    });
+    
+    return combinedText;
+  }
+}
+
 function consolidateMessageContent(content: MessageContent[]) {
   const textContents = content.filter(c => c.kind === 'text');
   const otherContents = content.filter(c => c.kind !== 'text');
   
-  const consolidatedText = textContents.length > 0 
-    ? textContents.map(c => c.text).join(' ')
-    : '';
+  const consolidatedText = processMessageText(content);
     
   return { consolidatedText, otherContents };
 }
@@ -73,7 +149,18 @@ export function ConversationDetail({
   isOfflineMode = false,
   hasAnyUploadedConversations = false
 }: ConversationDetailProps) {
+  console.log('🔍 ConversationDetail rendered with props:', {
+    hasConversation: !!conversation,
+    conversationId,
+    hasUploadedConversation: !!uploadedConversation,
+    hasSelectedThread: !!selectedThread,
+    selectedThreadId: selectedThread?.id,
+    error,
+    isOfflineMode,
+    hasAnyUploadedConversations
+  });
   const [showSystemMessages, setShowSystemMessages] = useState(false);
+  const [showAllMessages, setShowAllMessages] = useState(false);
   const [showPaginationPage, setShowPaginationPage] = useState(false);
   const [paginationConversationId, setPaginationConversationId] = useState(() => {
     const id = conversationId || conversation?.id || selectedThread?.conversationId || '';
@@ -420,31 +507,11 @@ export function ConversationDetail({
               {/* Message Timeline */}
               <Card>
                 <CardHeader>
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <CardTitle>Message Timeline</CardTitle>
-                      <CardDescription>
-                        Chronological view of all messages from fetched conversation data
-                      </CardDescription>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowSystemMessages(!showSystemMessages)}
-                      className="flex items-center gap-2"
-                    >
-                      {showSystemMessages ? (
-                        <>
-                          <EyeOff className="h-4 w-4" />
-                          Hide System
-                        </>
-                      ) : (
-                        <>
-                          <Eye className="h-4 w-4" />
-                          Show System
-                        </>
-                      )}
-                    </Button>
+                  <div>
+                    <CardTitle>Message Timeline</CardTitle>
+                    <CardDescription>
+                      Chronological view of all messages from fetched conversation data
+                    </CardDescription>
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -459,53 +526,56 @@ export function ConversationDetail({
                       return fetchedConversation.messages
                         ?.filter(message => showSystemMessages || message.role !== 'system')
                         ?.map((message, index) => {
-                        console.log(`📝 FETCHED Message ${index}:`, { 
-                          id: message.id, 
-                          role: message.role, 
-                          contentLength: message.content?.length,
-                          contentTypes: message.content?.map(c => c.kind) || []
-                        });
                         const { consolidatedText, otherContents } = consolidateMessageContent(message.content || []);
                         
                         return (
-                        <div key={message.id} className={`border-l-4 pl-4 py-2 ${
+                        <div key={message.id} className={`border-l-4 pl-6 py-4 ${
                           message.role === 'system' ? 'border-l-orange-500 bg-orange-50/30' :
-                          message.role === 'assistant' ? 'border-l-blue-500' : 'border-l-green-500'
-                        }`}>
-                          <div className="flex items-center gap-2 mb-3">
-                            {message.role === 'assistant' ? (
-                              <Bot className="h-5 w-5 text-blue-600" />
-                            ) : message.role === 'system' ? (
-                              <AlertCircle className="h-5 w-5 text-orange-600" />
-                            ) : (
-                              <User className="h-5 w-5 text-green-600" />
-                            )}
-                            <Badge variant={
-                              message.role === 'assistant' ? 'default' : 
-                              message.role === 'system' ? 'destructive' : 'secondary'
-                            }>
-                              {message.role}
-                            </Badge>
-                            <span className="text-sm text-muted-foreground flex items-center gap-1">
+                          message.role === 'assistant' ? 'border-l-blue-500 bg-blue-50/20' : 'border-l-green-500 bg-green-50/20'
+                        } rounded-r-lg`}>
+                          <div className="flex items-center gap-3 mb-4">
+                            <div className="flex items-center gap-2">
+                              {message.role === 'assistant' ? (
+                                <Bot className="h-4 w-4 text-blue-600" />
+                              ) : message.role === 'system' ? (
+                                <AlertCircle className="h-4 w-4 text-orange-600" />
+                              ) : (
+                                <User className="h-4 w-4 text-green-600" />
+                              )}
+                              <span className="font-medium text-sm capitalize">
+                                {message.role}
+                              </span>
+                            </div>
+                            <span className="text-xs text-muted-foreground flex items-center gap-1">
                               <Clock className="h-3 w-3" />
                               {formatTimestamp(message.sentAt)}
                             </span>
-                            <Badge variant="outline" className="text-xs">
-                              {message.content.length} content item(s)
-                            </Badge>
                           </div>
                           
-                          <div className="space-y-2">
-                            {/* Consolidated text content */}
+                          <div className="space-y-3">
+                            {/* Main text content - natural styling */}
                             {consolidatedText && (
-                              <div className="text-sm">
-                                <span>{consolidatedText}</span>
+                              <div className="prose prose-sm max-w-none">
+                                <p className="whitespace-pre-wrap text-foreground leading-relaxed">
+                                  {consolidatedText}
+                                </p>
                               </div>
                             )}
                             
-                            {/* Other content types */}
-                            {otherContents.map((content, contentIndex) => 
-                              renderMessageContent(content, contentIndex)
+                            {/* Other content types (UI components, linkouts, etc.) */}
+                            {otherContents.length > 0 && (
+                              <div className="space-y-2 mt-3">
+                                {otherContents.map((content, contentIndex) => 
+                                  renderMessageContent(content, contentIndex)
+                                )}
+                              </div>
+                            )}
+                            
+                            {/* Show debug info only if no content at all */}
+                            {!consolidatedText && otherContents.length === 0 && (message.content || []).length > 0 && (
+                              <div className="text-xs text-muted-foreground bg-yellow-50 p-2 rounded border border-yellow-200">
+                                <strong>Debug:</strong> No displayable content found. Content items: {(message.content || []).map((c, i) => `${i}: ${c.kind}`).join(', ')}
+                              </div>
                             )}
                           </div>
                         </div>
@@ -570,7 +640,17 @@ export function ConversationDetail({
       )}
 
       {/* Pagination Page - Tool calls/Events */}
-      {showPaginationPage && (
+      {showPaginationPage && ((() => {
+        console.log('🔍 DEBUGGING: Rendering second page with data:', {
+          showPaginationPage,
+          hasUploadedConversation: !!uploadedConversation,
+          hasSelectedThread: !!selectedThread,
+          uploadedConversationId: uploadedConversation?.id,
+          selectedThreadId: selectedThread?.id,
+          selectedThreadConversationId: selectedThread?.conversationId
+        });
+        return true;
+      })() &&
         <div className="fixed inset-0 bg-background z-50 overflow-y-auto">
           <div className="container mx-auto px-4 py-6">
             {/* Header */}
@@ -591,19 +671,36 @@ export function ConversationDetail({
             </div>
             
             <div className="space-y-6">
-              {/* Page 2 uses ONLY uploaded conversation data (uploadedConversation prop) */}
-              {uploadedConversation && (
+              {(() => {
+                console.log('🔍 DEBUGGING: About to render content with:', {
+                  hasUploadedConversation: !!uploadedConversation,
+                  hasSelectedThread: !!selectedThread,
+                  uploadedConversationMessagesLength: uploadedConversation?.messages?.length,
+                  selectedThreadMessagesLength: selectedThread?.messages?.length
+                });
+                return null; // This just runs the console.log
+              })()}
+              
+              {/* Page 2 uses uploaded conversation data OR thread data */}
+              {(uploadedConversation || selectedThread) ? (
                 <>
-                  {/* Conversation Header */}
+                  {/* Conversation/Thread Header */}
                   <Card>
                     <CardHeader>
                       <div className="flex justify-between items-start">
                         <div>
-                          <CardTitle>{uploadedConversation.title}</CardTitle>
-                          <CardDescription>ID: {uploadedConversation.id}</CardDescription>
+                          <CardTitle>
+                            {uploadedConversation?.title || `Thread ${selectedThread?.id}`}
+                          </CardTitle>
+                          <CardDescription>
+                            ID: {uploadedConversation?.id || selectedThread?.conversationId}
+                          </CardDescription>
                         </div>
                         <Badge variant="outline">
-                          {countMessagesExcludingUI(uploadedConversation.messages)} messages
+                          {uploadedConversation 
+                            ? countMessagesExcludingUI(uploadedConversation.messages)
+                            : countMessagesExcludingUI(selectedThread?.messages || [])
+                          } messages
                         </Badge>
                       </div>
                     </CardHeader>
@@ -611,15 +708,21 @@ export function ConversationDetail({
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
                           <Label>Created</Label>
-                          <p className="text-sm">{formatTimestamp(uploadedConversation.createdAt)}</p>
+                          <p className="text-sm">
+                            {formatTimestamp(uploadedConversation?.createdAt || selectedThread?.createdAt || '')}
+                          </p>
                         </div>
                         <div>
-                          <Label>Last Message</Label>
-                          <p className="text-sm">{formatTimestamp(uploadedConversation.lastMessageAt)}</p>
+                          <Label>Data Source</Label>
+                          <p className="text-sm">
+                            {uploadedConversation ? 'Uploaded Conversation' : 'API Thread Data'}
+                          </p>
                         </div>
                         <div>
-                          <Label>Thread Count</Label>
-                          <p className="text-sm">{uploadedConversation.threadIds?.length || 0} threads</p>
+                          <Label>Thread ID</Label>
+                          <p className="text-sm font-mono text-xs">
+                            {selectedThread?.id || 'N/A'}
+                          </p>
                         </div>
                       </div>
                     </CardContent>
@@ -628,115 +731,197 @@ export function ConversationDetail({
                   {/* Tool calls/Events */}
                   <Card>
                     <CardHeader>
-                      <div>
-                        <CardTitle>Tool calls/Events</CardTitle>
-                        <CardDescription>
-                          System messages and UI components from uploaded conversation data
-                        </CardDescription>
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <CardTitle>Tool calls/Events</CardTitle>
+                          <CardDescription>
+                            {showAllMessages 
+                              ? `All messages from ${uploadedConversation ? 'uploaded conversation data' : 'API thread data'}`
+                              : `System messages and UI components from ${uploadedConversation ? 'uploaded conversation data' : 'API thread data'}`
+                            }
+                          </CardDescription>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowAllMessages(!showAllMessages)}
+                          className="flex items-center gap-2"
+                        >
+                          {showAllMessages ? (
+                            <>
+                              <EyeOff className="h-4 w-4" />
+                              Show Filtered
+                            </>
+                          ) : (
+                            <>
+                              <Eye className="h-4 w-4" />
+                              Show All
+                            </>
+                          )}
+                        </Button>
                       </div>
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-4">
                         {(() => {
-                          console.log('🔧 PAGE 2 - Tool calls/Events - Using UPLOADED data:', {
-                            totalMessages: uploadedConversation.messages?.length || 0,
-                            systemMessages: uploadedConversation.messages?.filter(m => m.role === 'system').length || 0,
-                            uiMessages: uploadedConversation.messages?.filter(m => m.content?.some(c => c.kind === 'ui')).length || 0,
-                            firstSystemMessage: uploadedConversation.messages?.find(m => m.role === 'system'),
-                            conversationTitle: uploadedConversation.title,
-                            conversationId: uploadedConversation.id
-                          });
-                          
-                          return uploadedConversation.messages
-                            ?.filter(message => {
-                              // Show system messages or messages with UI components
-                              const isSystem = message.role === 'system';
-                              const hasUI = message.content?.some(content => content.kind === 'ui');
-                              console.log(`🔍 Message filter (uploaded data):`, { 
-                                id: message.id, 
-                                role: message.role, 
-                                isSystem, 
-                                hasUI, 
-                                include: isSystem || hasUI 
-                              });
-                              return isSystem || hasUI;
-                            })
-                            ?.map((message, index) => {
-                            const { consolidatedText, otherContents } = consolidateMessageContent(message.content || []);
-                            const isSystemMessage = message.role === 'system';
+                          try {
+                            // Use either uploaded conversation or thread data
+                            const messages = uploadedConversation?.messages || selectedThread?.messages || [];
+                            const dataSource = uploadedConversation ? 'UPLOADED' : 'THREAD';
+                            
+                            console.log(`🔧 PAGE 2 - Tool calls/Events - Using ${dataSource} data:`, {
+                              totalMessages: messages.length,
+                              systemMessages: messages.filter(m => m.role === 'system').length,
+                              uiMessages: messages.filter(m => m.content?.some(c => c.kind === 'ui')).length,
+                              firstSystemMessage: messages.find(m => m.role === 'system'),
+                              dataSource,
+                              threadId: selectedThread?.id,
+                              conversationId: uploadedConversation?.id || selectedThread?.conversationId
+                            });
+                            
+                            return messages
+                              ?.filter(message => {
+                                // If showing all messages, don't filter
+                                if (showAllMessages) {
+                                  return true;
+                                }
+                                
+                                // Default: Show system messages or messages with UI components
+                                const isSystem = message.role === 'system';
+                                const hasUI = message.content?.some(content => content.kind === 'ui');
+                                return isSystem || hasUI;
+                              })
+                              ?.map((message, index) => {
+                                const { consolidatedText, otherContents } = consolidateMessageContent(message.content || []);
+                                const isSystemMessage = message.role === 'system';
 
-                            return (
-                              <div key={message.id} className={`border-l-4 pl-4 py-2 ${
-                                isSystemMessage ? 'border-l-orange-500 bg-orange-50/30' : 'border-l-purple-500 bg-purple-50/30'
-                              }`}>
-                                <div className="flex items-center gap-2 mb-3">
-                                  {isSystemMessage ? (
-                                    <AlertCircle className="h-5 w-5 text-orange-600" />
-                                  ) : (
-                                    <Zap className="h-5 w-5 text-purple-600" />
-                                  )}
-                                  <Badge variant={isSystemMessage ? 'destructive' : 'secondary'}>
-                                    {isSystemMessage ? 'System' : 'UI Event'}
-                                  </Badge>
-                                  <span className="text-sm text-muted-foreground flex items-center gap-1">
-                                    <Clock className="h-3 w-3" />
-                                    {formatTimestamp(message.sentAt)}
-                                  </span>
-                                  <Badge variant="outline" className="text-xs">
-                                    {message.content?.length || 0} content item(s)
-                                  </Badge>
-                                </div>
+                                // Determine message styling based on role
+                                const getBorderColor = () => {
+                                  if (message.role === 'system') return 'border-l-orange-500 bg-orange-50/30';
+                                  if (message.role === 'assistant') return 'border-l-blue-500 bg-blue-50/30';
+                                  if (message.role === 'user') return 'border-l-green-500 bg-green-50/30';
+                                  return 'border-l-gray-500 bg-gray-50/30';
+                                };
 
-                                <div className="space-y-3 ml-7">
-                                  {/* Show system message text */}
-                                  {isSystemMessage && consolidatedText && (
-                                    <div className="p-3 bg-muted/50 rounded-lg">
-                                      <div className="flex items-center gap-2 mb-2">
-                                        <MessageSquare className="h-4 w-4" />
-                                        <Badge variant="secondary">System Message</Badge>
-                                      </div>
-                                      <p className="whitespace-pre-wrap">{consolidatedText}</p>
+                                const getIcon = () => {
+                                  if (message.role === 'system') return <AlertCircle className="h-5 w-5 text-orange-600" />;
+                                  if (message.role === 'assistant') return <Bot className="h-5 w-5 text-blue-600" />;
+                                  if (message.role === 'user') return <User className="h-5 w-5 text-green-600" />;
+                                  return <MessageSquare className="h-5 w-5 text-gray-600" />;
+                                };
+
+                                const getBadgeVariant = () => {
+                                  if (message.role === 'system') return 'destructive';
+                                  if (message.role === 'assistant') return 'default';
+                                  if (message.role === 'user') return 'secondary';
+                                  return 'outline';
+                                };
+
+                                const getLabel = () => {
+                                  if (message.role === 'system') return 'System';
+                                  if (message.role === 'assistant') return 'Assistant';
+                                  if (message.role === 'user') return 'User';
+                                  return message.role || 'Unknown';
+                                };
+
+                                return (
+                                  <div key={message.id} className={`border-l-4 pl-4 py-2 ${getBorderColor()}`}>
+                                    <div className="flex items-center gap-2 mb-3">
+                                      {getIcon()}
+                                      <Badge variant={getBadgeVariant()}>
+                                        {getLabel()}
+                                      </Badge>
+                                      <span className="text-sm text-muted-foreground flex items-center gap-1">
+                                        <Clock className="h-3 w-3" />
+                                        {formatTimestamp(message.sentAt)}
+                                      </span>
+                                      <Badge variant="outline" className="text-xs">
+                                        {message.content?.length || 0} content item(s)
+                                      </Badge>
                                     </div>
-                                  )}
 
-                                  {/* Show UI components and other special content */}
-                                  {otherContents.map((content, contentIndex) =>
-                                    renderMessageContent(content, contentIndex)
-                                  )}
-                                </div>
+                                    <div className="space-y-3 ml-7">
+                                      {/* Show text content for all message types */}
+                                      {consolidatedText && (
+                                        <div className={`p-3 rounded-lg ${
+                                          message.role === 'system' ? 'bg-orange-50/50' :
+                                          message.role === 'assistant' ? 'bg-blue-50/50' :
+                                          message.role === 'user' ? 'bg-green-50/50' :
+                                          'bg-gray-50/50'
+                                        }`}>
+                                          <div className="flex items-center gap-2 mb-2">
+                                            <MessageSquare className="h-4 w-4" />
+                                            <Badge variant="secondary">
+                                              {message.role === 'system' ? 'System Message' :
+                                               message.role === 'assistant' ? 'Assistant Response' :
+                                               message.role === 'user' ? 'User Message' :
+                                               'Message'}
+                                            </Badge>
+                                          </div>
+                                          <p className="whitespace-pre-wrap">{consolidatedText}</p>
+                                        </div>
+                                      )}
+
+                                      {/* Show UI components and other special content */}
+                                      {otherContents.map((content, contentIndex) =>
+                                        renderMessageContent(content, contentIndex)
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              }) || [];
+                          } catch (error) {
+                            console.error('🚨 ERROR rendering messages:', error);
+                            return (
+                              <div className="text-center py-8 text-red-500">
+                                <AlertCircle className="h-12 w-12 mx-auto mb-4" />
+                                <p>Error rendering messages. Check console for details.</p>
                               </div>
                             );
-                          }) || [];
+                          }
                         })()}
                         
-                        {/* Show message if no system messages or UI events found */}
-                        {uploadedConversation.messages?.filter(message => 
-                          message.role === 'system' || message.content?.some(content => content.kind === 'ui')
-                        ).length === 0 && (
-                          <div className="text-center py-8 text-muted-foreground">
-                            <AlertCircle className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
-                            <p>No system messages or UI events found in uploaded conversation data.</p>
-                          </div>
-                        )}
+                        {/* Show message if no messages found based on current filter */}
+                        {(() => {
+                          const messages = uploadedConversation?.messages || selectedThread?.messages || [];
+                          
+                          let filteredMessages;
+                          if (showAllMessages) {
+                            filteredMessages = messages;
+                          } else {
+                            filteredMessages = messages.filter(message => 
+                              message.role === 'system' || message.content?.some(content => content.kind === 'ui')
+                            );
+                          }
+                          
+                          return filteredMessages.length === 0 && (
+                            <div className="text-center py-8 text-muted-foreground">
+                              <AlertCircle className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
+                              <p>
+                                {showAllMessages 
+                                  ? `No messages found in ${uploadedConversation ? 'uploaded conversation data' : 'thread data'}.`
+                                  : `No system messages or UI events found in ${uploadedConversation ? 'uploaded conversation data' : 'thread data'}. Click "Show All" to see all messages.`
+                                }
+                              </p>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </CardContent>
                   </Card>
                 </>
-              )}
-
-              {/* Show message when no uploaded conversation data is available */}
-              {!uploadedConversation && (
+              ) : (
                 <div className="text-center py-16">
                   <AlertCircle className="h-16 w-16 mx-auto mb-4 text-muted-foreground/50" />
-                  <h3 className="text-lg font-semibold mb-2">No Uploaded Conversation Data</h3>
+                  <h3 className="text-lg font-semibold mb-2">No Conversation or Thread Data</h3>
                   <p className="text-muted-foreground mb-4">
-                    Upload conversation data in the main dashboard to view tool calls and events here.
+                    Upload conversation data or select a thread from the API search results to view tool calls and events here.
                   </p>
                   <Button 
                     variant="outline" 
                     onClick={() => setShowPaginationPage(false)}
                   >
-                    ← Back to Fetch
+                    ← Back to Dashboard
                   </Button>
                 </div>
               )}
