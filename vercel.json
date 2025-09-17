@@ -24,13 +24,10 @@
     {
       "source": "/api-test/conversation/(.*)",
       "destination": "https://api.bot.check24-test.de/conversation/$1"
-    }
-  ],
-  "routes": [
+    },
     {
-      "src": "/[^.]+",
-      "dest": "/",
-      "status": 200
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
     }
   ],
   "headers": [
