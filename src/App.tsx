@@ -28,7 +28,7 @@ import {
 } from './lib/mockData';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('threads');
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [uploadedData, setUploadedData] = useState<UploadedData>({});
   const [selectedConversationId, setSelectedConversationId] = useState<string>();
   const [selectedThread, setSelectedThread] = useState<Thread>();
@@ -184,13 +184,13 @@ export default function App() {
     
     // Auto-switch to appropriate tab based on data type
     if (data.threadsResponse?.threads?.length) {
-      setActiveTab('threads');
+      setActiveTab('dashboard');
     } else if (data.conversations?.length) {
-      // Stay on threads (dashboard) tab to show conversation overview
-      setActiveTab('threads');
+      // Stay on dashboard tab to show conversation overview
+      setActiveTab('dashboard');
       setSelectedConversationId(data.conversations[0].id);
     } else if (data.attributesResponses?.length || data.bulkAttributesResponses?.length) {
-      setActiveTab('attributes');
+      setActiveTab('dashboard');
     }
   };
 
@@ -326,52 +326,30 @@ export default function App() {
         </div>
       </header>
 
-      {/* Navigation Bar with Conversation Search */}
-      <nav className="border-b bg-slate-50/50">
-        <div className="container mx-auto px-4 py-3">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-              <Search className="h-4 w-4" />
-              Conversation Search:
-            </div>
-            
-            <div className="flex items-center gap-2 flex-1 max-w-md">
-              <Input
-                type="text"
-                value={conversationSearchId}
-                onChange={(e) => setConversationSearchId(e.target.value)}
-                onKeyDown={handleSearchKeyDown}
-                placeholder="Enter conversation ID to fetch..."
-                className="flex-1"
-                disabled={searchLoading}
-              />
-              <Button
-                onClick={handleConversationSearch}
-                disabled={searchLoading || !conversationSearchId.trim() || !apiKey.trim()}
-                size="sm"
-                className="flex items-center gap-2"
-              >
-                {searchLoading ? (
-                  <>
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                    Searching...
-                  </>
-                ) : (
-                  <>
-                    <Search className="h-4 w-4" />
-                    Search
-                  </>
-                )}
-              </Button>
-            </div>
-            
-            {searchError && (
-              <Alert className="max-w-md">
-                <AlertDescription className="text-sm">
-                  {searchError}
-                </AlertDescription>
-              </Alert>
-            )}
+      {/* Navigation Tabs */}
+      <nav className="border-b bg-white">
+        <div className="container mx-auto px-4">
+          <div className="flex space-x-8">
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'dashboard'
+                  ? 'border-black text-black'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Dashboard
+            </button>
+            <button
+              onClick={() => setActiveTab('conversation-search')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'conversation-search'
+                  ? 'border-black text-black'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Conversation Search
+            </button>
           </div>
         </div>
       </nav>
@@ -379,12 +357,75 @@ export default function App() {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
         <div className="space-y-6">
-          <ThreadsOverview
-            uploadedThreads={uploadedThreads}
-            uploadedConversations={uploadedData.conversations || []}
-            onThreadSelect={handleThreadSelect}
-            onConversationSelect={handleConversationSelect}
-          />
+          {activeTab === 'dashboard' && (
+            <ThreadsOverview
+              uploadedThreads={uploadedThreads}
+              uploadedConversations={uploadedData.conversations || []}
+              onThreadSelect={handleThreadSelect}
+              onConversationSelect={handleConversationSelect}
+            />
+          )}
+          
+          {activeTab === 'conversation-search' && (
+            <div className="max-w-2xl mx-auto">
+              <Card className="border-slate-200 shadow-sm">
+                <CardContent className="p-8">
+                  <div className="text-center space-y-6">
+                    <div>
+                      <h2 className="text-2xl font-bold text-slate-800 mb-2">Conversation Search</h2>
+                      <p className="text-slate-600">Enter a conversation ID to fetch and view the conversation details</p>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <Label htmlFor="conversation-search" className="text-base font-medium">Conversation ID</Label>
+                        <Input
+                          id="conversation-search"
+                          type="text"
+                          value={conversationSearchId}
+                          onChange={(e) => setConversationSearchId(e.target.value)}
+                          onKeyDown={handleSearchKeyDown}
+                          placeholder="Paste your conversation ID here..."
+                          className="mt-2 text-center text-lg py-3"
+                          disabled={searchLoading}
+                        />
+                      </div>
+                      
+                      <Button
+                        onClick={handleConversationSearch}
+                        disabled={searchLoading || !conversationSearchId.trim() || !apiKey.trim()}
+                        size="lg"
+                        className="w-full bg-black hover:bg-black/90 text-white py-3 text-base font-medium"
+                      >
+                        {searchLoading ? (
+                          <>
+                            <RefreshCw className="mr-2 h-5 w-5 animate-spin" />
+                            Fetching...
+                          </>
+                        ) : (
+                          'Fetch Conversation'
+                        )}
+                      </Button>
+                      
+                      {!apiKey.trim() && (
+                        <p className="text-sm text-amber-600">
+                          Please set your API key in the header first
+                        </p>
+                      )}
+                      
+                      {searchError && (
+                        <Alert variant="destructive" className="text-left">
+                          <AlertDescription>
+                            {searchError}
+                          </AlertDescription>
+                        </Alert>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </div>
       </main>
 
