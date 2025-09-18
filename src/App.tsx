@@ -10,7 +10,9 @@ import {
   Trash2,
   Key,
   Eye,
-  EyeOff
+  EyeOff,
+  Search,
+  RefreshCw
 } from 'lucide-react';
 import { Badge } from './components/ui/badge';
 
@@ -35,6 +37,11 @@ export default function App() {
     return localStorage.getItem('chatbot-dashboard-api-key') || '';
   });
   const [showApiKey, setShowApiKey] = useState(false);
+  
+  // Conversation search state
+  const [conversationSearchId, setConversationSearchId] = useState('');
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   // Save API key to localStorage
   const handleApiKeyChange = (newApiKey: string) => {
@@ -48,6 +55,63 @@ export default function App() {
     if (e.key === 'Enter') {
       e.preventDefault();
       handleApiKeyChange(apiKey);
+    }
+  };
+
+  // Handle conversation search
+  const handleConversationSearch = async () => {
+    if (!conversationSearchId.trim()) return;
+    
+    if (!apiKey.trim()) {
+      setSearchError('Please enter an API key first');
+      return;
+    }
+    
+    setSearchLoading(true);
+    setSearchError(null);
+    
+    try {
+      const response = await fetch(`/api-test/conversation/${conversationSearchId.trim()}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${apiKey.trim()}`,
+        },
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+      
+      const conversation = await response.json();
+      
+      // Set the fetched conversation and show it
+      setSelectedConversationId(conversation.id);
+      setShowConversationOverlay(true);
+      
+      // Clear search input
+      setConversationSearchId('');
+      
+    } catch (error: any) {
+      console.error('❌ Search error:', error);
+      
+      // Provide more helpful error messages
+      let errorMessage = error.message || 'Failed to fetch conversation';
+      if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+        errorMessage = 'Network error: Unable to connect to API. Check your internet connection and CORS settings.';
+      }
+      
+      setSearchError(errorMessage);
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  // Handle Enter key press for conversation search
+  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleConversationSearch();
     }
   };
 
@@ -261,6 +325,56 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {/* Navigation Bar with Conversation Search */}
+      <nav className="border-b bg-slate-50/50">
+        <div className="container mx-auto px-4 py-3">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+              <Search className="h-4 w-4" />
+              Conversation Search:
+            </div>
+            
+            <div className="flex items-center gap-2 flex-1 max-w-md">
+              <Input
+                type="text"
+                value={conversationSearchId}
+                onChange={(e) => setConversationSearchId(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                placeholder="Enter conversation ID to fetch..."
+                className="flex-1"
+                disabled={searchLoading}
+              />
+              <Button
+                onClick={handleConversationSearch}
+                disabled={searchLoading || !conversationSearchId.trim() || !apiKey.trim()}
+                size="sm"
+                className="flex items-center gap-2"
+              >
+                {searchLoading ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    Searching...
+                  </>
+                ) : (
+                  <>
+                    <Search className="h-4 w-4" />
+                    Search
+                  </>
+                )}
+              </Button>
+            </div>
+            
+            {searchError && (
+              <Alert className="max-w-md">
+                <AlertDescription className="text-sm">
+                  {searchError}
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+        </div>
+      </nav>
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
