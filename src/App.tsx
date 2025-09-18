@@ -222,32 +222,46 @@ export default function App() {
 
   // Navigation handlers
   const handlePreviousConversation = () => {
-    console.log('🔄 Previous conversation clicked', { currentConversationIndex, allConversations: allConversations.length });
+    console.log('🔄 Previous conversation clicked', { 
+      currentConversationIndex, 
+      allConversationsLength: allConversations.length,
+      hasPrevious: currentConversationIndex > 0,
+      allIds: allConversations.map(c => c.id)
+    });
+    
     if (currentConversationIndex > 0 && allConversations.length > 0) {
       const newIndex = currentConversationIndex - 1;
       const conversation = allConversations[newIndex];
       console.log('🔄 Navigating to previous conversation:', conversation.id, 'at index', newIndex);
       setSelectedConversationId(conversation.id);
-      setCurrentConversationIndex(newIndex);
       setShowConversationOverlay(true);
       
       // Clear any previously selected thread
       setSelectedThread(undefined);
+    } else {
+      console.log('❌ Cannot navigate to previous - no previous conversation available');
     }
   };
 
   const handleNextConversation = () => {
-    console.log('🔄 Next conversation clicked', { currentConversationIndex, allConversations: allConversations.length });
+    console.log('🔄 Next conversation clicked', { 
+      currentConversationIndex, 
+      allConversationsLength: allConversations.length,
+      hasNext: currentConversationIndex >= 0 && currentConversationIndex < allConversations.length - 1,
+      allIds: allConversations.map(c => c.id)
+    });
+    
     if (currentConversationIndex >= 0 && currentConversationIndex < allConversations.length - 1) {
       const newIndex = currentConversationIndex + 1;
       const conversation = allConversations[newIndex];
       console.log('🔄 Navigating to next conversation:', conversation.id, 'at index', newIndex);
       setSelectedConversationId(conversation.id);
-      setCurrentConversationIndex(newIndex);
       setShowConversationOverlay(true);
       
       // Clear any previously selected thread
       setSelectedThread(undefined);
+    } else {
+      console.log('❌ Cannot navigate to next - no next conversation available');
     }
   };
 
@@ -255,12 +269,14 @@ export default function App() {
   const hasPreviousConversation = currentConversationIndex > 0;
   const hasNextConversation = currentConversationIndex >= 0 && currentConversationIndex < allConversations.length - 1;
   
+  // Debug navigation state (remove this after fixing)
   console.log('🔍 Navigation state:', { 
     currentConversationIndex, 
     allConversationsCount: allConversations.length,
     hasPreviousConversation, 
     hasNextConversation,
-    selectedConversationId 
+    selectedConversationId,
+    allConversationIds: allConversations.map(c => c.id)
   });
 
   // Load data from localStorage on component mount
