@@ -199,6 +199,26 @@ export default function App() {
     setThreadOrder(order);
   };
 
+  // Handle conversation viewed from ThreadsOverview
+  const handleConversationViewed = (conversationId: string) => {
+    console.log('📋 Conversation marked as viewed:', conversationId);
+    // The ThreadsOverview component already handles the localStorage update
+    // This is just for any additional logic we might need
+  };
+
+  // Mark conversation as viewed (for navigation)
+  const markConversationAsViewed = (conversationId: string) => {
+    try {
+      const existingViewed = localStorage.getItem('chatbot-dashboard-viewed-conversations');
+      const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
+      viewedSet.add(conversationId);
+      localStorage.setItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
+      console.log('📋 Navigation: Marked conversation as viewed:', conversationId);
+    } catch (error) {
+      console.error('Failed to mark conversation as viewed:', error);
+    }
+  };
+
   // Update all conversations list when data changes
   useEffect(() => {
     const conversations: Conversation[] = [];
@@ -274,6 +294,9 @@ export default function App() {
       setSelectedConversationId(conversation.id);
       setShowConversationOverlay(true);
       
+      // Mark conversation as viewed
+      markConversationAsViewed(conversation.id);
+      
       // Clear any previously selected thread
       setSelectedThread(undefined);
     } else {
@@ -295,6 +318,9 @@ export default function App() {
       console.log('🔄 Navigating to next conversation:', conversation.id, 'at index', newIndex);
       setSelectedConversationId(conversation.id);
       setShowConversationOverlay(true);
+      
+      // Mark conversation as viewed
+      markConversationAsViewed(conversation.id);
       
       // Clear any previously selected thread
       setSelectedThread(undefined);
@@ -571,6 +597,7 @@ export default function App() {
               onConversationSelect={handleConversationSelect}
               onFetchedConversationsChange={handleFetchedConversationsChange}
               onThreadOrderChange={handleThreadOrderChange}
+              onConversationViewed={handleConversationViewed}
             />
           )}
           

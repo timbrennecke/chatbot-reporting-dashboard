@@ -55,6 +55,7 @@ interface ThreadsOverviewProps {
   onConversationSelect?: (conversationId: string) => void;
   onFetchedConversationsChange?: (conversations: Map<string, any>) => void;
   onThreadOrderChange?: (threadOrder: string[]) => void;
+  onConversationViewed?: (conversationId: string) => void;
 }
 
 export function ThreadsOverview({ 
@@ -63,7 +64,8 @@ export function ThreadsOverview({
   onThreadSelect, 
   onConversationSelect,
   onFetchedConversationsChange,
-  onThreadOrderChange
+  onThreadOrderChange,
+  onConversationViewed
 }: ThreadsOverviewProps) {
   const [threads, setThreads] = useState<Thread[]>(() => {
     // If we have uploaded threads, use them and clear any saved search results
@@ -622,9 +624,8 @@ export function ThreadsOverview({
     onThreadSelect?.(thread);
   };
 
-  // Handle conversation viewing
-  const handleConversationView = (conversationId: string) => {
-    // Mark conversation as viewed
+  // Mark conversation as viewed (can be called externally)
+  const markConversationAsViewed = (conversationId: string) => {
     const newViewedConversations = new Set(viewedConversations);
     newViewedConversations.add(conversationId);
     setViewedConversations(newViewedConversations);
@@ -632,9 +633,19 @@ export function ThreadsOverview({
     // Persist to localStorage
     try {
       localStorage.setItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(newViewedConversations)));
+      console.log('📋 Marked conversation as viewed:', conversationId);
     } catch (error) {
       console.error('Failed to save viewed conversations:', error);
     }
+    
+    // Notify parent component
+    onConversationViewed?.(conversationId);
+  };
+
+  // Handle conversation viewing
+  const handleConversationView = (conversationId: string) => {
+    // Mark conversation as viewed
+    markConversationAsViewed(conversationId);
     
     // Find the thread associated with this conversation to pass system messages
     const associatedThread = filteredThreads.find(thread => thread.conversationId === conversationId);
