@@ -176,6 +176,16 @@ export default function App() {
     console.log('📚 Received fetched conversations:', conversations.size, 'total');
   };
 
+  // Handle individual conversation fetched from ConversationDetail
+  const handleConversationFetched = (conversation: any) => {
+    console.log('📚 Individual conversation fetched:', conversation.id);
+    setFetchedConversationsMap(prev => {
+      const newMap = new Map(prev);
+      newMap.set(conversation.id, conversation);
+      return newMap;
+    });
+  };
+
   // Update all conversations list when data changes
   useEffect(() => {
     const conversations: Conversation[] = [];
@@ -616,6 +626,7 @@ export default function App() {
               onNextConversation={handleNextConversation}
               hasPreviousConversation={hasPreviousConversation}
               hasNextConversation={hasNextConversation}
+              onConversationFetched={handleConversationFetched}
             />
           </div>
         </div>

@@ -42,6 +42,8 @@ interface ConversationDetailProps {
   onNextConversation?: () => void;
   hasPreviousConversation?: boolean;
   hasNextConversation?: boolean;
+  // Callback to notify parent when a conversation is fetched
+  onConversationFetched?: (conversation: any) => void;
 }
 
 interface ConversationAnalytics {
@@ -175,7 +177,8 @@ export function ConversationDetail({
   onPreviousConversation,
   onNextConversation,
   hasPreviousConversation = false,
-  hasNextConversation = false
+  hasNextConversation = false,
+  onConversationFetched
 }: ConversationDetailProps) {
   
   
@@ -289,6 +292,10 @@ export function ConversationDetail({
       
       const data = JSON.parse(responseText);
       setFetchedConversation(data);
+      
+      // Notify parent component about the fetched conversation
+      onConversationFetched?.(data);
+      
     } catch (error: any) {
       console.error('❌ Fetch error:', error);
       
@@ -443,7 +450,10 @@ export function ConversationDetail({
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={onPreviousConversation}
+                    onClick={() => {
+                      console.log('🔄 Previous button clicked!', { hasPreviousConversation, onPreviousConversation });
+                      onPreviousConversation?.();
+                    }}
                     disabled={!hasPreviousConversation}
                     className={`flex items-center gap-1 px-3 py-2 h-auto ${!hasPreviousConversation ? 'text-gray-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`}
                     title="Previous Chat"
@@ -454,7 +464,10 @@ export function ConversationDetail({
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={onNextConversation}
+                    onClick={() => {
+                      console.log('🔄 Next button clicked!', { hasNextConversation, onNextConversation });
+                      onNextConversation?.();
+                    }}
                     disabled={!hasNextConversation}
                     className={`flex items-center gap-1 px-3 py-2 h-auto ${!hasNextConversation ? 'text-gray-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`}
                     title="Next Chat"
@@ -804,7 +817,10 @@ export function ConversationDetail({
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={onPreviousConversation}
+                        onClick={() => {
+                          console.log('🔄 Previous button clicked (fetched)!', { hasPreviousConversation, onPreviousConversation });
+                          onPreviousConversation?.();
+                        }}
                         disabled={!hasPreviousConversation}
                         className={`flex items-center gap-1 px-3 py-2 h-auto ${!hasPreviousConversation ? 'text-gray-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`}
                         title="Previous Chat"
@@ -815,7 +831,10 @@ export function ConversationDetail({
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={onNextConversation}
+                        onClick={() => {
+                          console.log('🔄 Next button clicked (fetched)!', { hasNextConversation, onNextConversation });
+                          onNextConversation?.();
+                        }}
                         disabled={!hasNextConversation}
                         className={`flex items-center gap-1 px-3 py-2 h-auto ${!hasNextConversation ? 'text-gray-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`}
                         title="Next Chat"
