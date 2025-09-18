@@ -165,30 +165,11 @@ export function ConversationDetail({
   isOfflineMode = false,
   hasAnyUploadedConversations = false
 }: ConversationDetailProps) {
-  console.log('🔍 ConversationDetail rendered with props:', {
-    hasConversation: !!conversation,
-    conversationId,
-    hasUploadedConversation: !!uploadedConversation,
-    hasSelectedThread: !!selectedThread,
-    selectedThreadId: selectedThread?.id,
-    error,
-    isOfflineMode,
-    hasAnyUploadedConversations
-  });
   
   
   const [showSystemMessages, setShowSystemMessages] = useState(false);
   const [paginationConversationId, setPaginationConversationId] = useState(() => {
     const id = conversationId || conversation?.id || selectedThread?.conversationId || '';
-    console.log('🆔 ConversationDetail Props:', {
-      conversationId,
-      conversationPropId: conversation?.id,
-      uploadedConversationId: uploadedConversation?.id,
-      uploadedConversationTitle: uploadedConversation?.title,
-      selectedThreadConversationId: selectedThread?.conversationId,
-      hasAnyUploadedConversations,
-      finalId: id
-    });
     return id;
   });
   const [fetchLoading, setFetchLoading] = useState(false);
@@ -217,7 +198,6 @@ export function ConversationDetail({
       !fetchLoading; // Not currently loading
 
     if (shouldAutoFetch) {
-      console.log('🚀 Auto-fetching conversation:', paginationConversationId.trim());
       handleFetchConversation();
     }
   }, [paginationConversationId, apiKey, uploadedConversation, fetchedConversation, fetchLoading]);
@@ -264,7 +244,6 @@ export function ConversationDetail({
       return;
     }
     
-    console.log('🔍 Fetching conversation:', paginationConversationId.trim());
     setFetchLoading(true);
     setFetchError('');
     setFetchedConversation(null);
@@ -278,7 +257,6 @@ export function ConversationDetail({
         },
       });
       const responseText = await response.text();
-      console.log('📥 Raw response:', responseText.substring(0, 200) + '...');
       setFetchResponse(responseText);
       
       if (!response.ok) {
@@ -286,14 +264,6 @@ export function ConversationDetail({
       }
       
       const data = JSON.parse(responseText);
-      console.log('✅ Parsed conversation data:', {
-        id: data.id,
-        title: data.title,
-        messagesCount: data.messages?.length || 0,
-        fullStructure: data, // Log the complete structure
-        firstMessage: data.messages?.[0], // Log complete first message
-        messageRoles: data.messages?.map(m => ({ role: m.role, contentLength: m.content?.length })) || []
-      });
       setFetchedConversation(data);
     } catch (error: any) {
       console.error('❌ Fetch error:', error);
@@ -464,25 +434,19 @@ export function ConversationDetail({
             <CardContent className="bg-gradient-to-b from-slate-100/90 to-slate-200/60 rounded-lg">
               <div className="max-h-[70vh] overflow-y-auto px-6 py-8 space-y-4">
                 {(() => {
-                  console.log('🔍 SYSTEM MESSAGES DEBUG:', {
-                    showSystemMessages,
-                    totalMessages: uploadedConversation.messages?.length || 0,
-                    messageRoles: uploadedConversation.messages?.map(m => m.role) || [],
-                    systemMessagesCount: uploadedConversation.messages?.filter(m => m.role === 'system').length || 0,
-                    systemMessages: uploadedConversation.messages?.filter(m => m.role === 'system').map(m => ({
-                      id: m.id,
-                      role: m.role,
-                      contentPreview: m.content?.[0]?.text?.substring(0, 100) || 'no text'
-                    })) || []
-                  });
+                  // Merge uploaded conversation messages with thread system messages chronologically
+                  const conversationMessages = uploadedConversation.messages || [];
+                  const threadMessages = selectedThread?.messages || [];
+                  const mergedMessages = mergeMessagesChronologically(conversationMessages, threadMessages);
                   
-                  const filteredMessages = uploadedConversation.messages
-                    .filter(message => showSystemMessages || message.role !== 'system');
-                  
-                  console.log('🔍 FILTERED MESSAGES:', {
-                    filteredCount: filteredMessages.length,
-                    filteredRoles: filteredMessages.map(m => m.role)
-                  });
+                  const filteredMessages = mergedMessages
+                    .filter(message => {
+                      // Always show user and assistant messages
+                      if (message.role === 'user' || message.role === 'assistant') return true;
+                      // Show system messages based on toggle
+                      if (message.role === 'system') return showSystemMessages;
+                      return true;
+                    });
                   
                   return filteredMessages.map((message, index) => {
                   const { consolidatedText, otherContents } = consolidateMessageContent(message.content || []);
@@ -769,29 +733,11 @@ export function ConversationDetail({
                 <CardContent className="bg-gradient-to-b from-slate-100/90 to-slate-200/60 rounded-lg">
                   <div className="max-h-[70vh] overflow-y-auto px-6 py-8 space-y-4">
                     {(() => {
-                      console.log('🔍 PAGE 1 - Rendering messages from FETCHED conversation:', {
-                        totalMessages: fetchedConversation.messages?.length || 0,
-                        showSystemMessages,
-                        filteredMessages: fetchedConversation.messages?.filter(message => showSystemMessages || message.role !== 'system').length || 0,
-                        firstMessage: fetchedConversation.messages?.[0]
-                      });
                       // Merge conversation messages with thread system messages chronologically
                       const conversationMessages = fetchedConversation.messages || [];
                       const threadMessages = selectedThread?.messages || [];
                       const mergedMessages = mergeMessagesChronologically(conversationMessages, threadMessages);
                       
-                      console.log('🔗 MERGED MESSAGES DEBUG:', {
-                        conversationMessages: conversationMessages.length,
-                        threadMessages: threadMessages.length,
-                        threadSystemMessages: threadMessages.filter(m => m.role === 'system').length,
-                        mergedTotal: mergedMessages.length,
-                        threadId: selectedThread?.id,
-                        showSystemMessages: showSystemMessages,
-                        threadMessagesSample: threadMessages.slice(0, 3).map(m => ({ id: m.id, role: m.role, time: m.sentAt })),
-                        systemMessagesFound: threadMessages.filter(m => m.role === 'system').map(m => ({ id: m.id, role: m.role, time: m.sentAt })),
-                        mergedSample: mergedMessages.slice(0, 5).map(m => ({ id: m.id, role: m.role, time: m.sentAt })),
-                        filteredCount: mergedMessages.filter(message => showSystemMessages || message.role !== 'system').length
-                      });
                       
                       return mergedMessages
                         ?.filter(message => {
@@ -804,19 +750,6 @@ export function ConversationDetail({
                         ?.map((message, index) => {
                         const { consolidatedText, otherContents } = consolidateMessageContent(message.content || []);
                         
-                        // Debug logging for user messages
-                        if (message.role === 'user') {
-                          console.log('🔍 USER MESSAGE DEBUG:', {
-                            messageId: message.id,
-                            role: message.role,
-                            rawContent: message.content,
-                            consolidatedText,
-                            consolidatedTextLength: consolidatedText?.length,
-                            otherContents,
-                            otherContentsLength: otherContents.length
-                          });
-                          console.log('🔍 USER AVATAR SHOULD RENDER:', message.role === 'user');
-                        }
                         
                         return (
                         <div key={message.id} className={`flex gap-4 mb-8 ${

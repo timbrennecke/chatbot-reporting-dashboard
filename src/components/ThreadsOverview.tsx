@@ -624,6 +624,13 @@ export function ThreadsOverview({
       console.error('Failed to save viewed conversations:', error);
     }
     
+    // Find the thread associated with this conversation to pass system messages
+    const associatedThread = filteredThreads.find(thread => thread.conversationId === conversationId);
+    if (associatedThread && onThreadSelect) {
+      // If we have the thread data, pass it so system messages are available
+      onThreadSelect(associatedThread);
+    }
+    
     // Call the original onConversationSelect callback
     onConversationSelect?.(conversationId);
   };
@@ -771,14 +778,6 @@ export function ThreadsOverview({
                   {filter.label}
                 </Button>
               ))}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setTimeRange(1)}
-                className="text-xs"
-              >
-                Reset to Now
-              </Button>
             </div>
           </div>
 
@@ -804,9 +803,10 @@ export function ThreadsOverview({
                 className="mt-1"
               />
             </div>
-            <div className="space-y-4">
-              <div className="flex items-end gap-2">
+            <div className="flex items-end">
+              <div className="flex items-center gap-2">
                 <Button 
+                  id="searchButton"
                   onClick={fetchThreads} 
                   disabled={loading || !startDate || !endDate}
                   className="flex-1"
@@ -846,77 +846,77 @@ export function ThreadsOverview({
                 </Button>
                 )}
               </div>
+            </div>
+          </div>
+
+          {/* Message Search - only show after thread search results */}
+          {threads.length > 0 && !uploadedThreads?.length && (
+            <div className="border-t pt-4 space-y-3 mt-4">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="messageSearch"
+                  checked={messageSearchEnabled}
+                  onCheckedChange={setMessageSearchEnabled}
+                />
+                <Label htmlFor="messageSearch" className="text-sm font-medium">
+                  Search within conversation messages
+                </Label>
+              </div>
               
-              {/* Message Search - only show after thread search results */}
-              {threads.length > 0 && !uploadedThreads?.length && (
-                <div className="border-t pt-4 space-y-3">
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="messageSearch"
-                      checked={messageSearchEnabled}
-                      onCheckedChange={setMessageSearchEnabled}
+              {messageSearchEnabled && (
+                <div className="space-y-3">
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Search message content..."
+                      value={messageSearchTerm}
+                      onChange={(e) => setMessageSearchTerm(e.target.value)}
+                      className="flex-1"
                     />
-                    <Label htmlFor="messageSearch" className="text-sm font-medium">
-                      Search within conversation messages
-                    </Label>
+                    <Button
+                      onClick={() => fetchConversationsForThreads(threads.slice(0, 500))}
+                      disabled={conversationsFetching || !messageSearchTerm.trim()}
+                      variant="outline"
+                    >
+                      {conversationsFetching ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                          Fetching...
+                        </>
+                      ) : (
+                        <>
+                          <Search className="h-4 w-4 mr-2" />
+                          Search Messages
+                        </>
+                      )}
+                    </Button>
                   </div>
                   
-                  {messageSearchEnabled && (
-                    <div className="space-y-3">
-                      <div className="flex gap-2">
-                        <Input
-                          placeholder="Search message content..."
-                          value={messageSearchTerm}
-                          onChange={(e) => setMessageSearchTerm(e.target.value)}
-                          className="flex-1"
-                        />
-                        <Button
-                          onClick={() => fetchConversationsForThreads(threads.slice(0, 500))}
-                          disabled={conversationsFetching || !messageSearchTerm.trim()}
-                          variant="outline"
-                        >
-                          {conversationsFetching ? (
-                            <>
-                              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                              Fetching...
-                            </>
-                          ) : (
-                            <>
-                              <Search className="h-4 w-4 mr-2" />
-                              Search Messages
-                            </>
-                          )}
-                        </Button>
-                      </div>
-                      
-                      {/* Limit warning */}
-                      <Alert>
-                        <AlertCircle className="h-4 w-4" />
-                        <AlertDescription className="text-sm">
-                          <strong>Limit:</strong> Only the first 500 conversations will be searched to ensure reasonable response times. 
-                          {threads.length > 500 && (
-                            <span className="text-amber-600"> Found {threads.length} threads, searching first 500.</span>
-                          )}
-                        </AlertDescription>
-                      </Alert>
-                      
-                      {conversationsFetching && (
-                        <div className="text-sm text-muted-foreground">
-                          Fetching conversations for message search... ({fetchedConversations.size}/{Math.min(threads.length, 500)})
-                        </div>
+                  {/* Limit warning */}
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription className="text-sm">
+                      <strong>Limit:</strong> Only the first 500 conversations will be searched to ensure reasonable response times. 
+                      {threads.length > 500 && (
+                        <span className="text-amber-600"> Found {threads.length} threads, searching first 500.</span>
                       )}
-                      
-                      {conversationsFetched && messageSearchTerm && (
-                        <div className="text-sm text-green-600 font-medium">
-                          ✓ Found {filteredThreads.length} threads containing "{messageSearchTerm}"
-                        </div>
-                      )}
+                    </AlertDescription>
+                  </Alert>
+                  
+                  {conversationsFetching && (
+                    <div className="text-sm text-muted-foreground">
+                      Fetching conversations for message search... ({fetchedConversations.size}/{Math.min(threads.length, 500)})
+                    </div>
+                  )}
+                  
+                  {conversationsFetched && messageSearchTerm && (
+                    <div className="text-sm text-green-600 font-medium">
+                      ✓ Found {filteredThreads.length} threads containing "{messageSearchTerm}"
                     </div>
                   )}
                 </div>
               )}
             </div>
-          </div>
+          )}
         </CardContent>
       </Card>
 
@@ -1078,8 +1078,8 @@ export function ThreadsOverview({
                       }}
                     />
                   </TableHead>
-                  <TableHead>Conversation ID</TableHead>
                   <TableHead>Thread ID</TableHead>
+                  <TableHead>Conversation ID</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead>UI Events</TableHead>
                   <TableHead>Linkouts</TableHead>
@@ -1112,6 +1112,18 @@ export function ThreadsOverview({
                           onCheckedChange={() => toggleThreadSelection(thread.id)}
                         />
                       </TableCell>
+                      <TableCell onClick={() => handleThreadView(thread)} className="py-4">
+                        <div className="flex items-center gap-2">
+                          <div>
+                            <div className={`${!isAnyViewed ? 'font-bold' : ''} text-foreground`}>{parsed.id}</div>
+                          </div>
+                          {isAnyViewed && (
+                            <Badge variant="outline" className="text-xs text-green-600 border-green-300">
+                              Viewed
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell 
                         onClick={() => handleConversationView(thread.conversationId)}
                         className="cursor-pointer py-4"
@@ -1119,27 +1131,15 @@ export function ThreadsOverview({
                       >
                         <div className="flex items-center gap-2">
                           <div>
-                            <div className={`${!isAnyViewed ? 'font-bold' : ''} ${hasConversationData ? "text-blue-600 hover:underline" : "text-foreground"}`}>
+                            <div className={`${hasConversationData ? "text-blue-600 hover:underline" : "text-foreground"}`}>
                               {thread.conversationId}
                             </div>
                           </div>
-                          {isAnyViewed && (
-                            <Badge variant="outline" className="text-xs text-green-600 border-green-300">
-                              Viewed
-                            </Badge>
-                          )}
                           {!hasConversationData && uploadedConversations.length > 0 && (
                             <Badge variant="outline" className="text-xs text-gray-500">
                               ref only
                             </Badge>
                           )}
-                        </div>
-                      </TableCell>
-                      <TableCell onClick={() => handleThreadView(thread)} className="py-4">
-                        <div className="flex items-center gap-2">
-                          <div>
-                            <div className="text-foreground">{parsed.id}</div>
-                          </div>
                         </div>
                       </TableCell>
                       <TableCell onClick={() => handleThreadView(thread)} className="py-4">
