@@ -229,6 +229,16 @@ export function ConversationDetail({
     }
   }, [paginationConversationId, apiKey, uploadedConversation, fetchedConversation, fetchLoading]);
 
+  // Clear fetched conversation when conversation ID changes (for navigation)
+  useEffect(() => {
+    const newId = conversationId || conversation?.id || selectedThread?.conversationId || '';
+    if (newId && newId !== paginationConversationId && fetchedConversation) {
+      console.log('🔄 Conversation ID changed, clearing fetched data and refetching:', newId);
+      setFetchedConversation(null);
+      setPaginationConversationId(newId);
+    }
+  }, [conversationId, conversation?.id, selectedThread?.conversationId, paginationConversationId, fetchedConversation]);
+
   const analytics = useMemo((): ConversationAnalytics | null => {
     if (!activeConversation) return null;
     
