@@ -3,13 +3,9 @@ import { Card, CardContent } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { Alert, AlertDescription } from './components/ui/alert';
 import { 
-  BarChart3, 
   MessageSquare, 
-  Settings, 
-  Upload,
   Info,
   Trash2,
   Key,
@@ -20,8 +16,6 @@ import { Badge } from './components/ui/badge';
 
 import { ThreadsOverview } from './components/ThreadsOverview';
 import { ConversationDetail } from './components/ConversationDetail';
-import { AttributesView } from './components/AttributesView';
-import { JsonUpload } from './components/JsonUpload';
 import { UploadedData, Thread, Conversation } from './lib/types';
 import { setGlobalOfflineMode } from './lib/api';
 import { 
@@ -203,13 +197,10 @@ export default function App() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="h-8 w-8 bg-primary rounded-lg flex items-center justify-center">
-                <BarChart3 className="h-5 w-5 text-primary-foreground" />
+                🤖
               </div>
               <div>
-                <h1 className="text-xl font-bold">CHECK24 Chatbot Dashboard</h1>
-                <p className="text-sm text-muted-foreground">
-                  Analyze conversations, threads, and attributes
-                </p>
+                <h1 className="text-xl font-bold">CHECK24 Bot Dashboard</h1>
               </div>
             </div>
             
@@ -273,63 +264,14 @@ export default function App() {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          {/* Navigation */}
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="threads" className="flex items-center gap-2">
-              <BarChart3 className="h-4 w-4" />
-              Dashboard
-              {(uploadedThreads.length > 0 || uploadedData.conversations?.length > 0) && (
-                <Badge variant="secondary" className="ml-1 text-xs">
-                  {uploadedThreads.length + (uploadedData.conversations?.length || 0)}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="attributes" className="flex items-center gap-2">
-              <Settings className="h-4 w-4" />
-              Attributes
-              {(uploadedData.attributesResponses?.length > 0 || uploadedData.bulkAttributesResponses?.length > 0) && (
-                <Badge variant="secondary" className="ml-1 text-xs">
-                  {(uploadedData.attributesResponses?.length || 0) + (uploadedData.bulkAttributesResponses?.length || 0)}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="upload" className="flex items-center gap-2">
-              <Upload className="h-4 w-4" />
-              Upload Data
-            </TabsTrigger>
-          </TabsList>
-
-
-
-          {/* Tab Content */}
-          <TabsContent value="threads" className="space-y-6">
-            <ThreadsOverview
-              uploadedThreads={uploadedThreads}
-              uploadedConversations={uploadedData.conversations || []}
-              onThreadSelect={handleThreadSelect}
-              onConversationSelect={handleConversationSelect}
-            />
-          </TabsContent>
-
-
-
-          <TabsContent value="attributes" className="space-y-6">
-            <AttributesView
-              uploadedAttributes={uploadedData.attributesResponses}
-              uploadedBulkAttributes={uploadedData.bulkAttributesResponses}
-            />
-          </TabsContent>
-
-          <TabsContent value="upload" className="space-y-6">
-            <JsonUpload 
-              onDataUploaded={handleDataUploaded} 
-              onDataCleared={handleDataCleared}
-              initialData={uploadedData}
-            />
-            
-          </TabsContent>
-        </Tabs>
+        <div className="space-y-6">
+          <ThreadsOverview
+            uploadedThreads={uploadedThreads}
+            uploadedConversations={uploadedData.conversations || []}
+            onThreadSelect={handleThreadSelect}
+            onConversationSelect={handleConversationSelect}
+          />
+        </div>
       </main>
 
       {/* Conversation Detail Overlay */}

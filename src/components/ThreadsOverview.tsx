@@ -92,6 +92,28 @@ export function ThreadsOverview({
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkResults, setBulkResults] = useState<any>(null);
   
+  // Viewed threads tracking
+  const [viewedThreads, setViewedThreads] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('chatbot-dashboard-viewed-threads');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch (error) {
+      console.error('Failed to load viewed threads:', error);
+      return new Set();
+    }
+  });
+  
+  // Viewed conversations tracking
+  const [viewedConversations, setViewedConversations] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('chatbot-dashboard-viewed-conversations');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch (error) {
+      console.error('Failed to load viewed conversations:', error);
+      return new Set();
+    }
+  });
+  
   // Filters
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -99,13 +121,67 @@ export function ThreadsOverview({
 
   const [hasUiFilter, setHasUiFilter] = useState(false);
   const [hasLinkoutFilter, setHasLinkoutFilter] = useState(false);
-  const [assistantOnlyFilter, setAssistantOnlyFilter] = useState(false);
+  
+  // Message search functionality
+  const [messageSearchEnabled, setMessageSearchEnabled] = useState(false);
+  const [messageSearchTerm, setMessageSearchTerm] = useState('');
+  const [fetchedConversations, setFetchedConversations] = useState<Map<string, any>>(new Map());
+  const [conversationsFetching, setConversationsFetching] = useState(false);
+  const [conversationsFetched, setConversationsFetched] = useState(false);
   
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
 
-  // Set default date range to the last hour for more reasonable API calls
+  // Quick time range filter functions
+  const setTimeRange = (hours: number) => {
+    const now = new Date();
+    const startTime = new Date(now.getTime() - hours * 60 * 60 * 1000);
+    
+    // Format for datetime-local input (YYYY-MM-DDTHH:mm) using local timezone
+    const formatDateTimeLocal = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      return `${year}-${month}-${day}T${hours}:${minutes}`;
+    };
+    
+    setStartDate(formatDateTimeLocal(startTime));
+    setEndDate(formatDateTimeLocal(now));
+  };
+
+  const setDefaultTimeRange = () => setTimeRange(1); // Default: last 1 hour
+
+  const quickFilters = [
+    { label: 'Last Hour', hours: 1 },
+    { label: 'Last 24 Hours', hours: 24 },
+    { label: 'Last 3 Days', hours: 72 },
+    { label: 'Last 7 Days', hours: 168 },
+  ];
+
+  // Check if current time range matches a quick filter
+  const getCurrentQuickFilter = () => {
+    if (!startDate || !endDate) return null;
+    
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const diffHours = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60));
+    
+    // Check if end time is close to now (within 5 minutes) using local time
+    const now = new Date();
+    const isEndTimeNow = Math.abs(end.getTime() - now.getTime()) < 5 * 60 * 1000;
+    
+    if (isEndTimeNow) {
+      return quickFilters.find(filter => filter.hours === diffHours)?.hours || null;
+    }
+    
+    return null;
+  };
+
+  const activeQuickFilter = getCurrentQuickFilter();
+
   useEffect(() => {
     // Try to load saved search parameters first
     try {
@@ -120,13 +196,8 @@ export function ThreadsOverview({
       console.error('Failed to load saved search parameters:', error);
     }
     
-    // Default to last hour if no saved parameters
-    const now = new Date();
-    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000); // 1 hour ago
-    
-    // Format for datetime-local input (YYYY-MM-DDTHH:mm)
-    setStartDate(oneHourAgo.toISOString().slice(0, 16));
-    setEndDate(now.toISOString().slice(0, 16));
+    // Set smart defaults based on current system time
+    setDefaultTimeRange();
   }, []);
 
   // Update threads when uploaded data changes
@@ -145,6 +216,80 @@ export function ThreadsOverview({
       }
     }
   }, [uploadedThreads]);
+
+  // Batch fetch conversations for message search
+  const fetchConversationsForThreads = async (threadsToFetch: Thread[]) => {
+    setConversationsFetching(true);
+    setError(null);
+    
+    try {
+      const apiKey = localStorage.getItem('chatbot-dashboard-api-key');
+      if (!apiKey) {
+        throw new Error('API key not found. Please set it in the dashboard header.');
+      }
+
+      console.log('🔍 Fetching conversations for message search:', threadsToFetch.length, 'threads');
+      
+      // Batch fetch conversations with concurrent requests (limit to avoid overwhelming the API)
+      const batchSize = 5;
+      const newConversations = new Map(fetchedConversations);
+      
+      for (let i = 0; i < threadsToFetch.length; i += batchSize) {
+        const batch = threadsToFetch.slice(i, i + batchSize);
+        
+        const promises = batch.map(async (thread) => {
+          // Skip if already fetched
+          if (newConversations.has(thread.conversationId)) {
+            return null;
+          }
+          
+          try {
+            const response = await fetch(`/api-test/conversation/${thread.conversationId}`, {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${apiKey}`,
+              },
+            });
+            
+            if (!response.ok) {
+              console.warn(`Failed to fetch conversation ${thread.conversationId}: ${response.status}`);
+              return null;
+            }
+            
+            const conversation = await response.json();
+            return { conversationId: thread.conversationId, conversation };
+          } catch (error) {
+            console.warn(`Error fetching conversation ${thread.conversationId}:`, error);
+            return null;
+          }
+        });
+        
+        const results = await Promise.all(promises);
+        results.forEach(result => {
+          if (result) {
+            newConversations.set(result.conversationId, result.conversation);
+          }
+        });
+        
+        // Update state after each batch to show progress
+        setFetchedConversations(new Map(newConversations));
+        
+        // Small delay between batches to be nice to the API
+        if (i + batchSize < threadsToFetch.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+      
+      setConversationsFetched(true);
+      console.log('✅ Fetched conversations for message search:', newConversations.size, 'conversations');
+      
+    } catch (error: any) {
+      console.error('❌ Error fetching conversations:', error);
+      setError(`Failed to fetch conversations: ${error.message}`);
+    } finally {
+      setConversationsFetching(false);
+    }
+  };
 
   const fetchThreads = async () => {
     if (!startDate || !endDate) {
@@ -238,14 +383,39 @@ export function ThreadsOverview({
         const searchLower = searchTerm.toLowerCase();
         if (
           !thread.id.toLowerCase().includes(searchLower) &&
-          !thread.conversationId.toLowerCase().includes(searchLower) &&
-          !parsed.namespace.toLowerCase().includes(searchLower)
+          !thread.conversationId.toLowerCase().includes(searchLower)
         ) {
           return false;
         }
       }
 
-
+      // Message content search filter
+      if (messageSearchEnabled && messageSearchTerm) {
+        const conversation = fetchedConversations.get(thread.conversationId);
+        if (!conversation) {
+          // If conversations haven't been fetched yet, don't filter out
+          return !conversationsFetched;
+        }
+        
+        const searchLower = messageSearchTerm.toLowerCase();
+        const hasMatchingMessage = conversation.messages?.some((message: any) => {
+          // Search in message content
+          if (message.content) {
+            return message.content.some((content: any) => {
+              if (content.text && content.text.toLowerCase().includes(searchLower)) {
+                return true;
+              }
+              if (content.content && content.content.toLowerCase().includes(searchLower)) {
+                return true;
+              }
+              return false;
+            });
+          }
+          return false;
+        });
+        
+        if (!hasMatchingMessage) return false;
+      }
 
       // UI filter
       if (hasUiFilter) {
@@ -263,15 +433,9 @@ export function ThreadsOverview({
         if (!hasLinkout) return false;
       }
 
-      // Assistant only filter
-      if (assistantOnlyFilter) {
-        const hasOnlyAssistant = thread.messages.every(m => m.role === 'assistant');
-        if (!hasOnlyAssistant) return false;
-      }
-
       return true;
     });
-  }, [threads, searchTerm, hasUiFilter, hasLinkoutFilter, assistantOnlyFilter]);
+  }, [threads, searchTerm, hasUiFilter, hasLinkoutFilter, messageSearchEnabled, messageSearchTerm, fetchedConversations, conversationsFetched]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredThreads.length / itemsPerPage);
@@ -283,7 +447,7 @@ export function ThreadsOverview({
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, hasUiFilter, hasLinkoutFilter, assistantOnlyFilter]);
+  }, [searchTerm, hasUiFilter, hasLinkoutFilter]);
 
   const analytics = useMemo(() => calculateThreadAnalytics(filteredThreads), [filteredThreads]);
 
@@ -428,6 +592,42 @@ export function ThreadsOverview({
     setSelectedThreads(newSelection);
   };
 
+  // Handle thread viewing
+  const handleThreadView = (thread: Thread) => {
+    // Mark thread as viewed
+    const newViewedThreads = new Set(viewedThreads);
+    newViewedThreads.add(thread.id);
+    setViewedThreads(newViewedThreads);
+    
+    // Persist to localStorage
+    try {
+      localStorage.setItem('chatbot-dashboard-viewed-threads', JSON.stringify(Array.from(newViewedThreads)));
+    } catch (error) {
+      console.error('Failed to save viewed threads:', error);
+    }
+    
+    // Call the original onThreadSelect callback
+    onThreadSelect?.(thread);
+  };
+
+  // Handle conversation viewing
+  const handleConversationView = (conversationId: string) => {
+    // Mark conversation as viewed
+    const newViewedConversations = new Set(viewedConversations);
+    newViewedConversations.add(conversationId);
+    setViewedConversations(newViewedConversations);
+    
+    // Persist to localStorage
+    try {
+      localStorage.setItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(newViewedConversations)));
+    } catch (error) {
+      console.error('Failed to save viewed conversations:', error);
+    }
+    
+    // Call the original onConversationSelect callback
+    onConversationSelect?.(conversationId);
+  };
+
 
 
   return (
@@ -435,7 +635,7 @@ export function ThreadsOverview({
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1>Dashboard Overview</h1>
+          <h1>🤖 CHECK24 Bot Dashboard</h1>
           <p className="text-muted-foreground">
             {uploadedConversations.length > 0 && threads.length > 0 
               ? "Analyze conversations, threads, and chatbot interactions"
@@ -515,7 +715,7 @@ export function ThreadsOverview({
               <div className="relative">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search by thread ID, conversation ID, or namespace"
+                  placeholder="Search by thread ID or conversation ID"
                   className="pl-10 h-9"
                   onChange={(e) => debouncedSearch(e.target.value)}
                 />
@@ -541,14 +741,6 @@ export function ThreadsOverview({
             />
             <Label htmlFor="hasLinkout" className="text-sm">Has Linkouts</Label>
           </div>
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              id="assistantOnly"
-              checked={assistantOnlyFilter}
-              onCheckedChange={(checked) => setAssistantOnlyFilter(checked as boolean)}
-            />
-            <Label htmlFor="assistantOnly" className="text-sm">Assistant Only</Label>
-          </div>
         </div>
       </div>
 
@@ -563,7 +755,34 @@ export function ThreadsOverview({
             Search threads directly from the API using date/time filters. This will populate the threads table below.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {/* Quick Filter Buttons */}
+          <div>
+            <Label className="text-sm font-medium mb-2 block">Quick Filters</Label>
+            <div className="flex flex-wrap gap-2">
+              {quickFilters.map((filter) => (
+                <Button
+                  key={filter.hours}
+                  variant={activeQuickFilter === filter.hours ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setTimeRange(filter.hours)}
+                  className="text-xs"
+                >
+                  {filter.label}
+                </Button>
+              ))}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setTimeRange(1)}
+                className="text-xs"
+              >
+                Reset to Now
+              </Button>
+            </div>
+          </div>
+
+          {/* Manual Date/Time Inputs */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
               <Label htmlFor="startDate">Start Date & Time</Label>
@@ -585,30 +804,35 @@ export function ThreadsOverview({
                 className="mt-1"
               />
             </div>
-            <div className="flex items-end gap-2">
-              <Button 
-                onClick={fetchThreads} 
-                disabled={loading || !startDate || !endDate}
-                className="flex-1"
-              >
-                {loading ? (
-                  <>
-                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                    Searching...
-                  </>
-                ) : (
-                  <>
-                    <Search className="h-4 w-4 mr-2" />
-                    Search Threads
-                  </>
-                )}
-              </Button>
-              {threads.length > 0 && !uploadedThreads?.length && (
+            <div className="space-y-4">
+              <div className="flex items-end gap-2">
+                <Button 
+                  onClick={fetchThreads} 
+                  disabled={loading || !startDate || !endDate}
+                  className="flex-1"
+                >
+                  {loading ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                      Searching...
+                    </>
+                  ) : (
+                    <>
+                      <Search className="h-4 w-4 mr-2" />
+                      Search Threads
+                    </>
+                  )}
+                </Button>
+                {threads.length > 0 && !uploadedThreads?.length && (
                 <Button 
                   variant="outline" 
                   onClick={() => {
                     setThreads([]);
                     setError(null);
+                    setFetchedConversations(new Map());
+                    setConversationsFetched(false);
+                    setMessageSearchEnabled(false);
+                    setMessageSearchTerm('');
                     try {
                       localStorage.removeItem('chatbot-dashboard-search-results');
                       localStorage.removeItem('chatbot-dashboard-search-params');
@@ -620,6 +844,76 @@ export function ThreadsOverview({
                 >
                   Clear
                 </Button>
+                )}
+              </div>
+              
+              {/* Message Search - only show after thread search results */}
+              {threads.length > 0 && !uploadedThreads?.length && (
+                <div className="border-t pt-4 space-y-3">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="messageSearch"
+                      checked={messageSearchEnabled}
+                      onCheckedChange={setMessageSearchEnabled}
+                    />
+                    <Label htmlFor="messageSearch" className="text-sm font-medium">
+                      Search within conversation messages
+                    </Label>
+                  </div>
+                  
+                  {messageSearchEnabled && (
+                    <div className="space-y-3">
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Search message content..."
+                          value={messageSearchTerm}
+                          onChange={(e) => setMessageSearchTerm(e.target.value)}
+                          className="flex-1"
+                        />
+                        <Button
+                          onClick={() => fetchConversationsForThreads(threads.slice(0, 500))}
+                          disabled={conversationsFetching || !messageSearchTerm.trim()}
+                          variant="outline"
+                        >
+                          {conversationsFetching ? (
+                            <>
+                              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                              Fetching...
+                            </>
+                          ) : (
+                            <>
+                              <Search className="h-4 w-4 mr-2" />
+                              Search Messages
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                      
+                      {/* Limit warning */}
+                      <Alert>
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription className="text-sm">
+                          <strong>Limit:</strong> Only the first 500 conversations will be searched to ensure reasonable response times. 
+                          {threads.length > 500 && (
+                            <span className="text-amber-600"> Found {threads.length} threads, searching first 500.</span>
+                          )}
+                        </AlertDescription>
+                      </Alert>
+                      
+                      {conversationsFetching && (
+                        <div className="text-sm text-muted-foreground">
+                          Fetching conversations for message search... ({fetchedConversations.size}/{Math.min(threads.length, 500)})
+                        </div>
+                      )}
+                      
+                      {conversationsFetched && messageSearchTerm && (
+                        <div className="text-sm text-green-600 font-medium">
+                          ✓ Found {filteredThreads.length} threads containing "{messageSearchTerm}"
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -651,7 +945,7 @@ export function ThreadsOverview({
                 <div 
                   key={conversation.id}
                   className="p-4 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
-                  onClick={() => onConversationSelect?.(conversation.id)}
+                  onClick={() => handleConversationView(conversation.id)}
                 >
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
@@ -784,10 +1078,9 @@ export function ThreadsOverview({
                       }}
                     />
                   </TableHead>
-                  <TableHead>Thread ID</TableHead>
                   <TableHead>Conversation ID</TableHead>
+                  <TableHead>Thread ID</TableHead>
                   <TableHead>Created</TableHead>
-                  <TableHead>Messages</TableHead>
                   <TableHead>UI Events</TableHead>
                   <TableHead>Linkouts</TableHead>
                 </TableRow>
@@ -807,29 +1100,34 @@ export function ThreadsOverview({
                   // Check if this conversation ID exists in uploaded conversations
                   const hasConversationData = uploadedConversations.some(c => c.id === thread.conversationId);
 
+                  const isThreadViewed = viewedThreads.has(thread.id);
+                  const isConversationViewed = viewedConversations.has(thread.conversationId);
+                  const isAnyViewed = isThreadViewed || isConversationViewed;
+                  
                   return (
-                    <TableRow key={thread.id} className="cursor-pointer hover:bg-muted/50">
-                      <TableCell onClick={(e) => e.stopPropagation()}>
+                    <TableRow key={thread.id} className={`cursor-pointer hover:bg-muted/50 ${isAnyViewed ? 'bg-gray-50' : ''} h-16`}>
+                      <TableCell onClick={(e) => e.stopPropagation()} className="py-4">
                         <Checkbox
                           checked={selectedThreads.has(thread.id)}
                           onCheckedChange={() => toggleThreadSelection(thread.id)}
                         />
                       </TableCell>
-                      <TableCell onClick={() => onThreadSelect?.(thread)}>
-                        <div>
-                          <div className="font-medium">{parsed.id}</div>
-                          <Badge variant="secondary" className="text-xs">
-                            {parsed.namespace}
-                          </Badge>
-                        </div>
-                      </TableCell>
                       <TableCell 
-                        onClick={() => onConversationSelect?.(thread.conversationId)}
-                        className={hasConversationData ? "text-blue-600 hover:underline" : "text-gray-500"}
+                        onClick={() => handleConversationView(thread.conversationId)}
+                        className="cursor-pointer py-4"
                         title={hasConversationData ? "Click to view conversation details" : "Conversation data not available - referenced from thread only"}
                       >
                         <div className="flex items-center gap-2">
-                          {thread.conversationId}
+                          <div>
+                            <div className={`${!isAnyViewed ? 'font-bold' : ''} ${hasConversationData ? "text-blue-600 hover:underline" : "text-foreground"}`}>
+                              {thread.conversationId}
+                            </div>
+                          </div>
+                          {isAnyViewed && (
+                            <Badge variant="outline" className="text-xs text-green-600 border-green-300">
+                              Viewed
+                            </Badge>
+                          )}
                           {!hasConversationData && uploadedConversations.length > 0 && (
                             <Badge variant="outline" className="text-xs text-gray-500">
                               ref only
@@ -837,24 +1135,24 @@ export function ThreadsOverview({
                           )}
                         </div>
                       </TableCell>
-                      <TableCell onClick={() => onThreadSelect?.(thread)}>
+                      <TableCell onClick={() => handleThreadView(thread)} className="py-4">
+                        <div className="flex items-center gap-2">
+                          <div>
+                            <div className="text-foreground">{parsed.id}</div>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell onClick={() => handleThreadView(thread)} className="py-4">
                         {formatTimestamp(thread.createdAt)}
                       </TableCell>
-                      <TableCell onClick={() => onThreadSelect?.(thread)}>
-                        {thread.messages.filter(msg => {
-                          if (msg.role === 'system') return false;
-                          const hasUiComponent = msg.content.some(content => content.kind === 'ui');
-                          return !hasUiComponent;
-                        }).length}
-                      </TableCell>
-                      <TableCell onClick={() => onThreadSelect?.(thread)}>
+                      <TableCell onClick={() => handleThreadView(thread)} className="py-4">
                         {uiCount > 0 ? (
                           <Badge variant="outline">{uiCount}</Badge>
                         ) : (
                           '-'
                         )}
                       </TableCell>
-                      <TableCell onClick={() => onThreadSelect?.(thread)}>
+                      <TableCell onClick={() => handleThreadView(thread)} className="py-4">
                         {linkoutCount > 0 ? (
                           <Badge variant="outline">{linkoutCount}</Badge>
                         ) : (
