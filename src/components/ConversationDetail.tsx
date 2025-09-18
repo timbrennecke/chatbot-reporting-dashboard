@@ -17,6 +17,7 @@ import {
   BarChart3,
   ChevronRight,
   ChevronDown,
+  ChevronLeft,
   Eye,
   EyeOff,
   RefreshCw,
@@ -36,6 +37,11 @@ interface ConversationDetailProps {
   error?: string;
   isOfflineMode?: boolean;
   hasAnyUploadedConversations?: boolean; // Add this to match App.tsx
+  // Navigation props
+  onPreviousConversation?: () => void;
+  onNextConversation?: () => void;
+  hasPreviousConversation?: boolean;
+  hasNextConversation?: boolean;
 }
 
 interface ConversationAnalytics {
@@ -165,7 +171,11 @@ export function ConversationDetail({
   onThreadSelect, 
   error,
   isOfflineMode = false,
-  hasAnyUploadedConversations = false
+  hasAnyUploadedConversations = false,
+  onPreviousConversation,
+  onNextConversation,
+  hasPreviousConversation = false,
+  hasNextConversation = false
 }: ConversationDetailProps) {
   
   
@@ -427,6 +437,31 @@ export function ConversationDetail({
                     )}
                   </div>
                 </div>
+                
+                {/* Navigation Arrows */}
+                <div className="flex items-center gap-2 mr-4">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={onPreviousConversation}
+                    disabled={!hasPreviousConversation}
+                    className={`h-8 w-8 p-0 ${!hasPreviousConversation ? 'text-gray-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`}
+                    title="Previous Chat"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={onNextConversation}
+                    disabled={!hasNextConversation}
+                    className={`h-8 w-8 p-0 ${!hasNextConversation ? 'text-gray-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`}
+                    title="Next Chat"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+                
                 <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-300">
                   {countMessagesExcludingUI(uploadedConversation.messages || [])} messages
                 </Badge>
@@ -761,6 +796,31 @@ export function ConversationDetail({
                         )}
                       </div>
                     </div>
+                    
+                    {/* Navigation Arrows */}
+                    <div className="flex items-center gap-2 mr-4">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={onPreviousConversation}
+                        disabled={!hasPreviousConversation}
+                        className={`h-8 w-8 p-0 ${!hasPreviousConversation ? 'text-gray-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`}
+                        title="Previous Chat"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={onNextConversation}
+                        disabled={!hasNextConversation}
+                        className={`h-8 w-8 p-0 ${!hasNextConversation ? 'text-gray-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`}
+                        title="Next Chat"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    
                     <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-300">
                       {countMessagesExcludingUI(fetchedConversation.messages || [])} messages
                     </Badge>

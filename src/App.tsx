@@ -42,6 +42,10 @@ export default function App() {
   const [conversationSearchId, setConversationSearchId] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  
+  // Conversation navigation state
+  const [allConversations, setAllConversations] = useState<Conversation[]>([]);
+  const [currentConversationIndex, setCurrentConversationIndex] = useState<number>(-1);
 
   // Save API key to localStorage
   const handleApiKeyChange = (newApiKey: string) => {
@@ -164,6 +168,58 @@ export default function App() {
       handleConversationSearch();
     }
   };
+
+  // Update all conversations list when data changes
+  useEffect(() => {
+    const conversations: Conversation[] = [];
+    
+    // Add uploaded conversations
+    if (uploadedData.conversations) {
+      conversations.push(...uploadedData.conversations);
+    }
+    
+    // Sort by creation date (most recent first)
+    conversations.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    
+    setAllConversations(conversations);
+    
+    // Update current conversation index when selectedConversationId changes
+    if (selectedConversationId) {
+      const index = conversations.findIndex(conv => conv.id === selectedConversationId);
+      setCurrentConversationIndex(index);
+    }
+  }, [uploadedData, selectedConversationId]);
+
+  // Navigation handlers
+  const handlePreviousConversation = () => {
+    if (currentConversationIndex > 0) {
+      const newIndex = currentConversationIndex - 1;
+      const conversation = allConversations[newIndex];
+      setSelectedConversationId(conversation.id);
+      setCurrentConversationIndex(newIndex);
+      setShowConversationOverlay(true);
+      
+      // Clear any previously selected thread
+      setSelectedThread(undefined);
+    }
+  };
+
+  const handleNextConversation = () => {
+    if (currentConversationIndex < allConversations.length - 1) {
+      const newIndex = currentConversationIndex + 1;
+      const conversation = allConversations[newIndex];
+      setSelectedConversationId(conversation.id);
+      setCurrentConversationIndex(newIndex);
+      setShowConversationOverlay(true);
+      
+      // Clear any previously selected thread
+      setSelectedThread(undefined);
+    }
+  };
+
+  // Check if navigation is available
+  const hasPreviousConversation = currentConversationIndex > 0;
+  const hasNextConversation = currentConversationIndex >= 0 && currentConversationIndex < allConversations.length - 1;
 
   // Load data from localStorage on component mount
   useEffect(() => {
@@ -523,6 +579,10 @@ export default function App() {
                   // Could switch to a thread detail view if implemented
                 }
               }}
+              onPreviousConversation={handlePreviousConversation}
+              onNextConversation={handleNextConversation}
+              hasPreviousConversation={hasPreviousConversation}
+              hasNextConversation={hasNextConversation}
             />
           </div>
         </div>
