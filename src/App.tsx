@@ -71,19 +71,69 @@ export default function App() {
     setSearchError(null);
     
     try {
-      const response = await fetch(`/api-test/conversation/${conversationSearchId.trim()}`, {
+      // First, fetch the conversation
+      const conversationResponse = await fetch(`/api-test/conversation/${conversationSearchId.trim()}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${apiKey.trim()}`,
         },
       });
       
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      if (!conversationResponse.ok) {
+        const errorText = await conversationResponse.text();
+        throw new Error(`HTTP ${conversationResponse.status}: ${errorText}`);
       }
       
-      const conversation = await response.json();
+      const conversation = await conversationResponse.json();
+      
+      // Calculate date range for threads endpoint
+      const messages = conversation.messages || [];
+      let startTimestamp = conversation.createdAt;
+      let endTimestamp = conversation.lastMessageAt || conversation.createdAt;
+      
+      // If we have messages, use their timestamps for more accurate range
+      if (messages.length > 0) {
+        const messageTimes = messages.map(m => new Date(m.sentAt).getTime());
+        const minTime = Math.min(...messageTimes);
+        const maxTime = Math.max(...messageTimes);
+        startTimestamp = new Date(minTime).toISOString();
+        endTimestamp = new Date(maxTime).toISOString();
+      }
+      
+      // Fetch threads (system messages) for the date range
+      let threadsData = null;
+      try {
+        const threadsResponse = await fetch('/api-test/thread', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey.trim()}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            startTimestamp,
+            endTimestamp
+          }),
+        });
+        
+        if (threadsResponse.ok) {
+          threadsData = await threadsResponse.json();
+          console.log('📡 Fetched threads data for system messages:', threadsData);
+        } else {
+          console.warn('⚠️ Failed to fetch threads data, continuing without system messages');
+        }
+      } catch (threadsError) {
+        console.warn('⚠️ Error fetching threads data:', threadsError);
+      }
+      
+      // Find the specific thread for this conversation
+      const matchingThread = threadsData?.threads?.find(t => 
+        t.thread.conversationId === conversation.id
+      )?.thread;
+      
+      if (matchingThread) {
+        setSelectedThread(matchingThread);
+        console.log('🔗 Found matching thread with system messages:', matchingThread);
+      }
       
       // Set the fetched conversation and show it
       setSelectedConversationId(conversation.id);
@@ -329,7 +379,7 @@ export default function App() {
       {/* Navigation Tabs */}
       <nav className="border-b bg-white">
         <div className="container mx-auto px-4">
-          <div className="flex space-x-8">
+          <div className="flex space-x-12">
             <button
               onClick={() => setActiveTab('dashboard')}
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
@@ -379,16 +429,32 @@ export default function App() {
                     <div className="space-y-4">
                       <div>
                         <Label htmlFor="conversation-search" className="text-base font-medium">Conversation ID</Label>
-                        <Input
-                          id="conversation-search"
-                          type="text"
-                          value={conversationSearchId}
-                          onChange={(e) => setConversationSearchId(e.target.value)}
-                          onKeyDown={handleSearchKeyDown}
-                          placeholder="Paste your conversation ID here..."
-                          className="mt-2 text-center text-lg py-3"
-                          disabled={searchLoading}
-                        />
+                        <div className="flex gap-2 mt-2">
+                          <Input
+                            id="conversation-search"
+                            type="text"
+                            value={conversationSearchId}
+                            onChange={(e) => setConversationSearchId(e.target.value)}
+                            onKeyDown={handleSearchKeyDown}
+                            placeholder="Paste your conversation ID here..."
+                            className="flex-1 text-center text-lg py-3"
+                            disabled={searchLoading}
+                          />
+                          <Button
+                            onClick={handleConversationSearch}
+                            disabled={searchLoading || !conversationSearchId.trim() || !apiKey.trim()}
+                            size="lg"
+                            variant="outline"
+                            className="px-4 py-3"
+                            title="Search"
+                          >
+                            {searchLoading ? (
+                              <RefreshCw className="h-5 w-5 animate-spin" />
+                            ) : (
+                              <Search className="h-5 w-5" />
+                            )}
+                          </Button>
+                        </div>
                       </div>
                       
                       <Button
