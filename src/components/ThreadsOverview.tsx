@@ -119,6 +119,27 @@ export function ThreadsOverview({
       return new Set();
     }
   });
+
+  // Effect to re-read viewed conversations from localStorage when onConversationViewed is called
+  useEffect(() => {
+    const handleConversationViewed = (event: CustomEvent) => {
+      try {
+        const saved = localStorage.getItem('chatbot-dashboard-viewed-conversations');
+        const newViewedConversations = saved ? new Set(JSON.parse(saved)) : new Set();
+        setViewedConversations(newViewedConversations);
+        console.log('🔄 Refreshed viewed conversations from localStorage after navigation:', newViewedConversations.size);
+      } catch (error) {
+        console.error('Failed to refresh viewed conversations:', error);
+      }
+    };
+
+    // Listen for custom conversationViewed events
+    window.addEventListener('conversationViewed', handleConversationViewed as EventListener);
+
+    return () => {
+      window.removeEventListener('conversationViewed', handleConversationViewed as EventListener);
+    };
+  }, []);
   
   // Filters
   const [startDate, setStartDate] = useState('');

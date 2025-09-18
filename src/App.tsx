@@ -200,11 +200,23 @@ export default function App() {
     setThreadOrder(order);
   };
 
-  // Handle conversation viewed from ThreadsOverview
+  // Handle conversation viewed from ThreadsOverview or navigation
   const handleConversationViewed = (conversationId: string) => {
     console.log('📋 Conversation marked as viewed:', conversationId);
-    // The ThreadsOverview component already handles the localStorage update
-    // This is just for any additional logic we might need
+    
+    // Update localStorage to mark conversation as viewed
+    try {
+      const existingViewed = localStorage.getItem('chatbot-dashboard-viewed-conversations');
+      const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
+      viewedSet.add(conversationId);
+      localStorage.setItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
+      console.log('✅ Updated localStorage with viewed conversation:', conversationId);
+      
+      // Dispatch custom event to notify ThreadsOverview to refresh
+      window.dispatchEvent(new CustomEvent('conversationViewed', { detail: { conversationId } }));
+    } catch (error) {
+      console.error('Failed to save viewed conversation:', error);
+    }
   };
 
   // Mark conversation as viewed (for navigation)
@@ -267,8 +279,8 @@ export default function App() {
       setSelectedConversationId(conversation.id);
       setShowConversationOverlay(true);
       
-      // Mark conversation as viewed
-      markConversationAsViewed(conversation.id);
+      // Mark conversation as viewed through ThreadsOverview callback
+      handleConversationViewed(conversation.id);
       
       // Clear any previously selected thread
       setSelectedThread(undefined);
@@ -292,8 +304,8 @@ export default function App() {
       setSelectedConversationId(conversation.id);
       setShowConversationOverlay(true);
       
-      // Mark conversation as viewed
-      markConversationAsViewed(conversation.id);
+      // Mark conversation as viewed through ThreadsOverview callback
+      handleConversationViewed(conversation.id);
       
       // Clear any previously selected thread
       setSelectedThread(undefined);
