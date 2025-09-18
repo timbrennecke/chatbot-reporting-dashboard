@@ -382,30 +382,24 @@ export default function App() {
           <div className="flex">
             <button
               onClick={() => setActiveTab('dashboard')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-all duration-300 relative ${
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                 activeTab === 'dashboard'
-                  ? 'border-blue-500 text-blue-600 bg-gradient-to-b from-blue-50 to-blue-100 shadow-lg shadow-blue-200/50'
+                  ? 'border-blue-500 text-blue-600 bg-blue-50'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
               Dashboard
-              {activeTab === 'dashboard' && (
-                <div className="absolute -bottom-0.5 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-400 via-blue-500 to-blue-400 rounded-full shadow-lg shadow-blue-500/50"></div>
-              )}
             </button>
             <button
               onClick={() => setActiveTab('conversation-search')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-all duration-300 relative ${
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                 activeTab === 'conversation-search'
-                  ? 'border-blue-500 text-blue-600 bg-gradient-to-b from-blue-50 to-blue-100 shadow-lg shadow-blue-200/50'
+                  ? 'border-blue-500 text-blue-600 bg-blue-50'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
-              style={{ marginLeft: '40px' }}
+              style={{ marginLeft: '24px' }}
             >
               Conversation Search
-              {activeTab === 'conversation-search' && (
-                <div className="absolute -bottom-0.5 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-400 via-blue-500 to-blue-400 rounded-full shadow-lg shadow-blue-500/50"></div>
-              )}
             </button>
           </div>
         </div>
