@@ -434,6 +434,11 @@ export function ThreadsOverview({
       }
 
       return true;
+    }).sort((a, b) => {
+      // Sort by createdAt timestamp with most recent first (descending order)
+      const timeA = new Date(a.createdAt).getTime();
+      const timeB = new Date(b.createdAt).getTime();
+      return timeB - timeA; // Most recent first
     });
   }, [threads, searchTerm, hasUiFilter, hasLinkoutFilter, messageSearchEnabled, messageSearchTerm, fetchedConversations, conversationsFetched]);
 
