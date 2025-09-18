@@ -54,6 +54,7 @@ interface ThreadsOverviewProps {
   onThreadSelect?: (thread: Thread) => void;
   onConversationSelect?: (conversationId: string) => void;
   onFetchedConversationsChange?: (conversations: Map<string, any>) => void;
+  onThreadOrderChange?: (threadOrder: string[]) => void;
 }
 
 export function ThreadsOverview({ 
@@ -61,7 +62,8 @@ export function ThreadsOverview({
   uploadedConversations = [],
   onThreadSelect, 
   onConversationSelect,
-  onFetchedConversationsChange
+  onFetchedConversationsChange,
+  onThreadOrderChange
 }: ThreadsOverviewProps) {
   const [threads, setThreads] = useState<Thread[]>(() => {
     // If we have uploaded threads, use them and clear any saved search results
@@ -661,6 +663,11 @@ export function ThreadsOverview({
       
       // Fetch these conversations in the background
       fetchConversationsForThreads(conversationsToFetch);
+      
+      // Notify parent about the thread order for navigation
+      const threadOrder = filteredThreads.map(thread => thread.conversationId);
+      console.log('📋 Thread order for navigation:', threadOrder);
+      onThreadOrderChange?.(threadOrder);
     }
     
     // Call the original onConversationSelect callback

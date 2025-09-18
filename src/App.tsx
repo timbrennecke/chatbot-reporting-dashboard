@@ -47,6 +47,7 @@ export default function App() {
   const [allConversations, setAllConversations] = useState<Conversation[]>([]);
   const [currentConversationIndex, setCurrentConversationIndex] = useState<number>(-1);
   const [fetchedConversationsMap, setFetchedConversationsMap] = useState<Map<string, any>>(new Map());
+  const [threadOrder, setThreadOrder] = useState<string[]>([]);
 
   // Save API key to localStorage
   const handleApiKeyChange = (newApiKey: string) => {
@@ -186,6 +187,12 @@ export default function App() {
     });
   };
 
+  // Handle thread order from ThreadsOverview
+  const handleThreadOrderChange = (order: string[]) => {
+    console.log('📋 Thread order received:', order);
+    setThreadOrder(order);
+  };
+
   // Update all conversations list when data changes
   useEffect(() => {
     const conversations: Conversation[] = [];
@@ -196,19 +203,24 @@ export default function App() {
       console.log('📚 Added uploaded conversations:', uploadedData.conversations.length);
     }
     
-    // Add fetched conversations from threads
-    if (fetchedConversationsMap.size > 0) {
+    // Add fetched conversations from threads in the order from threads table
+    if (fetchedConversationsMap.size > 0 && threadOrder.length > 0) {
+      // Sort conversations by thread order
+      const orderedConversations = threadOrder
+        .map(id => fetchedConversationsMap.get(id))
+        .filter(conv => conv !== undefined);
+      conversations.push(...orderedConversations);
+      console.log('📚 Added fetched conversations in thread order:', orderedConversations.length);
+    } else if (fetchedConversationsMap.size > 0) {
+      // Fallback to original order if no thread order available
       const fetchedConversations = Array.from(fetchedConversationsMap.values());
       conversations.push(...fetchedConversations);
-      console.log('📚 Added fetched conversations:', fetchedConversations.length);
+      console.log('📚 Added fetched conversations (no order):', fetchedConversations.length);
     }
-    
-    // Sort by creation date (most recent first)
-    conversations.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     
     setAllConversations(conversations);
     console.log('📚 All conversations updated:', conversations.length, 'total');
-    console.log('📚 Conversations available:', conversations.map(c => c.id));
+    console.log('📚 Conversations in order:', conversations.map(c => c.id));
     
     // Update current conversation index when selectedConversationId changes
     if (selectedConversationId) {
@@ -218,7 +230,7 @@ export default function App() {
     } else {
       setCurrentConversationIndex(-1);
     }
-  }, [uploadedData, fetchedConversationsMap, selectedConversationId]);
+  }, [uploadedData, fetchedConversationsMap, threadOrder, selectedConversationId]);
 
   // Navigation handlers
   const handlePreviousConversation = () => {
@@ -529,6 +541,7 @@ export default function App() {
               onThreadSelect={handleThreadSelect}
               onConversationSelect={handleConversationSelect}
               onFetchedConversationsChange={handleFetchedConversationsChange}
+              onThreadOrderChange={handleThreadOrderChange}
             />
           )}
           
