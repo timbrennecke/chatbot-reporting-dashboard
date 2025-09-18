@@ -219,90 +219,36 @@ export default function App() {
     }
   };
 
-  // Update all conversations list when data changes
+  // Simple approach: just use threadOrder directly as the navigation list
   useEffect(() => {
-    const conversations: Conversation[] = [];
-    
-    // Add uploaded conversations
-    if (uploadedData.conversations) {
-      conversations.push(...uploadedData.conversations);
-      console.log('📚 Added uploaded conversations:', uploadedData.conversations.length);
-    }
-    
-    // Add fetched conversations from threads in the order from threads table
     if (threadOrder.length > 0) {
-      // Map all conversations from threadOrder, creating placeholders for unfetched ones
-      const orderedConversations = threadOrder.map(id => {
-        const fetchedConv = fetchedConversationsMap.get(id);
-        if (fetchedConv) {
-          return fetchedConv;
-        } else {
-          // Create a placeholder for navigation purposes
-          return { id, title: 'Loading...', messages: [], isPlaceholder: true };
-        }
-      });
-      conversations.push(...orderedConversations);
-      console.log('📚 Added conversations from thread order:', orderedConversations.length, 'total (fetched:', fetchedConversationsMap.size, ')');
-    } else if (fetchedConversationsMap.size > 0) {
-      // Fallback to original order if no thread order available yet
-      const fetchedConversations = Array.from(fetchedConversationsMap.values());
-      conversations.push(...fetchedConversations);
-      console.log('📚 Added fetched conversations (no thread order yet):', fetchedConversations.length);
-    }
-    
-    console.log('📚 All conversations updated:', conversations.length, 'total');
-    console.log('📚 Conversations in order:', conversations.map(c => c.id));
-    
-    // Update current conversation index when selectedConversationId changes
-    if (selectedConversationId) {
-      const index = conversations.findIndex(conv => conv.id === selectedConversationId);
-      console.log('🔍 Finding conversation index for', selectedConversationId, '-> index:', index);
-      console.log('🔍 Available conversation IDs:', conversations.map(c => c.id));
+      setAllConversations(threadOrder.map(id => ({ id, title: 'Loading...', messages: [] })));
       
-      if (index === -1) {
-        console.log('❌ Selected conversation not found in navigation list!');
-        console.log('🔍 ThreadOrder length:', threadOrder.length);
-        console.log('🔍 FetchedConversationsMap size:', fetchedConversationsMap.size);
-        console.log('🔍 ThreadOrder contents:', threadOrder.slice(0, 5), '...');
-        console.log('🔍 Selected conversation ID:', selectedConversationId);
-        
-        // If we have a thread order but the conversation isn't found,
-        // it might be that we need to wait for it to be fetched
-        if (threadOrder.includes(selectedConversationId)) {
-          console.log('✅ Conversation is in thread order, should be available soon');
-        } else {
-          console.log('❌ Conversation is NOT in thread order! This is the problem.');
-          console.log('🔧 Force-adding selected conversation to navigation list');
-          
-          // Force add the selected conversation as a placeholder
-          const placeholder = { 
-            id: selectedConversationId, 
-            title: 'Loading...', 
-            messages: [], 
-            isPlaceholder: true 
-          };
-          conversations.push(placeholder);
-          
-          console.log('🔧 Updated conversations list with placeholder, new length:', conversations.length);
-          
-          // Recalculate index after adding placeholder
-          const newIndex = conversations.findIndex(conv => conv.id === selectedConversationId);
-          console.log('🔧 New index after adding placeholder:', newIndex);
-          setAllConversations(conversations);
-          setCurrentConversationIndex(newIndex);
-        } else {
-          setAllConversations(conversations);
-          setCurrentConversationIndex(index);
-        }
-      } else {
-        setAllConversations(conversations);
+      if (selectedConversationId && threadOrder.includes(selectedConversationId)) {
+        const index = threadOrder.indexOf(selectedConversationId);
         setCurrentConversationIndex(index);
+        console.log('🎯 Simple navigation: conversation', selectedConversationId, 'at index', index, 'of', threadOrder.length);
+      } else {
+        setCurrentConversationIndex(-1);
+        console.log('❌ Simple navigation: conversation not found in threadOrder');
+      }
+    } else if (uploadedData.conversations && uploadedData.conversations.length > 0) {
+      // Fallback to uploaded conversations
+      setAllConversations(uploadedData.conversations);
+      
+      if (selectedConversationId) {
+        const index = uploadedData.conversations.findIndex(conv => conv.id === selectedConversationId);
+        setCurrentConversationIndex(index);
+        console.log('🎯 Fallback navigation: using uploaded conversations, index:', index);
+      } else {
+        setCurrentConversationIndex(-1);
       }
     } else {
-      setAllConversations(conversations);
+      setAllConversations([]);
       setCurrentConversationIndex(-1);
+      console.log('📚 No conversations available for navigation');
     }
-  }, [uploadedData, fetchedConversationsMap, threadOrder, selectedConversationId]);
+  }, [threadOrder, selectedConversationId, uploadedData.conversations]);
 
   // Navigation handlers
   const handlePreviousConversation = () => {
