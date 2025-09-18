@@ -53,13 +53,15 @@ interface ThreadsOverviewProps {
   uploadedConversations?: any[];
   onThreadSelect?: (thread: Thread) => void;
   onConversationSelect?: (conversationId: string) => void;
+  onFetchedConversationsChange?: (conversations: Map<string, any>) => void;
 }
 
 export function ThreadsOverview({ 
   uploadedThreads, 
   uploadedConversations = [],
   onThreadSelect, 
-  onConversationSelect 
+  onConversationSelect,
+  onFetchedConversationsChange
 }: ThreadsOverviewProps) {
   const [threads, setThreads] = useState<Thread[]>(() => {
     // If we have uploaded threads, use them and clear any saved search results
@@ -282,6 +284,9 @@ export function ThreadsOverview({
       
       setConversationsFetched(true);
       console.log('✅ Fetched conversations for message search:', newConversations.size, 'conversations');
+      
+      // Notify parent component about fetched conversations
+      onFetchedConversationsChange?.(newConversations);
       
     } catch (error: any) {
       console.error('❌ Error fetching conversations:', error);

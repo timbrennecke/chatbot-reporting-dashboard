@@ -46,6 +46,7 @@ export default function App() {
   // Conversation navigation state
   const [allConversations, setAllConversations] = useState<Conversation[]>([]);
   const [currentConversationIndex, setCurrentConversationIndex] = useState<number>(-1);
+  const [fetchedConversationsMap, setFetchedConversationsMap] = useState<Map<string, any>>(new Map());
 
   // Save API key to localStorage
   const handleApiKeyChange = (newApiKey: string) => {
@@ -169,6 +170,12 @@ export default function App() {
     }
   };
 
+  // Handle fetched conversations from ThreadsOverview
+  const handleFetchedConversationsChange = (conversations: Map<string, any>) => {
+    setFetchedConversationsMap(conversations);
+    console.log('📚 Received fetched conversations:', conversations.size, 'total');
+  };
+
   // Update all conversations list when data changes
   useEffect(() => {
     const conversations: Conversation[] = [];
@@ -179,11 +186,19 @@ export default function App() {
       console.log('📚 Added uploaded conversations:', uploadedData.conversations.length);
     }
     
+    // Add fetched conversations from threads
+    if (fetchedConversationsMap.size > 0) {
+      const fetchedConversations = Array.from(fetchedConversationsMap.values());
+      conversations.push(...fetchedConversations);
+      console.log('📚 Added fetched conversations:', fetchedConversations.length);
+    }
+    
     // Sort by creation date (most recent first)
     conversations.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     
     setAllConversations(conversations);
     console.log('📚 All conversations updated:', conversations.length, 'total');
+    console.log('📚 Conversations available:', conversations.map(c => c.id));
     
     // Update current conversation index when selectedConversationId changes
     if (selectedConversationId) {
@@ -193,7 +208,7 @@ export default function App() {
     } else {
       setCurrentConversationIndex(-1);
     }
-  }, [uploadedData, selectedConversationId]);
+  }, [uploadedData, fetchedConversationsMap, selectedConversationId]);
 
   // Navigation handlers
   const handlePreviousConversation = () => {
@@ -487,6 +502,7 @@ export default function App() {
               uploadedConversations={uploadedData.conversations || []}
               onThreadSelect={handleThreadSelect}
               onConversationSelect={handleConversationSelect}
+              onFetchedConversationsChange={handleFetchedConversationsChange}
             />
           )}
           
