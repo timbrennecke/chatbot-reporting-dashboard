@@ -644,6 +644,8 @@ export function ThreadsOverview({
 
   // Handle conversation viewing
   const handleConversationView = (conversationId: string) => {
+    console.log('🎯 Conversation clicked:', conversationId);
+    
     // Mark conversation as viewed
     markConversationAsViewed(conversationId);
     
@@ -657,6 +659,8 @@ export function ThreadsOverview({
     // Notify parent about the thread order for navigation FIRST
     const threadOrder = filteredThreads.map(thread => thread.conversationId);
     console.log('📋 Thread order for navigation:', threadOrder.length, 'total threads');
+    console.log('📋 First 5 thread IDs:', threadOrder.slice(0, 5));
+    console.log('📋 Clicked conversation in thread order?', threadOrder.includes(conversationId));
     onThreadOrderChange?.(threadOrder);
     
     // Fetch more conversations for better navigation experience

@@ -250,7 +250,6 @@ export default function App() {
       console.log('📚 Added fetched conversations (no thread order yet):', fetchedConversations.length);
     }
     
-    setAllConversations(conversations);
     console.log('📚 All conversations updated:', conversations.length, 'total');
     console.log('📚 Conversations in order:', conversations.map(c => c.id));
     
@@ -264,16 +263,43 @@ export default function App() {
         console.log('❌ Selected conversation not found in navigation list!');
         console.log('🔍 ThreadOrder length:', threadOrder.length);
         console.log('🔍 FetchedConversationsMap size:', fetchedConversationsMap.size);
+        console.log('🔍 ThreadOrder contents:', threadOrder.slice(0, 5), '...');
+        console.log('🔍 Selected conversation ID:', selectedConversationId);
         
         // If we have a thread order but the conversation isn't found,
         // it might be that we need to wait for it to be fetched
         if (threadOrder.includes(selectedConversationId)) {
           console.log('✅ Conversation is in thread order, should be available soon');
+        } else {
+          console.log('❌ Conversation is NOT in thread order! This is the problem.');
+          console.log('🔧 Force-adding selected conversation to navigation list');
+          
+          // Force add the selected conversation as a placeholder
+          const placeholder = { 
+            id: selectedConversationId, 
+            title: 'Loading...', 
+            messages: [], 
+            isPlaceholder: true 
+          };
+          conversations.push(placeholder);
+          
+          console.log('🔧 Updated conversations list with placeholder, new length:', conversations.length);
+          
+          // Recalculate index after adding placeholder
+          const newIndex = conversations.findIndex(conv => conv.id === selectedConversationId);
+          console.log('🔧 New index after adding placeholder:', newIndex);
+          setAllConversations(conversations);
+          setCurrentConversationIndex(newIndex);
+        } else {
+          setAllConversations(conversations);
+          setCurrentConversationIndex(index);
         }
+      } else {
+        setAllConversations(conversations);
+        setCurrentConversationIndex(index);
       }
-      
-      setCurrentConversationIndex(index);
     } else {
+      setAllConversations(conversations);
       setCurrentConversationIndex(-1);
     }
   }, [uploadedData, fetchedConversationsMap, threadOrder, selectedConversationId]);
