@@ -204,18 +204,20 @@ export default function App() {
     }
     
     // Add fetched conversations from threads in the order from threads table
-    if (fetchedConversationsMap.size > 0 && threadOrder.length > 0) {
-      // Sort conversations by thread order
-      const orderedConversations = threadOrder
-        .map(id => fetchedConversationsMap.get(id))
-        .filter(conv => conv !== undefined);
-      conversations.push(...orderedConversations);
-      console.log('📚 Added fetched conversations in thread order:', orderedConversations.length);
-    } else if (fetchedConversationsMap.size > 0) {
-      // Fallback to original order if no thread order available
-      const fetchedConversations = Array.from(fetchedConversationsMap.values());
-      conversations.push(...fetchedConversations);
-      console.log('📚 Added fetched conversations (no order):', fetchedConversations.length);
+    if (fetchedConversationsMap.size > 0) {
+      if (threadOrder.length > 0) {
+        // Sort conversations by thread order
+        const orderedConversations = threadOrder
+          .map(id => fetchedConversationsMap.get(id))
+          .filter(conv => conv !== undefined);
+        conversations.push(...orderedConversations);
+        console.log('📚 Added fetched conversations in thread order:', orderedConversations.length, 'threadOrder:', threadOrder.length);
+      } else {
+        // Fallback to original order if no thread order available yet
+        const fetchedConversations = Array.from(fetchedConversationsMap.values());
+        conversations.push(...fetchedConversations);
+        console.log('📚 Added fetched conversations (no thread order yet):', fetchedConversations.length);
+      }
     }
     
     setAllConversations(conversations);
@@ -288,7 +290,10 @@ export default function App() {
     hasPreviousConversation, 
     hasNextConversation,
     selectedConversationId,
-    allConversationIds: allConversations.map(c => c.id)
+    allConversationIds: allConversations.map(c => c.id),
+    fetchedConversationsMapSize: fetchedConversationsMap.size,
+    threadOrderLength: threadOrder.length,
+    uploadedConversationsCount: uploadedData.conversations?.length || 0
   });
 
   // Load data from localStorage on component mount
