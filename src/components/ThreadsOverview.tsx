@@ -641,6 +641,28 @@ export function ThreadsOverview({
       onThreadSelect(associatedThread);
     }
     
+    // Fetch neighboring conversations for navigation
+    const currentIndex = filteredThreads.findIndex(thread => thread.conversationId === conversationId);
+    if (currentIndex !== -1) {
+      const conversationsToFetch = [];
+      
+      // Add previous conversation
+      if (currentIndex > 0) {
+        conversationsToFetch.push(filteredThreads[currentIndex - 1]);
+      }
+      
+      // Add current conversation
+      conversationsToFetch.push(filteredThreads[currentIndex]);
+      
+      // Add next conversation
+      if (currentIndex < filteredThreads.length - 1) {
+        conversationsToFetch.push(filteredThreads[currentIndex + 1]);
+      }
+      
+      // Fetch these conversations in the background
+      fetchConversationsForThreads(conversationsToFetch);
+    }
+    
     // Call the original onConversationSelect callback
     onConversationSelect?.(conversationId);
   };
