@@ -644,7 +644,9 @@ export function ThreadsOverview({
 
   // Handle conversation viewing
   const handleConversationView = (conversationId: string) => {
-    console.log('🎯 Conversation clicked:', conversationId);
+    console.log('👆 handleConversationView called with:', conversationId);
+    console.log('👆 filteredThreads length:', filteredThreads.length);
+    console.log('👆 onThreadOrderChange available?', !!onThreadOrderChange);
     
     // Mark conversation as viewed
     markConversationAsViewed(conversationId);

@@ -195,7 +195,8 @@ export default function App() {
 
   // Handle thread order from ThreadsOverview
   const handleThreadOrderChange = (order: string[]) => {
-    console.log('📋 Thread order received:', order);
+    console.log('📋 Thread order received in App.tsx:', order.length, 'conversations');
+    console.log('📋 First 3 IDs:', order.slice(0, 3));
     setThreadOrder(order);
   };
 
