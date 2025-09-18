@@ -379,7 +379,7 @@ export default function App() {
       {/* Navigation Tabs */}
       <nav className="border-b bg-white">
         <div className="container mx-auto px-4">
-          <div className="flex space-x-12">
+          <div className="flex space-x-16">
             <button
               onClick={() => setActiveTab('dashboard')}
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
