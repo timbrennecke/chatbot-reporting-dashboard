@@ -433,9 +433,6 @@ export default function App() {
   };
 
   const handleConversationSelect = (conversationId: string) => {
-    console.log('🚨 handleConversationSelect called directly (BYPASSING navigation setup):', conversationId);
-    console.log('🚨 This should only be called from within handleConversationView!');
-    console.trace('🚨 Call stack trace:');
     setSelectedConversationId(conversationId);
     setShowConversationOverlay(true);
   };

@@ -1169,7 +1169,7 @@ export function ThreadsOverview({
                           onCheckedChange={() => toggleThreadSelection(thread.id)}
                         />
                       </TableCell>
-                      <TableCell onClick={() => handleThreadView(thread)} className="py-4">
+                      <TableCell onClick={() => handleConversationView(thread.conversationId)} className="py-4">
                         <div className="flex items-center gap-2">
                           <div>
                             <div className={`${!isAnyViewed ? 'font-bold' : ''} text-foreground`}>{parsed.id}</div>
@@ -1199,17 +1199,17 @@ export function ThreadsOverview({
                           )}
                         </div>
                       </TableCell>
-                      <TableCell onClick={() => handleThreadView(thread)} className="py-4">
+                      <TableCell onClick={() => handleConversationView(thread.conversationId)} className="py-4">
                         {formatTimestamp(thread.createdAt)}
                       </TableCell>
-                      <TableCell onClick={() => handleThreadView(thread)} className="py-4">
+                      <TableCell onClick={() => handleConversationView(thread.conversationId)} className="py-4">
                         {uiCount > 0 ? (
                           <Badge variant="outline">{uiCount}</Badge>
                         ) : (
                           '-'
                         )}
                       </TableCell>
-                      <TableCell onClick={() => handleThreadView(thread)} className="py-4">
+                      <TableCell onClick={() => handleConversationView(thread.conversationId)} className="py-4">
                         {linkoutCount > 0 ? (
                           <Badge variant="outline">{linkoutCount}</Badge>
                         ) : (
