@@ -643,30 +643,28 @@ export function ThreadsOverview({
       onThreadSelect(associatedThread);
     }
     
-    // Fetch neighboring conversations for navigation
+    // Fetch more conversations for better navigation experience
     const currentIndex = filteredThreads.findIndex(thread => thread.conversationId === conversationId);
     if (currentIndex !== -1) {
       const conversationsToFetch = [];
       
-      // Add previous conversation
-      if (currentIndex > 0) {
-        conversationsToFetch.push(filteredThreads[currentIndex - 1]);
+      // Fetch a wider range around the current conversation (5 before, current, 5 after)
+      const rangeSize = 5;
+      const startIndex = Math.max(0, currentIndex - rangeSize);
+      const endIndex = Math.min(filteredThreads.length - 1, currentIndex + rangeSize);
+      
+      for (let i = startIndex; i <= endIndex; i++) {
+        conversationsToFetch.push(filteredThreads[i]);
       }
       
-      // Add current conversation
-      conversationsToFetch.push(filteredThreads[currentIndex]);
-      
-      // Add next conversation
-      if (currentIndex < filteredThreads.length - 1) {
-        conversationsToFetch.push(filteredThreads[currentIndex + 1]);
-      }
+      console.log(`📚 Fetching ${conversationsToFetch.length} conversations around index ${currentIndex} (range: ${startIndex}-${endIndex})`);
       
       // Fetch these conversations in the background
       fetchConversationsForThreads(conversationsToFetch);
       
       // Notify parent about the thread order for navigation
       const threadOrder = filteredThreads.map(thread => thread.conversationId);
-      console.log('📋 Thread order for navigation:', threadOrder);
+      console.log('📋 Thread order for navigation:', threadOrder.length, 'total threads');
       onThreadOrderChange?.(threadOrder);
     }
     
