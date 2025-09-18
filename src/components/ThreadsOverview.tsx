@@ -719,42 +719,6 @@ export function ThreadsOverview({
       )}
 
 
-      {/* Search & Filters */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2">
-          <div className="flex gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by thread ID or conversation ID"
-                  className="pl-10 h-9"
-                  onChange={(e) => debouncedSearch(e.target.value)}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <div className="flex flex-wrap gap-3">
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              id="hasUi"
-              checked={hasUiFilter}
-              onCheckedChange={(checked) => setHasUiFilter(checked as boolean)}
-            />
-            <Label htmlFor="hasUi" className="text-sm">Has UI Components</Label>
-          </div>
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              id="hasLinkout"
-              checked={hasLinkoutFilter}
-              onCheckedChange={(checked) => setHasLinkoutFilter(checked as boolean)}
-            />
-            <Label htmlFor="hasLinkout" className="text-sm">Has Linkouts</Label>
-          </div>
-        </div>
-      </div>
 
       {/* API Search Section - always show for direct API calls */}
       <Card>
@@ -1055,6 +1019,49 @@ export function ThreadsOverview({
                   ))}
                 </div>
               )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Search & Filters - positioned between API search and threads table */}
+      {threads.length > 0 && (
+        <Card className="bg-slate-50/50">
+          <CardContent className="p-4">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="lg:col-span-2">
+                <div className="flex gap-4">
+                  <div className="flex-1">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Search by thread ID or conversation ID"
+                        className="pl-10 h-9 bg-white"
+                        onChange={(e) => debouncedSearch(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex flex-wrap gap-3">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="hasUi"
+                    checked={hasUiFilter}
+                    onCheckedChange={(checked) => setHasUiFilter(checked as boolean)}
+                  />
+                  <Label htmlFor="hasUi" className="text-sm">Has UI Components</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="hasLinkout"
+                    checked={hasLinkoutFilter}
+                    onCheckedChange={(checked) => setHasLinkoutFilter(checked as boolean)}
+                  />
+                  <Label htmlFor="hasLinkout" className="text-sm">Has Linkouts</Label>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
