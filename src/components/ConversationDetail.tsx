@@ -439,26 +439,28 @@ export function ConversationDetail({
                 </div>
                 
                 {/* Navigation Arrows */}
-                <div className="flex items-center gap-2 mr-4">
+                <div className="flex items-center gap-3 mr-4">
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={onPreviousConversation}
                     disabled={!hasPreviousConversation}
-                    className={`h-8 w-8 p-0 ${!hasPreviousConversation ? 'text-gray-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`}
+                    className={`flex items-center gap-1 px-3 py-2 h-auto ${!hasPreviousConversation ? 'text-gray-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`}
                     title="Previous Chat"
                   >
-                    <ChevronLeft className="h-4 w-4" />
+                    <ChevronLeft className="h-5 w-5" />
+                    <span className="text-sm font-medium">Previous Chat</span>
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={onNextConversation}
                     disabled={!hasNextConversation}
-                    className={`h-8 w-8 p-0 ${!hasNextConversation ? 'text-gray-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`}
+                    className={`flex items-center gap-1 px-3 py-2 h-auto ${!hasNextConversation ? 'text-gray-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`}
                     title="Next Chat"
                   >
-                    <ChevronRight className="h-4 w-4" />
+                    <span className="text-sm font-medium">Next Chat</span>
+                    <ChevronRight className="h-5 w-5" />
                   </Button>
                 </div>
                 
@@ -798,26 +800,28 @@ export function ConversationDetail({
                     </div>
                     
                     {/* Navigation Arrows */}
-                    <div className="flex items-center gap-2 mr-4">
+                    <div className="flex items-center gap-3 mr-4">
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={onPreviousConversation}
                         disabled={!hasPreviousConversation}
-                        className={`h-8 w-8 p-0 ${!hasPreviousConversation ? 'text-gray-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`}
+                        className={`flex items-center gap-1 px-3 py-2 h-auto ${!hasPreviousConversation ? 'text-gray-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`}
                         title="Previous Chat"
                       >
-                        <ChevronLeft className="h-4 w-4" />
+                        <ChevronLeft className="h-5 w-5" />
+                        <span className="text-sm font-medium">Previous Chat</span>
                       </Button>
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={onNextConversation}
                         disabled={!hasNextConversation}
-                        className={`h-8 w-8 p-0 ${!hasNextConversation ? 'text-gray-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`}
+                        className={`flex items-center gap-1 px-3 py-2 h-auto ${!hasNextConversation ? 'text-gray-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`}
                         title="Next Chat"
                       >
-                        <ChevronRight className="h-4 w-4" />
+                        <span className="text-sm font-medium">Next Chat</span>
+                        <ChevronRight className="h-5 w-5" />
                       </Button>
                     </div>
                     

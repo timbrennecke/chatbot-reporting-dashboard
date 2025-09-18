@@ -176,25 +176,32 @@ export default function App() {
     // Add uploaded conversations
     if (uploadedData.conversations) {
       conversations.push(...uploadedData.conversations);
+      console.log('📚 Added uploaded conversations:', uploadedData.conversations.length);
     }
     
     // Sort by creation date (most recent first)
     conversations.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     
     setAllConversations(conversations);
+    console.log('📚 All conversations updated:', conversations.length, 'total');
     
     // Update current conversation index when selectedConversationId changes
     if (selectedConversationId) {
       const index = conversations.findIndex(conv => conv.id === selectedConversationId);
+      console.log('🔍 Finding conversation index for', selectedConversationId, '-> index:', index);
       setCurrentConversationIndex(index);
+    } else {
+      setCurrentConversationIndex(-1);
     }
   }, [uploadedData, selectedConversationId]);
 
   // Navigation handlers
   const handlePreviousConversation = () => {
-    if (currentConversationIndex > 0) {
+    console.log('🔄 Previous conversation clicked', { currentConversationIndex, allConversations: allConversations.length });
+    if (currentConversationIndex > 0 && allConversations.length > 0) {
       const newIndex = currentConversationIndex - 1;
       const conversation = allConversations[newIndex];
+      console.log('🔄 Navigating to previous conversation:', conversation.id, 'at index', newIndex);
       setSelectedConversationId(conversation.id);
       setCurrentConversationIndex(newIndex);
       setShowConversationOverlay(true);
@@ -205,9 +212,11 @@ export default function App() {
   };
 
   const handleNextConversation = () => {
-    if (currentConversationIndex < allConversations.length - 1) {
+    console.log('🔄 Next conversation clicked', { currentConversationIndex, allConversations: allConversations.length });
+    if (currentConversationIndex >= 0 && currentConversationIndex < allConversations.length - 1) {
       const newIndex = currentConversationIndex + 1;
       const conversation = allConversations[newIndex];
+      console.log('🔄 Navigating to next conversation:', conversation.id, 'at index', newIndex);
       setSelectedConversationId(conversation.id);
       setCurrentConversationIndex(newIndex);
       setShowConversationOverlay(true);
@@ -220,6 +229,14 @@ export default function App() {
   // Check if navigation is available
   const hasPreviousConversation = currentConversationIndex > 0;
   const hasNextConversation = currentConversationIndex >= 0 && currentConversationIndex < allConversations.length - 1;
+  
+  console.log('🔍 Navigation state:', { 
+    currentConversationIndex, 
+    allConversationsCount: allConversations.length,
+    hasPreviousConversation, 
+    hasNextConversation,
+    selectedConversationId 
+  });
 
   // Load data from localStorage on component mount
   useEffect(() => {
