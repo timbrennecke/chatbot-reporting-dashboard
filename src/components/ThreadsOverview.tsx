@@ -643,6 +643,11 @@ export function ThreadsOverview({
       onThreadSelect(associatedThread);
     }
     
+    // Notify parent about the thread order for navigation FIRST
+    const threadOrder = filteredThreads.map(thread => thread.conversationId);
+    console.log('📋 Thread order for navigation:', threadOrder.length, 'total threads');
+    onThreadOrderChange?.(threadOrder);
+    
     // Fetch more conversations for better navigation experience
     const currentIndex = filteredThreads.findIndex(thread => thread.conversationId === conversationId);
     if (currentIndex !== -1) {
@@ -661,11 +666,6 @@ export function ThreadsOverview({
       
       // Fetch these conversations in the background
       fetchConversationsForThreads(conversationsToFetch);
-      
-      // Notify parent about the thread order for navigation
-      const threadOrder = filteredThreads.map(thread => thread.conversationId);
-      console.log('📋 Thread order for navigation:', threadOrder.length, 'total threads');
-      onThreadOrderChange?.(threadOrder);
     }
     
     // Call the original onConversationSelect callback
