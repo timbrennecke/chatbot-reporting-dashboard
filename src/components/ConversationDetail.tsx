@@ -20,7 +20,9 @@ import {
   Eye,
   EyeOff,
   RefreshCw,
-  Key
+  Key,
+  Copy,
+  Check
 } from 'lucide-react';
 import { Conversation, Thread, Message, MessageContent } from '../lib/types';
 import { formatTimestamp, parseThreadId } from '../lib/utils';
@@ -182,6 +184,18 @@ export function ConversationDetail({
     return localStorage.getItem('chatbot-dashboard-api-key') || '';
   });
   const [showApiKey, setShowApiKey] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Copy to clipboard function
+  const copyToClipboard = async (text: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000); // Reset after 2 seconds
+    } catch (err) {
+      console.error('Failed to copy text: ', err);
+    }
+  };
 
   // Determine which conversation data to use
   const activeConversation = useMemo(() => {
@@ -374,9 +388,44 @@ export function ConversationDetail({
           <Card className="border-slate-200 shadow-sm">
             <CardHeader className="bg-slate-50/50">
               <div className="flex justify-between items-start">
-                <div>
+                <div className="flex-1">
                   <CardTitle className="text-slate-800">{uploadedConversation.title || 'Uploaded Conversation'}</CardTitle>
-                  <CardDescription className="text-slate-600">ID: {uploadedConversation.id}</CardDescription>
+                  <div className="space-y-1 mt-1">
+                    <div className="flex items-center gap-2">
+                      <CardDescription className="text-slate-600">Conversation ID: {uploadedConversation.id}</CardDescription>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => copyToClipboard(uploadedConversation.id, 'uploaded-conversation')}
+                        className="h-6 w-6 p-0 hover:bg-slate-100"
+                        title="Copy Conversation ID"
+                      >
+                        {copiedId === 'uploaded-conversation' ? (
+                          <Check className="h-3 w-3 text-green-600" />
+                        ) : (
+                          <Copy className="h-3 w-3 text-slate-500" />
+                        )}
+                      </Button>
+                    </div>
+                    {selectedThread?.id && (
+                      <div className="flex items-center gap-2">
+                        <CardDescription className="text-slate-600">Thread ID: {selectedThread.id}</CardDescription>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => copyToClipboard(selectedThread.id, 'uploaded-thread')}
+                          className="h-6 w-6 p-0 hover:bg-slate-100"
+                          title="Copy Thread ID"
+                        >
+                          {copiedId === 'uploaded-thread' ? (
+                            <Check className="h-3 w-3 text-green-600" />
+                          ) : (
+                            <Copy className="h-3 w-3 text-slate-500" />
+                          )}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-300">
                   {countMessagesExcludingUI(uploadedConversation.messages || [])} messages
@@ -673,9 +722,44 @@ export function ConversationDetail({
               <Card className="border-slate-200 shadow-sm">
                 <CardHeader className="bg-slate-50/50">
                   <div className="flex justify-between items-start">
-                    <div>
+                    <div className="flex-1">
                       <CardTitle className="text-slate-800">{fetchedConversation.title || 'Fetched Conversation'}</CardTitle>
-                      <CardDescription className="text-slate-600">ID: {fetchedConversation.id}</CardDescription>
+                      <div className="space-y-1 mt-1">
+                        <div className="flex items-center gap-2">
+                          <CardDescription className="text-slate-600">Conversation ID: {fetchedConversation.id}</CardDescription>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => copyToClipboard(fetchedConversation.id, 'fetched-conversation')}
+                            className="h-6 w-6 p-0 hover:bg-slate-100"
+                            title="Copy Conversation ID"
+                          >
+                            {copiedId === 'fetched-conversation' ? (
+                              <Check className="h-3 w-3 text-green-600" />
+                            ) : (
+                              <Copy className="h-3 w-3 text-slate-500" />
+                            )}
+                          </Button>
+                        </div>
+                        {selectedThread?.id && (
+                          <div className="flex items-center gap-2">
+                            <CardDescription className="text-slate-600">Thread ID: {selectedThread.id}</CardDescription>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => copyToClipboard(selectedThread.id, 'fetched-thread')}
+                              className="h-6 w-6 p-0 hover:bg-slate-100"
+                              title="Copy Thread ID"
+                            >
+                              {copiedId === 'fetched-thread' ? (
+                                <Check className="h-3 w-3 text-green-600" />
+                              ) : (
+                                <Copy className="h-3 w-3 text-slate-500" />
+                              )}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-300">
                       {countMessagesExcludingUI(fetchedConversation.messages || [])} messages
