@@ -26,6 +26,10 @@
       "destination": "https://api.bot.check24-test.de/conversation/$1"
     },
     {
+      "source": "/api-test/thread",
+      "destination": "https://api.bot.check24-test.de/thread"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
@@ -33,6 +37,19 @@
   "headers": [
     {
       "source": "/api-test/conversation/(.*)",
+      "headers": [
+        {
+          "key": "X-Forwarded-Host",
+          "value": "$host"
+        },
+        {
+          "key": "X-Forwarded-Proto",
+          "value": "$scheme"
+        }
+      ]
+    },
+    {
+      "source": "/api-test/thread",
       "headers": [
         {
           "key": "X-Forwarded-Host",
