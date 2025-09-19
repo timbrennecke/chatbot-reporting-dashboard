@@ -918,7 +918,7 @@ export default function App() {
                 🤖
               </div>
               <div>
-                <h1 className="text-xl font-bold">CHECK24 Bot Dashboard</h1>
+                <h1 className="text-xl font-bold" style={{ color: '#191970' }}>CHECK24 Bot Dashboard</h1>
               </div>
             </div>
             
