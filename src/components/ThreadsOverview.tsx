@@ -1107,7 +1107,14 @@ export function ThreadsOverview({
         <Card className="mb-8">
           <CardHeader>
             <div className="flex flex-col gap-4">
-              <CardTitle>Threads ({filteredThreads.length})</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle>Threads ({filteredThreads.length})</CardTitle>
+                {startDate && endDate && !uploadedThreads?.length && (
+                  <div className="text-sm text-muted-foreground bg-slate-50 px-3 py-1 rounded-md border">
+                    <span className="font-medium">Search period:</span> {new Date(startDate).toLocaleDateString()} - {new Date(endDate).toLocaleDateString()}
+                  </div>
+                )}
+              </div>
               
               {/* Search & Filters integrated into threads container */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

@@ -600,6 +600,19 @@ export function ConversationDetail({
                             <Clock className="h-3 w-3" />
                             {formatTimestamp(message.sentAt)}
                           </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => copyToClipboard(consolidatedText, `message-${message.id}`)}
+                            className="h-6 w-6 p-0 hover:bg-slate-100"
+                            title="Copy message content"
+                          >
+                            {copiedId === `message-${message.id}` ? (
+                              <Check className="h-3 w-3 text-green-600" />
+                            ) : (
+                              <Copy className="h-3 w-3 text-slate-500" />
+                            )}
+                          </Button>
                         </div>
                         
                         {/* Message content bubble */}
@@ -968,6 +981,19 @@ export function ConversationDetail({
                                 <Clock className="h-3 w-3" />
                                 {formatTimestamp(message.sentAt)}
                               </span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => copyToClipboard(consolidatedText, `message-${message.id}`)}
+                                className="h-6 w-6 p-0 hover:bg-slate-100"
+                                title="Copy message content"
+                              >
+                                {copiedId === `message-${message.id}` ? (
+                                  <Check className="h-3 w-3 text-green-600" />
+                                ) : (
+                                  <Copy className="h-3 w-3 text-slate-500" />
+                                )}
+                              </Button>
                             </div>
                             
                             {/* Message content bubble */}
