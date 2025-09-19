@@ -123,6 +123,26 @@ The application includes proxy configuration for API endpoints:
 - **Storage**: 500MB free space
 - **Browser**: Chrome, Firefox, Safari, or Edge (latest versions)
 
+## 🚀 Launching the Dashboard (After Installation)
+
+Once installed, you can easily start the dashboard using these launchers:
+
+### **Quick Launch (No Security Warnings):**
+- **Double-click** `dashboard-launcher.command` to start/open the dashboard
+- Automatically detects if already running and just opens browser
+- No security warnings, works directly
+
+### **GUI Launcher:**
+- **Right-click** → **Open** on `Chatbot Dashboard Launcher.app`
+- Smart detection of running instances
+- User-friendly dialogs and automatic browser opening
+
+### **Manual Launch:**
+```bash
+cd ~/Desktop/chatbot-reporting-dashboard
+npm run dev
+```
+
 ## 🔄 Updates
 
 To update to the latest version:
@@ -153,6 +173,23 @@ To update to the latest version:
 ### Getting Help:
 - Check the [Issues](https://github.com/timbrennecke/chatbot-reporting-dashboard/issues) page
 - Create a new issue with detailed error information
+
+## 📁 Available Files Summary
+
+### **Installation Files:**
+- `mac-installer.command` - 🌟 No security warnings installer (double-click)
+- `Simple Installer.app` - GUI installer with prerequisites guide (right-click → open)
+- `Chatbot Dashboard Installer.app` - Advanced GUI installer (right-click → open)
+- `fix-security.sh` - Removes security warnings from .app files
+- `easy-install.sh`, `deploy.sh`, `deploy.js`, `deploy.bat` - Terminal installers
+
+### **Launcher Files (After Installation):**
+- `dashboard-launcher.command` - 🌟 No security warnings launcher (double-click)
+- `Chatbot Dashboard Launcher.app` - GUI launcher (right-click → open)
+
+### **Documentation:**
+- `README.md` - This file with complete instructions
+- `SECURITY_INSTRUCTIONS.md` - Detailed security bypass guide
 
 ## 📄 License
 
