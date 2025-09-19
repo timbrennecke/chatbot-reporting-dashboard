@@ -1109,7 +1109,7 @@ export function ThreadsOverview({
             <div className="flex flex-col gap-4">
               <div className="flex items-center gap-4">
                 <CardTitle>Threads ({filteredThreads.length})</CardTitle>
-                {startDate && endDate && !uploadedThreads?.length && (
+                {startDate && endDate && !uploadedThreads?.length && threads.length > 0 && (
                   <div className="text-sm text-muted-foreground bg-slate-50 px-3 py-1 rounded-md border">
                     <span className="font-medium">Search period:</span> {new Date(startDate).toLocaleString('en-GB')} - {new Date(endDate).toLocaleString('en-GB')}
                   </div>
