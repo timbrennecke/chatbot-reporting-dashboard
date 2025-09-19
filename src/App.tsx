@@ -100,7 +100,7 @@ export default function App() {
       setGlobalOfflineMode(false);
     }
     
-    // Reset current selection state (but keep the data)
+    // Reset current selection state - ThreadsOverview will re-initialize due to key prop
     setSelectedConversationId(undefined);
     setSelectedThread(undefined);
     setConversationSearchId('');
@@ -659,6 +659,7 @@ export default function App() {
         <div className="space-y-6">
           {activeTab === 'dashboard' && (
             <ThreadsOverview
+              key={environment} // Force re-initialization when environment changes
               uploadedThreads={uploadedThreads}
               uploadedConversations={uploadedData.conversations || []}
               onThreadSelect={handleThreadSelect}
