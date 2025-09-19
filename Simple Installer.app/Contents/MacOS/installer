@@ -3,18 +3,44 @@
 # Simple Chatbot Dashboard Installer
 # This version provides clear guidance for installing prerequisites
 
-# Function to show dialogs
+# Enable error handling
+set -e
+
+# Add debugging
+exec > >(tee /tmp/simple-installer.log) 2>&1
+echo "Simple Installer starting at $(date)"
+
+# Function to show dialogs with error handling
 show_dialog() {
     local title="$1"
     local message="$2"
-    osascript -e "display dialog \"$message\" with title \"$title\" with icon informational buttons {\"OK\"} default button \"OK\""
+    echo "Showing dialog: $title - $message"
+    osascript -e "display dialog \"$message\" with title \"$title\" with icon informational buttons {\"OK\"} default button \"OK\"" || {
+        echo "Dialog failed, showing in Terminal instead"
+        echo "=== $title ==="
+        echo "$message"
+        read -p "Press Enter to continue..."
+    }
 }
 
 show_choice_dialog() {
     local title="$1"
     local message="$2"
+    echo "Showing choice dialog: $title"
     result=$(osascript -e "display dialog \"$message\" with title \"$title\" with icon question buttons {\"Cancel\", \"Continue\"} default button \"Continue\"" 2>/dev/null || echo "Cancel")
+    echo "Choice result: $result"
     echo "$result"
+}
+
+show_error() {
+    local title="$1"
+    local message="$2"
+    echo "ERROR: $title - $message"
+    osascript -e "display dialog \"$message\" with title \"$title\" with icon stop buttons {\"OK\"} default button \"OK\"" || {
+        echo "=== ERROR: $title ==="
+        echo "$message"
+        read -p "Press Enter to exit..."
+    }
 }
 
 # Function to check if prerequisites are installed
@@ -38,8 +64,20 @@ check_prerequisites() {
     echo "$missing"
 }
 
+# Error trap function
+error_exit() {
+    echo "Unexpected error occurred at line $1"
+    show_error "Installation Error" "An unexpected error occurred during installation.\n\nPlease check the log file at /tmp/simple-installer.log for details.\n\nIf you need help, contact support with the log file."
+    exit 1
+}
+
+# Set up error trapping
+trap 'error_exit $LINENO' ERR
+
 # Main function
 main() {
+    echo "Starting main function"
+    
     # Welcome message
     show_dialog "Welcome" "Welcome to the Chatbot Dashboard Installer!\n\nThis will guide you through installing the chatbot reporting dashboard on your Mac."
     

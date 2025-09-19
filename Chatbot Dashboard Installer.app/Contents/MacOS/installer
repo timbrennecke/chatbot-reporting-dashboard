@@ -66,8 +66,22 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Function to check if Homebrew is available
+homebrew_available() {
+    command_exists brew || [ -f "/opt/homebrew/bin/brew" ] || [ -f "/usr/local/bin/brew" ]
+}
+
+# Function to setup PATH for Homebrew
+setup_homebrew_path() {
+    # Add Homebrew paths to current session
+    export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+}
+
 # Function to check Node.js version
 check_node_version() {
+    # Ensure Homebrew paths are in PATH
+    setup_homebrew_path
+    
     if command_exists node; then
         local node_version=$(node -v | cut -d 'v' -f 2 | cut -d '.' -f 1)
         if [ "$node_version" -ge "$NODE_MIN_VERSION" ]; then
@@ -84,33 +98,43 @@ check_node_version() {
 install_prerequisites_automatically() {
     print_status "Installing prerequisites automatically..."
     
-    # Check if Homebrew is installed
-    if ! command_exists brew; then
-        show_dialog "Installing Homebrew" "First, we need to install Homebrew (the package manager for macOS).\n\nThis will open Terminal and may ask for your password."
+    # Check if Homebrew is installed (check common locations)
+    BREW_PATH=""
+    if command_exists brew; then
+        BREW_PATH="brew"
+    elif [ -f "/opt/homebrew/bin/brew" ]; then
+        BREW_PATH="/opt/homebrew/bin/brew"
+    elif [ -f "/usr/local/bin/brew" ]; then
+        BREW_PATH="/usr/local/bin/brew"
+    fi
+    
+    if [ -z "$BREW_PATH" ]; then
+        show_dialog "Installing Homebrew" "First, we need to install Homebrew (the package manager for macOS).\n\nThis will open Terminal and may ask for your password.\n\nAfter installation completes, please run this installer again."
         
-        # Install Homebrew
-        osascript << EOF
+        # Install Homebrew with complete setup
+        osascript << 'EOF'
 tell application "Terminal"
     activate
-    do script "/bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+    do script "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh) && echo '' && echo '=== HOMEBREW INSTALLATION COMPLETE ===' && echo 'Please CLOSE this Terminal window and run the Chatbot Dashboard Installer again.' && echo '' && read -p 'Press Enter to close this window...' && exit\""
 end tell
 EOF
         
-        show_dialog "Homebrew Installation" "Please complete the Homebrew installation in Terminal, then run this installer again."
+        show_dialog "Homebrew Installation" "Homebrew installation has started in Terminal.\n\n⚠️ IMPORTANT: After the installation completes:\n1. Close the Terminal window\n2. Run this installer again\n\nThe installer will then proceed with installing Node.js automatically."
         exit 0
     fi
     
     # Install Node.js using Homebrew
     show_dialog "Installing Node.js" "Installing Node.js and npm using Homebrew.\n\nThis may take a few minutes..."
     
+    # Use the correct Homebrew path and ensure PATH is set
     osascript << EOF
 tell application "Terminal"
     activate
-    do script "brew install node && echo 'Installation complete! Please close this Terminal window and run the Chatbot Dashboard Installer again.'"
+    do script "export PATH=\"/opt/homebrew/bin:/usr/local/bin:\$PATH\" && $BREW_PATH install node && echo '' && echo '=== NODE.JS INSTALLATION COMPLETE ===' && echo 'Please CLOSE this Terminal window and run the Chatbot Dashboard Installer again.' && echo '' && read -p 'Press Enter to close this window...' && exit"
 end tell
 EOF
     
-    show_dialog "Installation Started" "Node.js installation has started in Terminal.\n\nPlease wait for it to complete, then run this installer again."
+    show_dialog "Installation Started" "Node.js installation has started in Terminal.\n\n⚠️ IMPORTANT: After the installation completes:\n1. Close the Terminal window\n2. Run this installer again\n\nThe installer will then proceed with the dashboard installation automatically."
     exit 0
 }
 
@@ -143,6 +167,9 @@ EOF
 check_prerequisites() {
     print_status "Checking prerequisites..."
     
+    # Setup Homebrew path first
+    setup_homebrew_path
+    
     local missing_deps=""
     
     # Check Git
@@ -155,7 +182,7 @@ check_prerequisites() {
         missing_deps="${missing_deps}\n• Node.js v${NODE_MIN_VERSION}+"
     fi
     
-    # Check npm
+    # Check npm (should come with Node.js)
     if ! command_exists npm; then
         missing_deps="${missing_deps}\n• npm"
     fi
