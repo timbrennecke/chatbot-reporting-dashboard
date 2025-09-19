@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
@@ -64,6 +64,54 @@ export default function App() {
   const [currentConversationIndex, setCurrentConversationIndex] = useState<number>(-1);
   const [fetchedConversationsMap, setFetchedConversationsMap] = useState<Map<string, any>>(new Map());
   const [threadOrder, setThreadOrder] = useState<string[]>([]);
+  
+  // Use ref to store current thread order to avoid stale closures in navigation
+  const threadOrderRef = useRef<string[]>([]);
+  const selectedConversationIdRef = useRef<string | undefined>();
+  const currentThreadPositionRef = useRef<number>(-1);
+  
+  // Keep selectedConversationId ref synchronized
+  useEffect(() => {
+    selectedConversationIdRef.current = selectedConversationId;
+  }, [selectedConversationId]);
+  
+  // Helper function to get current navigation state safely
+  const getCurrentNavigationState = useCallback(() => {
+    const currentThreadOrder = threadOrderRef.current;
+    const currentSelectedId = selectedConversationIdRef.current;
+    const currentPosition = currentThreadPositionRef.current;
+    
+    if (!currentSelectedId || currentThreadOrder.length === 0) {
+      return {
+        currentIndex: -1,
+        threadOrder: currentThreadOrder,
+        hasPrevious: false,
+        hasNext: false
+      };
+    }
+    
+    // Use the tracked position instead of indexOf to handle duplicate conversation IDs
+    let currentIndex = currentPosition;
+    
+    // Validate that the position is correct and within bounds
+    if (currentIndex < 0 || currentIndex >= currentThreadOrder.length || 
+        currentThreadOrder[currentIndex] !== currentSelectedId) {
+      // Fallback to indexOf if position is invalid
+      currentIndex = currentThreadOrder.indexOf(currentSelectedId);
+      currentThreadPositionRef.current = currentIndex;
+      console.log('⚠️ Position validation failed, falling back to indexOf:', currentIndex, 'for conversation:', currentSelectedId);
+      console.log('⚠️ Thread order around that position:', currentThreadOrder.slice(Math.max(0, currentIndex - 2), currentIndex + 3));
+    } else {
+      console.log('✅ Position validation passed:', currentIndex, 'for conversation:', currentSelectedId);
+    }
+    
+    return {
+      currentIndex,
+      threadOrder: currentThreadOrder,
+      hasPrevious: currentIndex > 0,
+      hasNext: currentIndex >= 0 && currentIndex < currentThreadOrder.length - 1
+    };
+  }, []);
 
   // Handle environment change - load environment-specific data
   const handleEnvironmentChange = (newEnvironment: string) => {
@@ -263,11 +311,42 @@ export default function App() {
   };
 
   // Handle thread order from ThreadsOverview
-  const handleThreadOrderChange = (order: string[]) => {
+  const handleThreadOrderChange = useCallback((order: string[]) => {
     console.log('📋 Thread order received in App.tsx:', order.length, 'conversations');
     console.log('📋 First 3 IDs:', order.slice(0, 3));
     setThreadOrder(order);
-  };
+    // Keep ref synchronized for navigation
+    threadOrderRef.current = order;
+    
+    // Reset position tracking when thread order changes
+    const currentSelectedId = selectedConversationIdRef.current;
+    const oldPosition = currentThreadPositionRef.current;
+    
+    if (currentSelectedId && order.includes(currentSelectedId)) {
+      // Try to maintain the same relative position if possible
+      // This helps when filters change but the conversation is still in the list
+      let newPosition = order.indexOf(currentSelectedId);
+      
+      // If we had a valid old position and there are multiple occurrences,
+      // try to find the one that matches the old position or is closest to it
+      if (oldPosition >= 0 && oldPosition < order.length) {
+        const allPositions = order.map((id, index) => id === currentSelectedId ? index : -1).filter(i => i !== -1);
+        if (allPositions.length > 1) {
+          // Find the position closest to the old position
+          newPosition = allPositions.reduce((closest, current) => 
+            Math.abs(current - oldPosition) < Math.abs(closest - oldPosition) ? current : closest
+          );
+          console.log('📍 Multiple occurrences found, using closest to old position:', oldPosition, '→', newPosition);
+        }
+      }
+      
+      currentThreadPositionRef.current = newPosition;
+      console.log('📍 Reset position tracking after thread order change:', newPosition, 'for conversation:', currentSelectedId);
+    } else {
+      currentThreadPositionRef.current = -1;
+      console.log('📍 Reset position tracking to -1 (conversation not in new order)');
+    }
+  }, []);
 
   // Handle conversation viewed from ThreadsOverview or navigation
   const handleConversationViewed = (conversationId: string) => {
@@ -301,103 +380,176 @@ export default function App() {
     }
   };
 
-  // Simple approach: just use threadOrder directly as the navigation list
+  // Synchronize threadOrder with ref and maintain legacy state for compatibility
   useEffect(() => {
+    // Always keep the ref up to date with threadOrder state
+    threadOrderRef.current = threadOrder;
+    
     if (threadOrder.length > 0) {
       setAllConversations(threadOrder.map(id => ({ id, title: 'Loading...', messages: [] })));
       
       if (selectedConversationId && threadOrder.includes(selectedConversationId)) {
         const index = threadOrder.indexOf(selectedConversationId);
         setCurrentConversationIndex(index);
-        console.log('🎯 Simple navigation: conversation', selectedConversationId, 'at index', index, 'of', threadOrder.length);
+        console.log('🎯 Navigation sync: conversation', selectedConversationId, 'at index', index, 'of', threadOrder.length);
       } else {
         setCurrentConversationIndex(-1);
-        console.log('❌ Simple navigation: conversation not found in threadOrder');
+        console.log('❌ Navigation sync: conversation not found in threadOrder');
       }
     } else if (uploadedData.conversations && uploadedData.conversations.length > 0) {
       // Fallback to uploaded conversations
       setAllConversations(uploadedData.conversations);
+      // Update ref with uploaded conversation IDs
+      const uploadedIds = uploadedData.conversations.map(c => c.id);
+      threadOrderRef.current = uploadedIds;
       
       if (selectedConversationId) {
         const index = uploadedData.conversations.findIndex(conv => conv.id === selectedConversationId);
         setCurrentConversationIndex(index);
-        console.log('🎯 Fallback navigation: using uploaded conversations, index:', index);
+        console.log('🎯 Fallback navigation sync: using uploaded conversations, index:', index);
       } else {
         setCurrentConversationIndex(-1);
       }
     } else {
       setAllConversations([]);
       setCurrentConversationIndex(-1);
+      threadOrderRef.current = [];
       console.log('📚 No conversations available for navigation');
     }
   }, [threadOrder, selectedConversationId, uploadedData.conversations]);
 
   // Navigation handlers
-  const handlePreviousConversation = () => {
+  const handlePreviousConversation = useCallback(() => {
+    const navState = getCurrentNavigationState();
+    
     console.log('🔄 Previous conversation clicked', { 
-      currentConversationIndex, 
-      allConversationsLength: allConversations.length,
-      hasPrevious: currentConversationIndex > 0,
-      allIds: allConversations.map(c => c.id)
+      currentIndex: navState.currentIndex,
+      threadOrderLength: navState.threadOrder.length,
+      hasPrevious: navState.hasPrevious,
+      selectedId: selectedConversationIdRef.current,
+      currentPosition: currentThreadPositionRef.current,
+      threadOrderIds: navState.threadOrder.slice(0, 5) // First 5 for debugging
     });
     
-    if (currentConversationIndex > 0 && allConversations.length > 0) {
-      const newIndex = currentConversationIndex - 1;
-      const conversation = allConversations[newIndex];
-      console.log('🔄 Navigating to previous conversation:', conversation.id, 'at index', newIndex);
-      setSelectedConversationId(conversation.id);
-      setShowConversationOverlay(true);
+    if (navState.hasPrevious && navState.threadOrder.length > 0) {
+      const newIndex = navState.currentIndex - 1;
+      const conversationId = navState.threadOrder[newIndex];
+      console.log('🔄 Navigating to previous conversation:', conversationId, 'at index', newIndex);
+      
+      // Update position tracking before setting the conversation
+      currentThreadPositionRef.current = newIndex;
+      
+      // Check if we're navigating to the same conversation ID (duplicate)
+      const currentSelectedId = selectedConversationIdRef.current;
+      const isSameConversationId = currentSelectedId === conversationId;
+      
+      if (isSameConversationId) {
+        console.log('🔄 Navigating to same conversation ID at different position:', conversationId, 'from', navState.currentIndex, 'to', newIndex);
+        // Show brief feedback for duplicate conversation navigation
+        showBriefNavigationFeedback();
+      } else {
+        // Different conversation ID - show full overlay
+        setShowConversationOverlay(true);
+      }
+      
+      // Force update even if conversation ID is the same (for duplicates)
+      setSelectedConversationId(conversationId);
+      
+      // Force position update in case conversation ID didn't change (duplicates)
+      selectedConversationIdRef.current = conversationId;
+      
+      console.log('🎯 Position updated to:', newIndex, 'for conversation:', conversationId);
       
       // Mark conversation as viewed through ThreadsOverview callback
-      handleConversationViewed(conversation.id);
+      handleConversationViewed(conversationId);
       
       // Clear any previously selected thread
       setSelectedThread(undefined);
     } else {
-      console.log('❌ Cannot navigate to previous - no previous conversation available');
+      console.log('❌ Cannot navigate to previous - no previous conversation available', {
+        hasPrevious: navState.hasPrevious,
+        threadOrderLength: navState.threadOrder.length,
+        currentIndex: navState.currentIndex
+      });
     }
-  };
+  }, [getCurrentNavigationState, handleConversationViewed]);
 
-  const handleNextConversation = () => {
+  const handleNextConversation = useCallback(() => {
+    const navState = getCurrentNavigationState();
+    
     console.log('🔄 Next conversation clicked', { 
-      currentConversationIndex, 
-      allConversationsLength: allConversations.length,
-      hasNext: currentConversationIndex >= 0 && currentConversationIndex < allConversations.length - 1,
-      allIds: allConversations.map(c => c.id)
+      currentIndex: navState.currentIndex,
+      threadOrderLength: navState.threadOrder.length,
+      hasNext: navState.hasNext,
+      selectedId: selectedConversationIdRef.current,
+      currentPosition: currentThreadPositionRef.current,
+      threadOrderIds: navState.threadOrder.slice(0, 5) // First 5 for debugging
     });
     
-    if (currentConversationIndex >= 0 && currentConversationIndex < allConversations.length - 1) {
-      const newIndex = currentConversationIndex + 1;
-      const conversation = allConversations[newIndex];
-      console.log('🔄 Navigating to next conversation:', conversation.id, 'at index', newIndex);
-      setSelectedConversationId(conversation.id);
-      setShowConversationOverlay(true);
+    if (navState.hasNext && navState.threadOrder.length > 0) {
+      const newIndex = navState.currentIndex + 1;
+      const conversationId = navState.threadOrder[newIndex];
+      console.log('🔄 Navigating to next conversation:', conversationId, 'at index', newIndex);
+      
+      // Update position tracking before setting the conversation
+      currentThreadPositionRef.current = newIndex;
+      
+      // Check if we're navigating to the same conversation ID (duplicate)
+      const currentSelectedId = selectedConversationIdRef.current;
+      const isSameConversationId = currentSelectedId === conversationId;
+      
+      if (isSameConversationId) {
+        console.log('🔄 Navigating to same conversation ID at different position:', conversationId, 'from', navState.currentIndex, 'to', newIndex);
+        // Show brief feedback for duplicate conversation navigation
+        showBriefNavigationFeedback();
+      } else {
+        // Different conversation ID - show full overlay
+        setShowConversationOverlay(true);
+      }
+      
+      // Force update even if conversation ID is the same (for duplicates)
+      setSelectedConversationId(conversationId);
+      
+      // Force position update in case conversation ID didn't change (duplicates)
+      selectedConversationIdRef.current = conversationId;
+      
+      console.log('🎯 Position updated to:', newIndex, 'for conversation:', conversationId);
       
       // Mark conversation as viewed through ThreadsOverview callback
-      handleConversationViewed(conversation.id);
+      handleConversationViewed(conversationId);
       
       // Clear any previously selected thread
       setSelectedThread(undefined);
     } else {
-      console.log('❌ Cannot navigate to next - no next conversation available');
+      console.log('❌ Cannot navigate to next - no next conversation available', {
+        hasNext: navState.hasNext,
+        threadOrderLength: navState.threadOrder.length,
+        currentIndex: navState.currentIndex
+      });
     }
-  };
+  }, [getCurrentNavigationState, handleConversationViewed]);
 
-  // Check if navigation is available
-  const hasPreviousConversation = currentConversationIndex > 0;
-  const hasNextConversation = currentConversationIndex >= 0 && currentConversationIndex < allConversations.length - 1;
+  // Check if navigation is available using current state
+  const navigationState = getCurrentNavigationState();
+  const hasPreviousConversation = navigationState.hasPrevious;
+  const hasNextConversation = navigationState.hasNext;
   
-  // Debug navigation state (remove this after fixing)
+  // Debug navigation state with improved logging
   console.log('🔍 Navigation state:', { 
-    currentConversationIndex, 
+    legacyCurrentIndex: currentConversationIndex, 
+    newCurrentIndex: navigationState.currentIndex,
+    currentPosition: currentThreadPositionRef.current,
     allConversationsCount: allConversations.length,
     hasPreviousConversation, 
     hasNextConversation,
     selectedConversationId,
-    allConversationIds: allConversations.map(c => c.id),
-    fetchedConversationsMapSize: fetchedConversationsMap.size,
     threadOrderLength: threadOrder.length,
-    uploadedConversationsCount: uploadedData.conversations?.length || 0
+    threadOrderRefLength: threadOrderRef.current.length,
+    fetchedConversationsMapSize: fetchedConversationsMap.size,
+    uploadedConversationsCount: uploadedData.conversations?.length || 0,
+    threadOrderMatches: threadOrder.length === threadOrderRef.current.length,
+    threadOrderSample: threadOrderRef.current.slice(0, 10),
+    duplicateConversations: threadOrderRef.current.filter((id, index, arr) => arr.indexOf(id) !== index)
   });
 
   // Load environment-specific data from localStorage on component mount
@@ -420,6 +572,15 @@ export default function App() {
     }
   }, []);
   const [showConversationOverlay, setShowConversationOverlay] = useState(false);
+  const [showNavigationFeedback, setShowNavigationFeedback] = useState(false);
+  
+  // Helper function to show brief navigation feedback
+  const showBriefNavigationFeedback = useCallback(() => {
+    setShowNavigationFeedback(true);
+    setTimeout(() => {
+      setShowNavigationFeedback(false);
+    }, 300); // Very brief 300ms feedback
+  }, []);
 
   const handleDataUploaded = (data: UploadedData) => {
     setUploadedData(prevData => {
@@ -513,9 +674,27 @@ export default function App() {
     }
   };
 
-  const handleConversationSelect = (conversationId: string) => {
+  const handleConversationSelect = (conversationId: string, position?: number) => {
     setSelectedConversationId(conversationId);
     setShowConversationOverlay(true);
+    
+    // Update position tracking when conversation is selected from overview
+    if (position !== undefined) {
+      // Use the provided position (handles duplicate conversation IDs correctly)
+      currentThreadPositionRef.current = position;
+      console.log('📍 Set conversation position from overview (provided):', position, 'for conversation:', conversationId);
+    } else {
+      // Fallback to indexOf for backward compatibility
+      const currentThreadOrder = threadOrderRef.current;
+      const foundPosition = currentThreadOrder.indexOf(conversationId);
+      if (foundPosition !== -1) {
+        currentThreadPositionRef.current = foundPosition;
+        console.log('📍 Set conversation position from overview (indexOf):', foundPosition, 'for conversation:', conversationId);
+      } else {
+        console.log('⚠️ Conversation not found in thread order when selected from overview:', conversationId);
+        currentThreadPositionRef.current = -1;
+      }
+    }
   };
 
   // Extract threads from uploaded data
@@ -782,6 +961,18 @@ export default function App() {
               hasNextConversation={hasNextConversation}
               onConversationFetched={handleConversationFetched}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Brief Navigation Feedback for Duplicate Conversation IDs */}
+      {showNavigationFeedback && (
+        <div className="fixed inset-0 bg-black/20 z-50 flex items-center justify-center pointer-events-none">
+          <div className="bg-primary text-primary-foreground px-4 py-2 rounded-md shadow-lg animate-pulse">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-current rounded-full animate-ping"></div>
+              <span className="text-sm font-medium">Navigating...</span>
+            </div>
           </div>
         </div>
       )}

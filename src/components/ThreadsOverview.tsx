@@ -58,7 +58,7 @@ interface ThreadsOverviewProps {
   uploadedThreads?: Thread[];
   uploadedConversations?: any[];
   onThreadSelect?: (thread: Thread) => void;
-  onConversationSelect?: (conversationId: string) => void;
+  onConversationSelect?: (conversationId: string, position?: number) => void;
   onFetchedConversationsChange?: (conversations: Map<string, any>) => void;
   onThreadOrderChange?: (threadOrder: string[]) => void;
   onConversationViewed?: (conversationId: string) => void;
@@ -486,6 +486,15 @@ export function ThreadsOverview({
     });
   }, [threads, searchTerm, hasUiFilter, hasLinkoutFilter, messageSearchEnabled, messageSearchTerm, fetchedConversations, conversationsFetched]);
 
+  // Update thread order whenever filtered threads change to keep navigation in sync
+  useEffect(() => {
+    if (filteredThreads.length > 0 && onThreadOrderChange) {
+      const threadOrder = filteredThreads.map(thread => thread.conversationId);
+      console.log('📋 Auto-updating thread order due to filter change:', threadOrder.length, 'threads');
+      onThreadOrderChange(threadOrder);
+    }
+  }, [filteredThreads, onThreadOrderChange]);
+
   // Pagination calculations
   const totalPages = Math.ceil(filteredThreads.length / itemsPerPage);
   const paginatedThreads = useMemo(() => {
@@ -678,8 +687,8 @@ export function ThreadsOverview({
   };
 
   // Handle conversation viewing
-  const handleConversationView = (conversationId: string) => {
-    console.log('👆 handleConversationView called with:', conversationId);
+  const handleConversationView = (conversationId: string, position?: number) => {
+    console.log('👆 handleConversationView called with:', conversationId, 'at position:', position);
     console.log('👆 filteredThreads length:', filteredThreads.length);
     console.log('👆 onThreadOrderChange available?', !!onThreadOrderChange);
     
@@ -701,7 +710,7 @@ export function ThreadsOverview({
     onThreadOrderChange?.(threadOrder);
     
     // Fetch more conversations for better navigation experience
-    const currentIndex = filteredThreads.findIndex(thread => thread.conversationId === conversationId);
+    const currentIndex = position !== undefined ? position : filteredThreads.findIndex(thread => thread.conversationId === conversationId);
     if (currentIndex !== -1) {
       const conversationsToFetch = [];
       
@@ -720,8 +729,8 @@ export function ThreadsOverview({
       fetchConversationsForThreads(conversationsToFetch);
     }
     
-    // Call the original onConversationSelect callback
-    onConversationSelect?.(conversationId);
+    // Call the original onConversationSelect callback with position
+    onConversationSelect?.(conversationId, currentIndex !== -1 ? currentIndex : undefined);
   };
 
 
@@ -994,11 +1003,11 @@ export function ThreadsOverview({
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {uploadedConversations.map((conversation) => (
+              {uploadedConversations.map((conversation, index) => (
                 <div 
                   key={conversation.id}
                   className="p-4 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
-                  onClick={() => handleConversationView(conversation.id)}
+                  onClick={() => handleConversationView(conversation.id, index)}
                 >
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
@@ -1185,7 +1194,9 @@ export function ThreadsOverview({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paginatedThreads.map((thread) => {
+                {paginatedThreads.map((thread, paginatedIndex) => {
+                  // Calculate the actual index in filteredThreads
+                  const actualIndex = (currentPage - 1) * itemsPerPage + paginatedIndex;
                   const parsed = parseThreadId(thread.id);
                   const uiCount = thread.messages.reduce(
                     (acc, msg) => acc + msg.content.filter(c => c.kind === 'ui').length, 
@@ -1211,7 +1222,7 @@ export function ThreadsOverview({
                           onCheckedChange={() => toggleThreadSelection(thread.id)}
                         />
                       </TableCell>
-                      <TableCell onClick={() => handleConversationView(thread.conversationId)} className="py-4">
+                      <TableCell onClick={() => handleConversationView(thread.conversationId, actualIndex)} className="py-4">
                         <div className="flex items-center gap-2">
                           <div>
                             <div className={`${!isAnyViewed ? 'font-bold' : ''} text-foreground`}>{parsed.id}</div>
@@ -1224,7 +1235,7 @@ export function ThreadsOverview({
                         </div>
                       </TableCell>
                       <TableCell 
-                        onClick={() => handleConversationView(thread.conversationId)}
+                        onClick={() => handleConversationView(thread.conversationId, actualIndex)}
                         className="cursor-pointer py-4"
                         title={hasConversationData ? "Click to view conversation details" : "Conversation data not available - referenced from thread only"}
                       >
@@ -1241,17 +1252,17 @@ export function ThreadsOverview({
                           )}
                         </div>
                       </TableCell>
-                      <TableCell onClick={() => handleConversationView(thread.conversationId)} className="py-4">
+                      <TableCell onClick={() => handleConversationView(thread.conversationId, actualIndex)} className="py-4">
                         {formatTimestamp(thread.createdAt)}
                       </TableCell>
-                      <TableCell onClick={() => handleConversationView(thread.conversationId)} className="py-4">
+                      <TableCell onClick={() => handleConversationView(thread.conversationId, actualIndex)} className="py-4">
                         {uiCount > 0 ? (
                           <Badge variant="outline">{uiCount}</Badge>
                         ) : (
                           '-'
                         )}
                       </TableCell>
-                      <TableCell onClick={() => handleConversationView(thread.conversationId)} className="py-4">
+                      <TableCell onClick={() => handleConversationView(thread.conversationId, actualIndex)} className="py-4">
                         {linkoutCount > 0 ? (
                           <Badge variant="outline">{linkoutCount}</Badge>
                         ) : (
