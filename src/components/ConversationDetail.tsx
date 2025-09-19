@@ -26,6 +26,7 @@ import {
   Check
 } from 'lucide-react';
 import { Conversation, Thread, Message, MessageContent } from '../lib/types';
+import { getApiBaseUrl } from '../lib/api';
 import { formatTimestamp, parseThreadId } from '../lib/utils';
 
 interface ConversationDetailProps {
@@ -287,7 +288,8 @@ export function ConversationDetail({
     setFetchResponse('');
     
     try {
-      const response = await fetch(`/api-test/conversation/${paginationConversationId.trim()}`, {
+      const apiBaseUrl = getApiBaseUrl();
+      const response = await fetch(`${apiBaseUrl}/conversation/${paginationConversationId.trim()}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${apiKey.trim()}`,

@@ -15,11 +15,18 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { Badge } from './components/ui/badge';
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from './components/ui/select';
 
 import { ThreadsOverview } from './components/ThreadsOverview';
 import { ConversationDetail } from './components/ConversationDetail';
 import { UploadedData, Thread, Conversation } from './lib/types';
-import { setGlobalOfflineMode } from './lib/api';
+import { setGlobalOfflineMode, getApiBaseUrl } from './lib/api';
 import { 
   mockConversation, 
   mockThreadsResponse, 
@@ -32,6 +39,10 @@ export default function App() {
   const [uploadedData, setUploadedData] = useState<UploadedData>({});
   const [selectedConversationId, setSelectedConversationId] = useState<string>();
   const [selectedThread, setSelectedThread] = useState<Thread>();
+  const [environment, setEnvironment] = useState(() => {
+    // Load environment from localStorage on app start
+    return localStorage.getItem('chatbot-dashboard-environment') || 'staging';
+  });
   const [apiKey, setApiKey] = useState(() => {
     // Load API key from localStorage on app start
     return localStorage.getItem('chatbot-dashboard-api-key') || '';
@@ -48,6 +59,47 @@ export default function App() {
   const [currentConversationIndex, setCurrentConversationIndex] = useState<number>(-1);
   const [fetchedConversationsMap, setFetchedConversationsMap] = useState<Map<string, any>>(new Map());
   const [threadOrder, setThreadOrder] = useState<string[]>([]);
+
+  // Handle environment change - clear all data and state
+  const handleEnvironmentChange = (newEnvironment: string) => {
+    console.log('🌍 Environment changed to:', newEnvironment);
+    
+    // Save new environment to localStorage
+    setEnvironment(newEnvironment);
+    localStorage.setItem('chatbot-dashboard-environment', newEnvironment);
+    
+    // Clear ALL state variables as if newly opening the page
+    setActiveTab('dashboard');
+    setApiKey('');
+    setShowApiKey(false);
+    setUploadedData({});
+    setSelectedConversationId(undefined);
+    setSelectedThread(undefined);
+    setConversationSearchId('');
+    setSearchLoading(false);
+    setSearchError(null);
+    setAllConversations([]);
+    setCurrentConversationIndex(-1);
+    setFetchedConversationsMap(new Map());
+    setThreadOrder([]);
+    setShowConversationOverlay(false);
+    
+    // Clear ALL localStorage data (except environment)
+    localStorage.removeItem('chatbot-dashboard-api-key');
+    localStorage.removeItem('chatbot-dashboard-data');
+    localStorage.removeItem('chatbot-dashboard-search-results');
+    localStorage.removeItem('chatbot-dashboard-search-params');
+    localStorage.removeItem('chatbot-dashboard-viewed-conversations');
+    localStorage.removeItem('chatbot-dashboard-viewed-threads');
+    
+    // Disable global offline mode
+    setGlobalOfflineMode(false);
+    
+    // Force a page reload to ensure all child components reset their state
+    window.location.reload();
+    
+    console.log('✅ All data cleared for environment switch - page reloading');
+  };
 
   // Save API key to localStorage
   const handleApiKeyChange = (newApiKey: string) => {
@@ -78,7 +130,8 @@ export default function App() {
     
     try {
       // First, fetch the conversation
-      const conversationResponse = await fetch(`/api-test/conversation/${conversationSearchId.trim()}`, {
+      const apiBaseUrl = getApiBaseUrl();
+      const conversationResponse = await fetch(`${apiBaseUrl}/conversation/${conversationSearchId.trim()}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${apiKey.trim()}`,
@@ -109,7 +162,7 @@ export default function App() {
       // Fetch threads (system messages) for the date range
       let threadsData = null;
       try {
-        const threadsResponse = await fetch('/api-test/thread', {
+        const threadsResponse = await fetch(`${apiBaseUrl}/thread`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${apiKey.trim()}`,
@@ -485,6 +538,20 @@ export default function App() {
             </div>
             
             <div className="flex items-center gap-4">
+              {/* Environment Dropdown */}
+              <div className="flex items-center gap-2">
+                <Label className="text-sm font-medium">Environment:</Label>
+                <Select value={environment} onValueChange={handleEnvironmentChange}>
+                  <SelectTrigger className="w-32" size="sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="staging">Staging</SelectItem>
+                    <SelectItem value="production">Production</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
               {/* API Key Input */}
               <div className="flex items-center gap-2">
                 <Label htmlFor="dashboard-api-key" className="text-sm font-medium">API Key:</Label>

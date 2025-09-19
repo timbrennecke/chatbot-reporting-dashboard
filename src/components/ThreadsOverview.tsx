@@ -45,7 +45,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { Thread, ThreadsRequest, BulkAttributesRequest } from '../lib/types';
-import { api, ApiError } from '../lib/api';
+import { api, ApiError, getApiBaseUrl } from '../lib/api';
 import { parseThreadId, calculateThreadAnalytics, formatTimestamp, debounce } from '../lib/utils';
 
 interface ThreadsOverviewProps {
@@ -271,7 +271,8 @@ export function ThreadsOverview({
           }
           
           try {
-            const response = await fetch(`/api-test/conversation/${thread.conversationId}`, {
+            const apiBaseUrl = getApiBaseUrl();
+            const response = await fetch(`${apiBaseUrl}/conversation/${thread.conversationId}`, {
               method: 'GET',
               headers: {
                 'Authorization': `Bearer ${apiKey}`,
@@ -344,7 +345,8 @@ export function ThreadsOverview({
       const endTimestamp = new Date(endDate).toISOString();
 
       // Make API call via proxy to avoid CORS issues
-      const response = await fetch('/api-test/thread', {
+      const apiBaseUrl = getApiBaseUrl();
+      const response = await fetch(`${apiBaseUrl}/thread`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
