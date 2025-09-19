@@ -80,6 +80,65 @@ check_node_version() {
     fi
 }
 
+# Function to install prerequisites automatically using Homebrew
+install_prerequisites_automatically() {
+    print_status "Installing prerequisites automatically..."
+    
+    # Check if Homebrew is installed
+    if ! command_exists brew; then
+        show_dialog "Installing Homebrew" "First, we need to install Homebrew (the package manager for macOS).\n\nThis will open Terminal and may ask for your password."
+        
+        # Install Homebrew
+        osascript << EOF
+tell application "Terminal"
+    activate
+    do script "/bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+end tell
+EOF
+        
+        show_dialog "Homebrew Installation" "Please complete the Homebrew installation in Terminal, then run this installer again."
+        exit 0
+    fi
+    
+    # Install Node.js using Homebrew
+    show_dialog "Installing Node.js" "Installing Node.js and npm using Homebrew.\n\nThis may take a few minutes..."
+    
+    osascript << EOF
+tell application "Terminal"
+    activate
+    do script "brew install node && echo 'Installation complete! Please close this Terminal window and run the Chatbot Dashboard Installer again.'"
+end tell
+EOF
+    
+    show_dialog "Installation Started" "Node.js installation has started in Terminal.\n\nPlease wait for it to complete, then run this installer again."
+    exit 0
+}
+
+# Function to show manual installation dialog
+show_manual_install_dialog() {
+    osascript << EOF
+display dialog "Please install the required software manually:
+
+🔧 Git: Download from https://git-scm.com/downloads
+📦 Node.js: Download from https://nodejs.org/
+
+For easier installation, you can also use Homebrew:
+1. Install Homebrew: /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"
+2. Install Git: brew install git
+3. Install Node.js: brew install node
+
+After installation, run this installer again." with title "Manual Installation Guide" with icon note buttons {"Open Git Download", "Open Node.js Download", "OK"} default button "OK"
+EOF
+    
+    # Handle button clicks
+    result=$?
+    if [ $result -eq 0 ]; then
+        # User clicked a button, open relevant pages
+        open "https://git-scm.com/downloads" 2>/dev/null || true
+        open "https://nodejs.org/" 2>/dev/null || true
+    fi
+}
+
 # Function to check prerequisites
 check_prerequisites() {
     print_status "Checking prerequisites..."
@@ -102,8 +161,17 @@ check_prerequisites() {
     fi
     
     if [ -n "$missing_deps" ]; then
-        show_error_dialog "Missing Prerequisites" "The following software is required but not installed:${missing_deps}\n\nPlease install the missing software and try again.\n\nGit: https://git-scm.com/downloads\nNode.js: https://nodejs.org/"
-        exit 1
+        # Show error dialog with installation options
+        choice=$(osascript -e "display dialog \"The following software is required but not installed:${missing_deps}\n\nWould you like to install them automatically using Homebrew?\" with title \"Missing Prerequisites\" with icon caution buttons {\"Cancel\", \"Install Manually\", \"Auto Install\"} default button \"Auto Install\"" 2>/dev/null || echo "Cancel")
+        
+        if [[ "$choice" == *"Auto Install"* ]]; then
+            install_prerequisites_automatically
+        elif [[ "$choice" == *"Install Manually"* ]]; then
+            show_manual_install_dialog
+            exit 1
+        else
+            exit 1
+        fi
     fi
     
     print_success "All prerequisites are met!"

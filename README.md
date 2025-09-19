@@ -12,11 +12,17 @@ The easiest way to get the application running on any computer is to use our aut
 - Start the application
 
 ### For macOS (Double-Click Option):
-**Option 1: Double-Click App Bundle** 
+**Option 1: Simple Installer (Recommended for beginners)** 
+1. Download the `Simple Installer.app` from the repository
+2. Double-click the app - it will guide you through installing prerequisites if needed
+3. Provides clear step-by-step installation instructions
+
+**Option 2: Advanced Installer** 
 1. Download the `Chatbot Dashboard Installer.app` from the repository
 2. Double-click the app to install and run
+3. Note: Requires Git, Node.js v18+, and npm to be pre-installed
 
-**Option 2: Terminal One-Liner**
+**Option 3: Terminal One-Liner**
 ```bash
 # Easy install with automatic permissions
 curl -fsSL https://raw.githubusercontent.com/timbrennecke/chatbot-reporting-dashboard/main/easy-install.sh | bash

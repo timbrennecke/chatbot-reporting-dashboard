@@ -1,0 +1,107 @@
+#!/bin/bash
+
+# Simple Chatbot Dashboard Installer
+# This version provides clear guidance for installing prerequisites
+
+# Function to show dialogs
+show_dialog() {
+    local title="$1"
+    local message="$2"
+    osascript -e "display dialog \"$message\" with title \"$title\" with icon informational buttons {\"OK\"} default button \"OK\""
+}
+
+show_choice_dialog() {
+    local title="$1"
+    local message="$2"
+    result=$(osascript -e "display dialog \"$message\" with title \"$title\" with icon question buttons {\"Cancel\", \"Continue\"} default button \"Continue\"" 2>/dev/null || echo "Cancel")
+    echo "$result"
+}
+
+# Function to check if prerequisites are installed
+check_prerequisites() {
+    local missing=""
+    
+    if ! command -v git >/dev/null 2>&1; then
+        missing="${missing}• Git\n"
+    fi
+    
+    if ! command -v node >/dev/null 2>&1; then
+        missing="${missing}• Node.js\n"
+    elif [ "$(node -v | cut -d 'v' -f 2 | cut -d '.' -f 1)" -lt 18 ]; then
+        missing="${missing}• Node.js v18+ (current version is too old)\n"
+    fi
+    
+    if ! command -v npm >/dev/null 2>&1; then
+        missing="${missing}• npm\n"
+    fi
+    
+    echo "$missing"
+}
+
+# Main function
+main() {
+    # Welcome message
+    show_dialog "Welcome" "Welcome to the Chatbot Dashboard Installer!\n\nThis will guide you through installing the chatbot reporting dashboard on your Mac."
+    
+    # Check prerequisites
+    missing=$(check_prerequisites)
+    
+    if [ -n "$missing" ]; then
+        # Show what's missing and provide installation guidance
+        choice=$(show_choice_dialog "Prerequisites Required" "The following software needs to be installed first:\n\n${missing}\nWould you like to see installation instructions?")
+        
+        if [[ "$choice" == *"Continue"* ]]; then
+            # Show installation instructions
+            osascript << 'EOF'
+display dialog "📋 Installation Instructions:
+
+🍺 EASY WAY (Recommended):
+1. Install Homebrew first:
+   • Open Terminal (press Cmd+Space, type 'Terminal')
+   • Paste: /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"
+   • Press Enter and follow the prompts
+
+2. After Homebrew is installed, run:
+   • brew install git node
+
+💻 MANUAL WAY:
+1. Download and install Git: https://git-scm.com/downloads
+2. Download and install Node.js: https://nodejs.org/
+
+✅ After installation is complete:
+   • Run this installer again
+   • Everything will be set up automatically!" with title "How to Install Prerequisites" with icon note buttons {"Open Terminal", "Open Downloads", "OK"} default button "OK"
+EOF
+            
+            # Handle button response
+            case $? in
+                0) # Open Terminal was clicked or dialog dismissed
+                    osascript -e 'tell application "Terminal" to activate'
+                    ;;
+                1) # Open Downloads was clicked  
+                    open "https://git-scm.com/downloads"
+                    open "https://nodejs.org/"
+                    ;;
+            esac
+        fi
+        
+        show_dialog "Next Steps" "After installing the required software:\n\n1. Run this installer again\n2. The chatbot dashboard will be installed and started automatically\n\nThank you!"
+        exit 0
+    fi
+    
+    # Prerequisites are met, proceed with installation
+    show_dialog "Ready to Install" "Great! All prerequisites are installed.\n\nThe installation will now begin automatically."
+    
+    # Run the actual installation in Terminal
+    osascript << EOF
+tell application "Terminal"
+    activate
+    do script "echo '🚀 Starting Chatbot Dashboard Installation...' && curl -fsSL https://raw.githubusercontent.com/timbrennecke/chatbot-reporting-dashboard/main/deploy.sh | bash"
+end tell
+EOF
+    
+    show_dialog "Installation Started" "The installation has started in Terminal.\n\nPlease wait for it to complete. The dashboard will open automatically in your browser when ready."
+}
+
+# Run the installer
+main
