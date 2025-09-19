@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -24,17 +24,18 @@ import {
 } from 'lucide-react';
 import { Conversation, Thread } from '../lib/types';
 import { formatTimestamp } from '../lib/utils';
-import { getEnvironmentSpecificItem, setEnvironmentSpecificItem } from '../lib/api';
+import { getEnvironmentSpecificItem, setEnvironmentSpecificItem, api, getApiBaseUrl } from '../lib/api';
 
 interface SavedChatsProps {
   savedConversationIds: string[];
   uploadedConversations?: Conversation[];
   uploadedThreads?: Thread[];
   fetchedConversationsMap?: Map<string, any>;
-  onConversationSelect?: (conversationId: string) => void;
+  onConversationSelect?: (conversationId: string, position?: number) => void;
   onUnsaveChat?: (conversationId: string) => void;
   onNotesChange?: (conversationId: string, notes: string) => void;
   onClearAllSaved?: () => void;
+  onConversationFetched?: (conversation: any) => void;
 }
 
 interface SavedChatItem {
@@ -58,12 +59,51 @@ export function SavedChats({
   onConversationSelect,
   onUnsaveChat,
   onNotesChange,
-  onClearAllSaved
+  onClearAllSaved,
+  onConversationFetched
 }: SavedChatsProps) {
   const [searchTerm, setSearchTerm] = useState('');
   
   // Copy feedback state
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  
+  // Fetch missing conversation details
+  useEffect(() => {
+    const fetchMissingConversations = async () => {
+      if (!savedConversationIds.length || !onConversationFetched) return;
+      
+      const missingConversationIds = savedConversationIds.filter(id => {
+        // Check if we already have this conversation's details
+        const hasUploadedConv = uploadedConversations.some(conv => conv.id === id);
+        const hasUploadedThread = uploadedThreads.some(thread => thread.conversationId === id);
+        const hasFetchedData = fetchedConversationsMap.has(id);
+        
+        return !hasUploadedConv && !hasUploadedThread && !hasFetchedData;
+      });
+      
+      if (missingConversationIds.length === 0) return;
+      
+      console.log('🔍 Fetching missing conversation details for saved chats:', missingConversationIds.length, 'conversations');
+      
+      // Fetch conversations in parallel
+      const fetchPromises = missingConversationIds.map(async (conversationId) => {
+        try {
+          const baseUrl = getApiBaseUrl();
+          const response = await api.get(`${baseUrl}/conversation/${conversationId}`);
+          if (response.data) {
+            console.log('✅ Fetched conversation details for saved chat:', conversationId, response.data.title || 'No title');
+            onConversationFetched(response.data);
+          }
+        } catch (error) {
+          console.warn('⚠️ Failed to fetch conversation details for saved chat:', conversationId, error);
+        }
+      });
+      
+      await Promise.all(fetchPromises);
+    };
+    
+    fetchMissingConversations();
+  }, [savedConversationIds, uploadedConversations, uploadedThreads, fetchedConversationsMap, onConversationFetched]);
   
   // Notes state - environment-specific
   const [notes, setNotes] = useState<Map<string, string>>(() => {
@@ -182,7 +222,9 @@ export function SavedChats({
   }, [filteredSavedChats]);
 
   const handleConversationClick = (conversationId: string) => {
-    onConversationSelect?.(conversationId);
+    // Find the position in the original savedConversationIds order (not sorted order)
+    const position = savedConversationIds.indexOf(conversationId);
+    onConversationSelect?.(conversationId, position);
   };
 
   const handleUnsaveClick = (conversationId: string, event: React.MouseEvent) => {
@@ -299,7 +341,7 @@ export function SavedChats({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sortedSavedChats.map((item) => (
+                {sortedSavedChats.map((item, index) => (
                   <TableRow 
                     key={item.conversationId}
                     className="cursor-pointer hover:bg-muted/50"

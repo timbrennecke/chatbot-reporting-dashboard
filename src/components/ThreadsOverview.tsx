@@ -106,8 +106,31 @@ export function ThreadsOverview({
   const [selectedThreads, setSelectedThreads] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkResults, setBulkResults] = useState<any>(null);
-  const [hasSearched, setHasSearched] = useState(false);
-  const [lastSearchDates, setLastSearchDates] = useState<{startDate: string, endDate: string} | null>(null);
+  const [hasSearched, setHasSearched] = useState(() => {
+    // Check if we have environment-specific search results
+    try {
+      const savedThreads = getEnvironmentSpecificItem('chatbot-dashboard-search-results');
+      return savedThreads ? JSON.parse(savedThreads).length > 0 : false;
+    } catch (error) {
+      console.error('Failed to check environment-specific search results:', error);
+      return false;
+    }
+  });
+  const [lastSearchDates, setLastSearchDates] = useState<{startDate: string, endDate: string} | null>(() => {
+    // Load environment-specific search dates
+    try {
+      const savedSearchParams = getEnvironmentSpecificItem('chatbot-dashboard-search-params');
+      if (savedSearchParams) {
+        const parsed = JSON.parse(savedSearchParams);
+        if (parsed.startDate && parsed.endDate) {
+          return { startDate: parsed.startDate, endDate: parsed.endDate };
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load environment-specific search dates:', error);
+    }
+    return null;
+  });
   
   // Viewed threads tracking
   const [viewedThreads, setViewedThreads] = useState<Set<string>>(() => {

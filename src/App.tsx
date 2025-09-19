@@ -71,6 +71,11 @@ export default function App() {
   const selectedConversationIdRef = useRef<string | undefined>();
   const currentThreadPositionRef = useRef<number>(-1);
   
+  // Navigation context - track if we're navigating from SavedChats or main threads
+  const [navigationContext, setNavigationContext] = useState<'threads' | 'saved-chats'>('threads');
+  const savedChatsOrderRef = useRef<string[]>([]);
+  const currentSavedChatPositionRef = useRef<number>(-1);
+  
   // Keep selectedConversationId ref synchronized
   useEffect(() => {
     selectedConversationIdRef.current = selectedConversationId;
@@ -78,41 +83,79 @@ export default function App() {
   
   // Helper function to get current navigation state safely
   const getCurrentNavigationState = useCallback(() => {
-    const currentThreadOrder = threadOrderRef.current;
     const currentSelectedId = selectedConversationIdRef.current;
-    const currentPosition = currentThreadPositionRef.current;
     
-    if (!currentSelectedId || currentThreadOrder.length === 0) {
+    if (navigationContext === 'saved-chats') {
+      // Use saved chats navigation
+      const currentSavedOrder = savedChatsOrderRef.current;
+      const currentPosition = currentSavedChatPositionRef.current;
+      
+      if (!currentSelectedId || currentSavedOrder.length === 0) {
+        return {
+          currentIndex: -1,
+          threadOrder: currentSavedOrder,
+          hasPrevious: false,
+          hasNext: false
+        };
+      }
+      
+      // Use the tracked position instead of indexOf to handle duplicate conversation IDs
+      let currentIndex = currentPosition;
+      
+      // Validate that the position is correct and within bounds
+      if (currentIndex < 0 || currentIndex >= currentSavedOrder.length || 
+          currentSavedOrder[currentIndex] !== currentSelectedId) {
+        // Fallback to indexOf if position is invalid
+        currentIndex = currentSavedOrder.indexOf(currentSelectedId);
+        currentSavedChatPositionRef.current = currentIndex;
+        console.log('⚠️ Saved chat position validation failed, falling back to indexOf:', currentIndex, 'for conversation:', currentSelectedId);
+      } else {
+        console.log('✅ Saved chat position validation passed:', currentIndex, 'for conversation:', currentSelectedId);
+      }
+      
       return {
-        currentIndex: -1,
+        currentIndex,
+        threadOrder: currentSavedOrder,
+        hasPrevious: currentIndex > 0,
+        hasNext: currentIndex >= 0 && currentIndex < currentSavedOrder.length - 1
+      };
+    } else {
+      // Use regular threads navigation
+      const currentThreadOrder = threadOrderRef.current;
+      const currentPosition = currentThreadPositionRef.current;
+      
+      if (!currentSelectedId || currentThreadOrder.length === 0) {
+        return {
+          currentIndex: -1,
+          threadOrder: currentThreadOrder,
+          hasPrevious: false,
+          hasNext: false
+        };
+      }
+      
+      // Use the tracked position instead of indexOf to handle duplicate conversation IDs
+      let currentIndex = currentPosition;
+      
+      // Validate that the position is correct and within bounds
+      if (currentIndex < 0 || currentIndex >= currentThreadOrder.length || 
+          currentThreadOrder[currentIndex] !== currentSelectedId) {
+        // Fallback to indexOf if position is invalid
+        currentIndex = currentThreadOrder.indexOf(currentSelectedId);
+        currentThreadPositionRef.current = currentIndex;
+        console.log('⚠️ Thread position validation failed, falling back to indexOf:', currentIndex, 'for conversation:', currentSelectedId);
+        console.log('⚠️ Thread order around that position:', currentThreadOrder.slice(Math.max(0, currentIndex - 2), currentIndex + 3));
+      } else {
+        console.log('✅ Thread position validation passed:', currentIndex, 'for conversation:', currentSelectedId);
+      }
+      
+      return {
+        currentIndex,
         threadOrder: currentThreadOrder,
-        hasPrevious: false,
-        hasNext: false
+        hasPrevious: currentIndex > 0,
+        hasNext: currentIndex >= 0 && currentIndex < currentThreadOrder.length - 1
       };
     }
-    
-    // Use the tracked position instead of indexOf to handle duplicate conversation IDs
-    let currentIndex = currentPosition;
-    
-    // Validate that the position is correct and within bounds
-    if (currentIndex < 0 || currentIndex >= currentThreadOrder.length || 
-        currentThreadOrder[currentIndex] !== currentSelectedId) {
-      // Fallback to indexOf if position is invalid
-      currentIndex = currentThreadOrder.indexOf(currentSelectedId);
-      currentThreadPositionRef.current = currentIndex;
-      console.log('⚠️ Position validation failed, falling back to indexOf:', currentIndex, 'for conversation:', currentSelectedId);
-      console.log('⚠️ Thread order around that position:', currentThreadOrder.slice(Math.max(0, currentIndex - 2), currentIndex + 3));
-    } else {
-      console.log('✅ Position validation passed:', currentIndex, 'for conversation:', currentSelectedId);
-    }
-    
-    return {
-      currentIndex,
-      threadOrder: currentThreadOrder,
-      hasPrevious: currentIndex > 0,
-      hasNext: currentIndex >= 0 && currentIndex < currentThreadOrder.length - 1
-    };
-  }, []);
+  }, [navigationContext]);
 
   // Handle environment change - load environment-specific data
   const handleEnvironmentChange = (newEnvironment: string) => {
@@ -452,7 +495,11 @@ export default function App() {
       console.log('🔄 Navigating to previous conversation:', conversationId, 'at index', newIndex);
       
       // Update position tracking before setting the conversation
-      currentThreadPositionRef.current = newIndex;
+      if (navigationContext === 'saved-chats') {
+        currentSavedChatPositionRef.current = newIndex;
+      } else {
+        currentThreadPositionRef.current = newIndex;
+      }
       
       // Check if we're navigating to the same conversation ID (duplicate)
       const currentSelectedId = selectedConversationIdRef.current;
@@ -507,7 +554,11 @@ export default function App() {
       console.log('🔄 Navigating to next conversation:', conversationId, 'at index', newIndex);
       
       // Update position tracking before setting the conversation
-      currentThreadPositionRef.current = newIndex;
+      if (navigationContext === 'saved-chats') {
+        currentSavedChatPositionRef.current = newIndex;
+      } else {
+        currentThreadPositionRef.current = newIndex;
+      }
       
       // Check if we're navigating to the same conversation ID (duplicate)
       const currentSelectedId = selectedConversationIdRef.current;
@@ -788,22 +839,49 @@ export default function App() {
   const handleConversationSelect = (conversationId: string, position?: number) => {
     setSelectedConversationId(conversationId);
     setShowConversationOverlay(true);
+    setNavigationContext('threads'); // Set context to threads navigation
     
     // Update position tracking when conversation is selected from overview
     if (position !== undefined) {
       // Use the provided position (handles duplicate conversation IDs correctly)
       currentThreadPositionRef.current = position;
-      console.log('📍 Set conversation position from overview (provided):', position, 'for conversation:', conversationId);
+      console.log('📍 Set conversation position from threads overview (provided):', position, 'for conversation:', conversationId);
     } else {
       // Fallback to indexOf for backward compatibility
       const currentThreadOrder = threadOrderRef.current;
       const foundPosition = currentThreadOrder.indexOf(conversationId);
       if (foundPosition !== -1) {
         currentThreadPositionRef.current = foundPosition;
-        console.log('📍 Set conversation position from overview (indexOf):', foundPosition, 'for conversation:', conversationId);
+        console.log('📍 Set conversation position from threads overview (indexOf):', foundPosition, 'for conversation:', conversationId);
       } else {
-        console.log('⚠️ Conversation not found in thread order when selected from overview:', conversationId);
+        console.log('⚠️ Conversation not found in thread order when selected from threads overview:', conversationId);
         currentThreadPositionRef.current = -1;
+      }
+    }
+  };
+
+  const handleSavedChatSelect = (conversationId: string, position?: number) => {
+    setSelectedConversationId(conversationId);
+    setShowConversationOverlay(true);
+    setNavigationContext('saved-chats'); // Set context to saved chats navigation
+    
+    // Update saved chats order and position tracking
+    const savedChatsArray = [...savedChats];
+    savedChatsOrderRef.current = savedChatsArray;
+    
+    if (position !== undefined) {
+      // Use the provided position
+      currentSavedChatPositionRef.current = position;
+      console.log('📍 Set saved chat position (provided):', position, 'for conversation:', conversationId);
+    } else {
+      // Fallback to indexOf
+      const foundPosition = savedChatsArray.indexOf(conversationId);
+      if (foundPosition !== -1) {
+        currentSavedChatPositionRef.current = foundPosition;
+        console.log('📍 Set saved chat position (indexOf):', foundPosition, 'for conversation:', conversationId);
+      } else {
+        console.log('⚠️ Conversation not found in saved chats when selected:', conversationId);
+        currentSavedChatPositionRef.current = -1;
       }
     }
   };
@@ -1055,9 +1133,11 @@ export default function App() {
               uploadedConversations={uploadedData.conversations || []}
               uploadedThreads={uploadedThreads}
               fetchedConversationsMap={fetchedConversationsMap}
-              onConversationSelect={handleConversationSelect}
+              onConversationSelect={handleSavedChatSelect}
               onUnsaveChat={handleUnsaveChat}
               onClearAllSaved={handleClearAllSaved}
+              onNotesChange={handleNotesChange}
+              onConversationFetched={handleConversationFetched}
             />
           )}
         </div>
