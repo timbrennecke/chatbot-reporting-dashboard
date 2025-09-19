@@ -1111,7 +1111,7 @@ export function ThreadsOverview({
                 <CardTitle>Threads ({filteredThreads.length})</CardTitle>
                 {startDate && endDate && !uploadedThreads?.length && (
                   <div className="text-sm text-muted-foreground bg-slate-50 px-3 py-1 rounded-md border">
-                    <span className="font-medium">Search period:</span> {new Date(startDate).toLocaleString()} - {new Date(endDate).toLocaleString()}
+                    <span className="font-medium">Search period:</span> {new Date(startDate).toLocaleString('en-GB')} - {new Date(endDate).toLocaleString('en-GB')}
                   </div>
                 )}
               </div>
