@@ -20,7 +20,8 @@ import {
   Clock,
   ExternalLink,
   Copy,
-  Trash2
+  Trash2,
+  Download
 } from 'lucide-react';
 import { Conversation, Thread } from '../lib/types';
 import { formatTimestamp } from '../lib/utils';
@@ -263,6 +264,68 @@ export function SavedChats({
     }
   };
 
+  // Export saved chats as CSV
+  const handleExportCSV = () => {
+    if (sortedSavedChats.length === 0) {
+      alert('No saved chats to export.');
+      return;
+    }
+
+    // Define CSV headers
+    const headers = ['Title', 'Conversation ID', 'Created Date', 'Created Time', 'Notes'];
+    
+    // Convert data to CSV format
+    const csvData = sortedSavedChats.map(item => {
+      const createdDate = new Date(item.createdAt);
+      const dateStr = createdDate.toLocaleDateString('en-GB'); // DD/MM/YYYY format
+      const timeStr = createdDate.toLocaleTimeString('en-GB', { 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        second: '2-digit' 
+      }); // HH:MM:SS format
+      
+      // Escape quotes and commas in text fields for CSV
+      const escapeCSV = (text: string) => {
+        if (text.includes('"') || text.includes(',') || text.includes('\n')) {
+          return `"${text.replace(/"/g, '""')}"`;
+        }
+        return text;
+      };
+      
+      return [
+        escapeCSV(item.title),
+        escapeCSV(item.conversationId),
+        dateStr,
+        timeStr,
+        escapeCSV(item.notes || '')
+      ];
+    });
+    
+    // Combine headers and data
+    const csvContent = [headers, ...csvData]
+      .map(row => row.join(','))
+      .join('\n');
+    
+    // Create and download the file
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    
+    if (link.download !== undefined) {
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      
+      // Generate filename with current date
+      const now = new Date();
+      const timestamp = now.toISOString().slice(0, 10); // YYYY-MM-DD format
+      link.setAttribute('download', `saved-chats-${timestamp}.csv`);
+      
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -274,6 +337,19 @@ export function SavedChats({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Export Button */}
+          {savedConversationIds.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportCSV}
+              className="text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200 hover:border-green-300"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Export CSV
+            </Button>
+          )}
+          
           {/* Clear All Button */}
           {savedConversationIds.length > 0 && (
             <Button
