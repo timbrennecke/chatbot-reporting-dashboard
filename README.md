@@ -12,17 +12,32 @@ The easiest way to get the application running on any computer is to use our aut
 - Start the application
 
 ### For macOS (Double-Click Option):
-**Option 1: Simple Installer (Recommended for beginners)** 
+
+**Option 1: No Security Warnings (🌟 Recommended)** 
+1. Download `mac-installer.command` from the repository
+2. **Double-click** to run - no security warnings!
+3. Works in Terminal with clear instructions
+
+> ⚠️ **Security Note for .app files**: macOS may block these apps because they're not Apple-signed. See [Security Instructions](SECURITY_INSTRUCTIONS.md) for safe bypass methods.
+
+**Option 2: Simple Installer** 
 1. Download the `Simple Installer.app` from the repository
-2. Double-click the app - it will guide you through installing prerequisites if needed
-3. Provides clear step-by-step installation instructions
+2. **Right-click** → **Open** (to bypass security warning)
+3. The app will guide you through installing prerequisites if needed
 
-**Option 2: Advanced Installer** 
-1. Download the `Chatbot Dashboard Installer.app` from the repository
-2. Double-click the app to install and run
-3. Note: Requires Git, Node.js v18+, and npm to be pre-installed
+**Option 3: Advanced Installer** 
+1. Download the `Chatbot Dashboard Installer.app` from the repository  
+2. **Right-click** → **Open** (to bypass security warning)
+3. Can automatically install prerequisites using Homebrew
 
-**Option 3: Terminal One-Liner**
+**Option 4: Security Fix Script**
+```bash
+# Download and run the security fix script first
+curl -fsSL https://raw.githubusercontent.com/timbrennecke/chatbot-reporting-dashboard/main/fix-security.sh | bash
+# Then double-click any installer app normally
+```
+
+**Option 4: Terminal One-Liner**
 ```bash
 # Easy install with automatic permissions
 curl -fsSL https://raw.githubusercontent.com/timbrennecke/chatbot-reporting-dashboard/main/easy-install.sh | bash
