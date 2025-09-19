@@ -860,25 +860,26 @@ export default function App() {
     }
   };
 
-  const handleSavedChatSelect = (conversationId: string, position?: number) => {
+  const handleSavedChatSelect = (conversationId: string, position?: number, sortedOrder?: string[]) => {
     setSelectedConversationId(conversationId);
     setShowConversationOverlay(true);
     setNavigationContext('saved-chats'); // Set context to saved chats navigation
     
     // Update saved chats order and position tracking
-    const savedChatsArray = [...savedChats];
+    // Use sorted order if provided, otherwise fallback to original order
+    const savedChatsArray = sortedOrder || [...savedChats];
     savedChatsOrderRef.current = savedChatsArray;
     
     if (position !== undefined) {
       // Use the provided position
       currentSavedChatPositionRef.current = position;
-      console.log('📍 Set saved chat position (provided):', position, 'for conversation:', conversationId);
+      console.log('📍 Set saved chat position (provided):', position, 'for conversation:', conversationId, 'in sorted order');
     } else {
-      // Fallback to indexOf
+      // Fallback to indexOf in the sorted order
       const foundPosition = savedChatsArray.indexOf(conversationId);
       if (foundPosition !== -1) {
         currentSavedChatPositionRef.current = foundPosition;
-        console.log('📍 Set saved chat position (indexOf):', foundPosition, 'for conversation:', conversationId);
+        console.log('📍 Set saved chat position (indexOf):', foundPosition, 'for conversation:', conversationId, 'in sorted order');
       } else {
         console.log('⚠️ Conversation not found in saved chats when selected:', conversationId);
         currentSavedChatPositionRef.current = -1;

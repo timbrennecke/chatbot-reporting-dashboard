@@ -31,7 +31,7 @@ interface SavedChatsProps {
   uploadedConversations?: Conversation[];
   uploadedThreads?: Thread[];
   fetchedConversationsMap?: Map<string, any>;
-  onConversationSelect?: (conversationId: string, position?: number) => void;
+  onConversationSelect?: (conversationId: string, position?: number, sortedOrder?: string[]) => void;
   onUnsaveChat?: (conversationId: string) => void;
   onNotesChange?: (conversationId: string, notes: string) => void;
   onClearAllSaved?: () => void;
@@ -222,9 +222,11 @@ export function SavedChats({
   }, [filteredSavedChats]);
 
   const handleConversationClick = (conversationId: string) => {
-    // Find the position in the original savedConversationIds order (not sorted order)
-    const position = savedConversationIds.indexOf(conversationId);
-    onConversationSelect?.(conversationId, position);
+    // Find the position in the sorted order (matches display order)
+    const position = sortedSavedChats.findIndex(item => item.conversationId === conversationId);
+    // Create sorted conversation IDs array for navigation
+    const sortedOrder = sortedSavedChats.map(item => item.conversationId);
+    onConversationSelect?.(conversationId, position, sortedOrder);
   };
 
   const handleUnsaveClick = (conversationId: string, event: React.MouseEvent) => {
