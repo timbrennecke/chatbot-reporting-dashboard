@@ -204,29 +204,133 @@ check_prerequisites() {
     print_success "All prerequisites are met!"
 }
 
-# Function to cleanup existing installation
-cleanup_existing() {
-    if [ -d "$INSTALL_DIR" ]; then
-        print_warning "Existing installation found at $INSTALL_DIR"
-        choice=$(show_choice_dialog "Existing Installation Found" "An existing installation was found at:\n$INSTALL_DIR\n\nDo you want to remove it and install fresh?")
+# Function to check if dashboard is already installed
+check_existing_installation() {
+    if [ -d "$INSTALL_DIR" ] && [ -f "$INSTALL_DIR/package.json" ]; then
+        return 0  # Installation exists
+    else
+        return 1  # No installation found
+    fi
+}
+
+# Function to check for updates
+check_for_updates() {
+    print_status "Checking for updates..."
+    
+    if ! check_existing_installation; then
+        show_error_dialog "No Installation Found" "No existing installation found. Please install first."
+        return 1
+    fi
+    
+    cd "$INSTALL_DIR"
+    
+    # Fetch latest changes from remote with error handling
+    print_status "Fetching latest changes from GitHub..."
+    
+    # Try to fetch updates
+    if git fetch origin main 2>/dev/null; then
+        # Fetch successful - check for updates
+        local local_commit=$(git rev-parse HEAD 2>/dev/null)
+        local remote_commit=$(git rev-parse origin/main 2>/dev/null)
         
-        if [[ "$choice" == *"Yes"* ]]; then
-            print_status "Removing existing installation..."
-            rm -rf "$INSTALL_DIR"
-            print_success "Existing installation removed."
-            return 1
+        if [ "$local_commit" = "$remote_commit" ]; then
+            # No updates available
+            osascript -e "display dialog \"✅ You already have the latest version!\n\nLocal:  $(echo $local_commit | cut -c1-8)\nRemote: $(echo $remote_commit | cut -c1-8)\n\nNo updates needed.\" with title \"Up to Date\" with icon note buttons {\"OK\"} default button \"OK\"" 2>/dev/null
+            
+            # Ask if user wants to open the dashboard anyway
+            choice2=$(osascript -e "display dialog \"Would you like to open the dashboard now?\" with title \"Open Dashboard\" with icon question buttons {\"No\", \"Yes\"} default button \"Yes\"" 2>/dev/null || echo "No")
+            if [[ "$choice2" == *"Yes"* ]]; then
+                open_existing_dashboard
+            fi
+            return 0
         else
-            print_status "Updating existing installation..."
-            cd "$INSTALL_DIR"
-            if git fetch origin && git reset --hard origin/main; then
+            # Updates available
+            choice=$(osascript -e "display dialog \"🆕 Updates available!\n\nLocal version:  $(echo $local_commit | cut -c1-8)\nLatest version: $(echo $remote_commit | cut -c1-8)\n\nDo you want to update now?\" with title \"Update Available\" with icon note buttons {\"Cancel\", \"Update\"} default button \"Update\"" 2>/dev/null || echo "Cancel")
+            
+            if [[ "$choice" == *"Update"* ]]; then
+                osascript -e "display dialog \"⬇️ Updating to latest version...\n\nThis may take a moment.\" with title \"Updating\" with icon note buttons {\"OK\"} default button \"OK\"" 2>/dev/null
+                
+                print_status "Updating to latest version..."
+                git reset --hard origin/main
+                
+                print_status "Updating dependencies..."
+                npm install
+                
+                osascript -e "display dialog \"🎉 Update completed successfully!\n\nThe dashboard is now up to date.\" with title \"Update Complete\" with icon note buttons {\"OK\"} default button \"OK\"" 2>/dev/null
                 return 0
             else
-                print_error "Failed to update existing installation. Will do fresh install."
-                rm -rf "$INSTALL_DIR"
+                osascript -e "display dialog \"Update cancelled. Using current version.\" with title \"Update Cancelled\" with icon note buttons {\"OK\"} default button \"OK\"" 2>/dev/null
                 return 1
             fi
         fi
+    else
+        # Fetch failed
+        osascript -e "display dialog \"❌ Failed to fetch updates from GitHub.\n\nPossible causes:\n• No internet connection\n• GitHub is unreachable\n• Repository access issues\n\nPlease check your connection and try again.\" with title \"Update Check Failed\" with icon stop buttons {\"OK\"} default button \"OK\"" 2>/dev/null
+        return 1
     fi
+}
+
+# Function to open existing dashboard
+open_existing_dashboard() {
+    print_status "Opening existing dashboard..."
+    
+    if ! check_existing_installation; then
+        show_error_dialog "No Installation Found" "No existing installation found.\n\nPlease choose 'Check for Updates & Install' to install the dashboard first."
+        return 1
+    fi
+    
+    cd "$INSTALL_DIR"
+    print_status "Starting Chatbot Dashboard..."
+    
+    show_dialog "Starting Dashboard" "✅ Starting Chatbot Dashboard...\n\nThe dashboard will open in your browser shortly.\nIf it doesn't open automatically, visit: http://localhost:3000\n\nTo stop the application, close the terminal window that opens."
+    
+    # Open Terminal and run the dev server
+    osascript << EOF
+tell application "Terminal"
+    activate
+    do script "cd '$INSTALL_DIR' && echo 'Starting Chatbot Dashboard...' && npm run dev"
+end tell
+EOF
+    return 0
+}
+
+# Function to show main menu
+show_main_menu() {
+    local status_message=""
+    if check_existing_installation; then
+        status_message="✅ Existing installation found at:\n$INSTALL_DIR\n\n"
+    else
+        status_message="ℹ️ No existing installation found.\n\n"
+    fi
+    
+    choice=$(osascript -e "display dialog \"${status_message}Please choose an option:\n\n🚀 Just Open Dashboard - Open existing installation without checking for updates\n\n🔄 Check for Updates & Install - Check for GitHub repo updates and install/update as needed\n\n❌ Exit - Close the installer\" with title \"Chatbot Dashboard Installer\" with icon note buttons {\"Exit\", \"Just Open\", \"Check Updates\"} default button \"Check Updates\"" 2>/dev/null || echo "Exit")
+    
+    case "$choice" in
+        *"Just Open"*)
+            open_existing_dashboard
+            ;;
+        *"Check Updates"*)
+            if check_existing_installation; then
+                show_dialog "Starting Update Check" "🔍 Starting update check...\n\nThis will contact GitHub to check for updates."
+                check_for_updates
+                # Note: check_for_updates now handles its own dialog flow
+            else
+                show_dialog "Installing" "No existing installation found.\n\nStarting fresh installation..."
+                return 1  # Proceed with fresh installation
+            fi
+            ;;
+        *)
+            show_dialog "Goodbye" "👋 Installation cancelled."
+            exit 0
+            ;;
+    esac
+    
+    return 0
+}
+
+# Function to cleanup existing installation (legacy function, simplified)
+cleanup_existing() {
+    # This function is now handled by the menu system
     return 1
 }
 
@@ -283,23 +387,26 @@ main() {
     
     check_prerequisites
     
-    # Check if we're updating existing installation
-    if cleanup_existing; then
-        cd "$INSTALL_DIR"
-        install_dependencies
+    # Show the main menu
+    if show_main_menu; then
+        # Menu handled everything, exit gracefully
+        echo ""
+        print_success "Operation completed successfully!"
+        echo ""
+        exit 0
     else
+        # Menu indicated we should proceed with fresh installation
         clone_repository
         install_dependencies
+        start_application
+        
+        echo ""
+        print_success "Installation completed successfully!"
+        echo ""
+        echo "To run the application again later:"
+        echo "cd $INSTALL_DIR && npm run dev"
+        echo ""
     fi
-    
-    start_application
-    
-    echo ""
-    print_success "Installation completed successfully!"
-    echo ""
-    echo "To run the application again later:"
-    echo "cd $INSTALL_DIR && npm run dev"
-    echo ""
 }
 
 # Handle script interruption
