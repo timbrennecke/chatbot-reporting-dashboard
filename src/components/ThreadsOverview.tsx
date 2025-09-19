@@ -103,6 +103,8 @@ export function ThreadsOverview({
   const [selectedThreads, setSelectedThreads] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkResults, setBulkResults] = useState<any>(null);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [lastSearchDates, setLastSearchDates] = useState<{startDate: string, endDate: string} | null>(null);
   
   // Viewed threads tracking
   const [viewedThreads, setViewedThreads] = useState<Set<string>>(() => {
@@ -183,6 +185,7 @@ export function ThreadsOverview({
     
     setStartDate(formatDateTimeLocal(startTime));
     setEndDate(formatDateTimeLocal(now));
+    // Don't reset hasSearched here - let it persist until user performs new search
   };
 
   const setDefaultTimeRange = () => setTimeRange(1); // Default: last 1 hour
@@ -344,6 +347,7 @@ export function ThreadsOverview({
     setLoading(true);
     setError(null);
     setThreads([]); // Clear existing threads
+    setHasSearched(false); // Reset search state at start of new search
 
     try {
       // Format timestamps for the API
@@ -374,6 +378,8 @@ export function ThreadsOverview({
       // Extract threads from the response structure
       const fetchedThreads = data.threads?.map((item: any) => item.thread) || [];
       setThreads(fetchedThreads);
+      setHasSearched(true); // Mark that a search has been completed
+      setLastSearchDates({ startDate, endDate }); // Store the actual search dates
       
       // Save search results and parameters to environment-specific localStorage for persistence
       try {
@@ -1109,9 +1115,9 @@ export function ThreadsOverview({
             <div className="flex flex-col gap-4">
               <div className="flex items-center gap-4">
                 <CardTitle>Threads ({filteredThreads.length})</CardTitle>
-                {startDate && endDate && !uploadedThreads?.length && threads.length > 0 && (
+                {lastSearchDates && !uploadedThreads?.length && hasSearched && (
                   <div className="text-sm text-muted-foreground bg-slate-50 px-3 py-1 rounded-md border">
-                    <span className="font-medium">Search period:</span> {new Date(startDate).toLocaleString('en-GB')} - {new Date(endDate).toLocaleString('en-GB')}
+                    <span className="font-medium">Search period:</span> {new Date(lastSearchDates.startDate).toLocaleString('en-GB')} - {new Date(lastSearchDates.endDate).toLocaleString('en-GB')}
                   </div>
                 )}
               </div>
