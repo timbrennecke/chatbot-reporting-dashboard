@@ -25,6 +25,7 @@ import {
 
 import { ThreadsOverview } from './components/ThreadsOverview';
 import { ConversationDetail } from './components/ConversationDetail';
+import { SavedChats } from './components/SavedChats';
 import { UploadedData, Thread, Conversation } from './lib/types';
 import { 
   setGlobalOfflineMode, 
@@ -147,6 +148,20 @@ export default function App() {
       setUploadedData({});
       setGlobalOfflineMode(false);
     }
+    
+    // Load environment-specific saved chats
+    try {
+      const savedChatsData = getEnvironmentSpecificItem('chatbot-dashboard-saved-chats');
+      const newSavedChats = savedChatsData ? new Set(JSON.parse(savedChatsData)) : new Set();
+      setSavedChats(newSavedChats);
+      console.log('💾 Loaded environment-specific saved chats:', newSavedChats.size, 'chats');
+    } catch (error) {
+      console.error('Failed to load environment-specific saved chats:', error);
+      setSavedChats(new Set());
+    }
+    
+    // Note: Saved chat notes are automatically environment-specific in SavedChats component
+    // and will be loaded when the component re-initializes
     
     // Reset current selection state - ThreadsOverview will re-initialize due to key prop
     setSelectedConversationId(undefined);
@@ -574,12 +589,108 @@ export default function App() {
   const [showConversationOverlay, setShowConversationOverlay] = useState(false);
   const [showNavigationFeedback, setShowNavigationFeedback] = useState(false);
   
+  // Saved chats state
+  const [savedChats, setSavedChats] = useState<Set<string>>(() => {
+    try {
+      const saved = getEnvironmentSpecificItem('chatbot-dashboard-saved-chats');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch (error) {
+      console.error('Failed to load saved chats:', error);
+      return new Set();
+    }
+  });
+  
   // Helper function to show brief navigation feedback
   const showBriefNavigationFeedback = useCallback(() => {
     setShowNavigationFeedback(true);
     setTimeout(() => {
       setShowNavigationFeedback(false);
     }, 300); // Very brief 300ms feedback
+  }, []);
+
+  // Save/unsave chat functions
+  const handleSaveChat = useCallback((conversationId: string) => {
+    const newSavedChats = new Set(savedChats);
+    newSavedChats.add(conversationId);
+    setSavedChats(newSavedChats);
+    
+    // Persist to localStorage
+    try {
+      setEnvironmentSpecificItem('chatbot-dashboard-saved-chats', JSON.stringify([...newSavedChats]));
+      console.log('💾 Chat saved:', conversationId);
+    } catch (error) {
+      console.error('Failed to save chat to localStorage:', error);
+    }
+  }, [savedChats]);
+
+  const handleUnsaveChat = useCallback((conversationId: string) => {
+    const newSavedChats = new Set(savedChats);
+    newSavedChats.delete(conversationId);
+    setSavedChats(newSavedChats);
+    
+    // Persist to localStorage
+    try {
+      setEnvironmentSpecificItem('chatbot-dashboard-saved-chats', JSON.stringify([...newSavedChats]));
+      console.log('🗑️ Chat unsaved:', conversationId);
+    } catch (error) {
+      console.error('Failed to unsave chat from localStorage:', error);
+    }
+  }, [savedChats]);
+
+  const toggleSaveChat = useCallback((conversationId: string) => {
+    if (savedChats.has(conversationId)) {
+      handleUnsaveChat(conversationId);
+    } else {
+      handleSaveChat(conversationId);
+    }
+  }, [savedChats, handleSaveChat, handleUnsaveChat]);
+
+  const handleClearAllSaved = useCallback(() => {
+    setSavedChats(new Set());
+    
+    // Persist to localStorage
+    try {
+      setEnvironmentSpecificItem('chatbot-dashboard-saved-chats', JSON.stringify([]));
+      console.log('🗑️ All saved chats cleared');
+    } catch (error) {
+      console.error('Failed to clear all saved chats from localStorage:', error);
+    }
+  }, []);
+
+  // Notes management - shared between ConversationDetail and SavedChats
+  const handleNotesChange = useCallback((conversationId: string, notes: string) => {
+    try {
+      // Load existing notes
+      const savedNotes = getEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes') || '{}';
+      const notesData = JSON.parse(savedNotes);
+      
+      // Update notes for this conversation
+      if (notes.trim()) {
+        notesData[conversationId] = notes;
+      } else {
+        delete notesData[conversationId];
+      }
+      
+      // Save back to localStorage
+      setEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes', JSON.stringify(notesData));
+      console.log('📝 Notes updated for conversation:', conversationId, 'Notes length:', notes.length);
+    } catch (error) {
+      console.error('Failed to save notes for conversation:', error);
+    }
+  }, []);
+
+  // Get current notes for a conversation
+  const getCurrentNotes = useCallback((conversationId: string): string => {
+    try {
+      const savedNotes = getEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes');
+      if (savedNotes) {
+        const notesData = JSON.parse(savedNotes);
+        return notesData[conversationId] || '';
+      }
+    } catch (error) {
+      console.error('Failed to load notes for conversation:', error);
+    }
+    return '';
   }, []);
 
   const handleDataUploaded = (data: UploadedData) => {
@@ -829,6 +940,17 @@ export default function App() {
             >
               Conversation Search
             </button>
+            <button
+              onClick={() => setActiveTab('saved-chats')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'saved-chats'
+                  ? 'border-blue-500 text-blue-600 bg-blue-50'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+              style={{ marginLeft: '24px' }}
+            >
+              Saved Chats
+            </button>
           </div>
         </div>
       </nav>
@@ -846,6 +968,7 @@ export default function App() {
               onFetchedConversationsChange={handleFetchedConversationsChange}
               onThreadOrderChange={handleThreadOrderChange}
               onConversationViewed={handleConversationViewed}
+              savedConversationIds={savedChats}
             />
           )}
           
@@ -925,6 +1048,18 @@ export default function App() {
               </Card>
             </div>
           )}
+
+          {activeTab === 'saved-chats' && (
+            <SavedChats
+              savedConversationIds={[...savedChats]}
+              uploadedConversations={uploadedData.conversations || []}
+              uploadedThreads={uploadedThreads}
+              fetchedConversationsMap={fetchedConversationsMap}
+              onConversationSelect={handleConversationSelect}
+              onUnsaveChat={handleUnsaveChat}
+              onClearAllSaved={handleClearAllSaved}
+            />
+          )}
         </div>
       </main>
 
@@ -960,6 +1095,10 @@ export default function App() {
               hasPreviousConversation={hasPreviousConversation}
               hasNextConversation={hasNextConversation}
               onConversationFetched={handleConversationFetched}
+              isSaved={selectedConversationId ? savedChats.has(selectedConversationId) : false}
+              onToggleSave={toggleSaveChat}
+              initialNotes={selectedConversationId ? getCurrentNotes(selectedConversationId) : ''}
+              onNotesChange={handleNotesChange}
             />
           </div>
         </div>

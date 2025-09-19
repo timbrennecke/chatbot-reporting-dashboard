@@ -42,7 +42,8 @@ import {
   Activity,
   Clock,
   Zap,
-  ExternalLink
+  ExternalLink,
+  Bookmark
 } from 'lucide-react';
 import { Thread, ThreadsRequest, BulkAttributesRequest } from '../lib/types';
 import { 
@@ -62,6 +63,7 @@ interface ThreadsOverviewProps {
   onFetchedConversationsChange?: (conversations: Map<string, any>) => void;
   onThreadOrderChange?: (threadOrder: string[]) => void;
   onConversationViewed?: (conversationId: string) => void;
+  savedConversationIds?: Set<string>;
 }
 
 export function ThreadsOverview({ 
@@ -71,7 +73,8 @@ export function ThreadsOverview({
   onConversationSelect,
   onFetchedConversationsChange,
   onThreadOrderChange,
-  onConversationViewed
+  onConversationViewed,
+  savedConversationIds = new Set()
 }: ThreadsOverviewProps) {
   const [threads, setThreads] = useState<Thread[]>(() => {
     // If we have uploaded threads, use them and clear any saved search results
@@ -1227,11 +1230,18 @@ export function ThreadsOverview({
                           <div>
                             <div className={`${!isAnyViewed ? 'font-bold' : ''} text-foreground`}>{parsed.id}</div>
                           </div>
-                          {isAnyViewed && (
-                            <Badge variant="outline" className="text-xs text-green-600 border-green-300">
-                              Viewed
-                            </Badge>
-                          )}
+                          <div className="flex items-center gap-1">
+                            {isAnyViewed && (
+                              <Badge variant="outline" className="text-xs text-green-600 border-green-300">
+                                Viewed
+                              </Badge>
+                            )}
+                            {savedConversationIds.has(thread.conversationId) && (
+                              <div className="flex items-center" title="Saved chat">
+                                <Bookmark className="h-3 w-3 text-blue-600 fill-blue-600" />
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </TableCell>
                       <TableCell 

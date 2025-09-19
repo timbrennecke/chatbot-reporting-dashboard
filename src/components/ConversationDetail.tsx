@@ -6,6 +6,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Alert, AlertDescription } from './ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Textarea } from './ui/textarea';
 import { 
   User, 
   Bot, 
@@ -23,7 +24,11 @@ import {
   RefreshCw,
   Key,
   Copy,
-  Check
+  Check,
+  Bookmark,
+  BookmarkX,
+  X,
+  FileText
 } from 'lucide-react';
 import { Conversation, Thread, Message, MessageContent } from '../lib/types';
 import { getApiBaseUrl, getEnvironmentSpecificItem } from '../lib/api';
@@ -45,6 +50,12 @@ interface ConversationDetailProps {
   hasNextConversation?: boolean;
   // Callback to notify parent when a conversation is fetched
   onConversationFetched?: (conversation: any) => void;
+  // Bookmark props
+  isSaved?: boolean;
+  onToggleSave?: (conversationId: string) => void;
+  // Notes props
+  initialNotes?: string;
+  onNotesChange?: (conversationId: string, notes: string) => void;
 }
 
 interface ConversationAnalytics {
@@ -179,7 +190,11 @@ export function ConversationDetail({
   onNextConversation,
   hasPreviousConversation = false,
   hasNextConversation = false,
-  onConversationFetched
+  onConversationFetched,
+  isSaved = false,
+  onToggleSave,
+  initialNotes = '',
+  onNotesChange
 }: ConversationDetailProps) {
   
   
@@ -199,6 +214,38 @@ export function ConversationDetail({
   });
   const [showApiKey, setShowApiKey] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  
+  // Notes state
+  const [showNotesPanel, setShowNotesPanel] = useState(false);
+  const [notes, setNotes] = useState(initialNotes);
+
+  // Handle notes changes
+  const handleNotesChange = (newNotes: string) => {
+    setNotes(newNotes);
+    if (paginationConversationId && onNotesChange) {
+      onNotesChange(paginationConversationId, newNotes);
+    }
+  };
+
+  // Handle save with notes
+  const handleSaveWithNotes = () => {
+    if (paginationConversationId && onToggleSave) {
+      if (!isSaved) {
+        // If not saved yet, save it and show small notes popup
+        onToggleSave(paginationConversationId);
+        setShowNotesPanel(true);
+      } else {
+        // If already saved, just toggle the save state
+        onToggleSave(paginationConversationId);
+        setShowNotesPanel(false);
+      }
+    }
+  };
+
+  // Save notes and close popup
+  const handleSaveNotes = () => {
+    setShowNotesPanel(false);
+  };
 
   // Copy to clipboard function
   const copyToClipboard = async (text: string, id: string) => {
@@ -215,6 +262,7 @@ export function ConversationDetail({
   const activeConversation = useMemo(() => {
     return conversation || uploadedConversation || fetchedConversation;
   }, [conversation, uploadedConversation, fetchedConversation]);
+
 
   // Auto-fetch conversation when component mounts or conversation ID changes
   useEffect(() => {
@@ -403,6 +451,7 @@ export function ConversationDetail({
 
   return (
     <div className="space-y-6">
+
       {/* Header */}
       <div className="flex items-center gap-4 mb-6">
         <div className="flex items-center gap-2">
@@ -457,7 +506,7 @@ export function ConversationDetail({
                   </div>
                 </div>
                 
-                {/* Navigation Arrows */}
+                {/* Navigation Arrows and Bookmark */}
                 <div className="flex items-center gap-3 mr-4">
                   <Button
                     variant="ghost"
@@ -487,6 +536,91 @@ export function ConversationDetail({
                     <span className="text-sm font-medium">Next Chat</span>
                     <ChevronRight className="h-5 w-5" />
                   </Button>
+
+                  {/* Bookmark Button */}
+                  {paginationConversationId && (
+                    <div className="relative flex flex-col items-start gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleSaveWithNotes}
+                        className={`flex items-center gap-2 px-3 py-2 h-auto transition-all duration-200 rounded-md ${
+                          isSaved 
+                            ? 'text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-200 bg-blue-50/50' 
+                            : 'text-slate-600 hover:text-slate-700 hover:bg-slate-100 border border-slate-200'
+                        }`}
+                        title={isSaved ? "Remove from saved chats" : "Save chat with notes"}
+                      >
+                        {isSaved ? (
+                          <>
+                            <BookmarkX className="h-4 w-4" />
+                            <span className="text-sm font-medium">Saved</span>
+                          </>
+                        ) : (
+                          <>
+                            <Bookmark className="h-4 w-4" />
+                            <span className="text-sm font-medium">Save</span>
+                          </>
+                        )}
+                      </Button>
+
+                      {/* Small Notes Button - only show when saved */}
+                      {isSaved && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowNotesPanel(true)}
+                          className="flex items-center gap-1 px-2 py-1 h-auto text-xs text-gray-600 hover:text-gray-700 hover:bg-gray-100 border border-gray-200 rounded-md"
+                          title="View/edit notes"
+                        >
+                          <FileText className="h-3 w-3" />
+                          <span>Notes</span>
+                        </Button>
+                      )}
+
+                      {/* Small Notes Popup */}
+                      {showNotesPanel && (
+                        <div className="absolute top-full left-0 mt-2 w-72 bg-white border-2 border-gray-300 rounded-lg shadow-xl z-50 overflow-hidden" style={{ backgroundColor: '#ffffff', opacity: 1 }}>
+                          <div className="p-3 bg-white">
+                            <div className="flex items-center gap-2 mb-2 bg-white">
+                              <FileText className="w-4 h-4 text-gray-700" />
+                              <span className="text-sm font-semibold text-gray-800">{notes.trim() ? 'Edit Notes' : 'Add Notes'}</span>
+                            </div>
+                            
+                            <Textarea
+                              placeholder="Add notes about this conversation..."
+                              value={notes}
+                              onChange={(e) => handleNotesChange(e.target.value)}
+                              className="text-sm resize-none bg-white border-2 border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 w-full"
+                              rows={4}
+                              style={{ backgroundColor: '#ffffff', opacity: 1 }}
+                            />
+                          </div>
+                          
+                          {/* Button Footer */}
+                          <div className="flex justify-end gap-2 px-3 py-2 bg-gray-100 border-t-2 border-gray-300">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setShowNotesPanel(false)}
+                              className="text-xs bg-white border-gray-400 hover:bg-gray-50 px-2 py-1"
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={handleSaveNotes}
+                              className="text-xs px-2 py-1"
+                            >
+                              Save
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
                 </div>
                 
                 <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-300">
@@ -867,6 +1001,91 @@ export function ConversationDetail({
                         <span className="text-sm font-medium">Next Chat</span>
                         <ChevronRight className="h-5 w-5" />
                       </Button>
+
+                      {/* Bookmark Button */}
+                      {paginationConversationId && (
+                        <div className="relative flex flex-col items-start gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleSaveWithNotes}
+                            className={`flex items-center gap-2 px-3 py-2 h-auto transition-all duration-200 rounded-md ${
+                              isSaved 
+                                ? 'text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-200 bg-blue-50/50' 
+                                : 'text-slate-600 hover:text-slate-700 hover:bg-slate-100 border border-slate-200'
+                            }`}
+                            title={isSaved ? "Remove from saved chats" : "Save chat with notes"}
+                          >
+                            {isSaved ? (
+                              <>
+                                <BookmarkX className="h-4 w-4" />
+                                <span className="text-sm font-medium">Saved</span>
+                              </>
+                            ) : (
+                              <>
+                                <Bookmark className="h-4 w-4" />
+                                <span className="text-sm font-medium">Save</span>
+                              </>
+                            )}
+                          </Button>
+
+                          {/* Small Notes Button - only show when saved */}
+                          {isSaved && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setShowNotesPanel(true)}
+                              className="flex items-center gap-1 px-2 py-1 h-auto text-xs text-gray-600 hover:text-gray-700 hover:bg-gray-100 border border-gray-200 rounded-md"
+                              title="View/edit notes"
+                            >
+                              <FileText className="h-3 w-3" />
+                              <span>Notes</span>
+                            </Button>
+                          )}
+
+                          {/* Small Notes Popup */}
+                          {showNotesPanel && (
+                            <div className="absolute top-full left-0 mt-2 w-72 bg-white border-2 border-gray-300 rounded-lg shadow-xl z-50 overflow-hidden" style={{ backgroundColor: '#ffffff', opacity: 1 }}>
+                              <div className="p-3 bg-white">
+                                <div className="flex items-center gap-2 mb-2 bg-white">
+                                  <FileText className="w-4 h-4 text-gray-700" />
+                                  <span className="text-sm font-semibold text-gray-800">{notes.trim() ? 'Edit Notes' : 'Add Notes'}</span>
+                                </div>
+                                
+                                <Textarea
+                                  placeholder="Add notes about this conversation..."
+                                  value={notes}
+                                  onChange={(e) => handleNotesChange(e.target.value)}
+                                  className="text-sm resize-none bg-white border-2 border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 w-full"
+                                  rows={4}
+                                  style={{ backgroundColor: '#ffffff', opacity: 1 }}
+                                />
+                              </div>
+                              
+                              {/* Button Footer */}
+                              <div className="flex justify-end gap-2 px-3 py-2 bg-gray-100 border-t-2 border-gray-300">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setShowNotesPanel(false)}
+                                  className="text-xs bg-white border-gray-400 hover:bg-gray-50 px-2 py-1"
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  onClick={handleSaveNotes}
+                                  className="text-xs px-2 py-1"
+                                >
+                                  Save
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
                     </div>
                     
                     <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-300">
@@ -1172,6 +1391,7 @@ export function ConversationDetail({
               )}
             </div>
           )}
+
     </div>
   );
 }
