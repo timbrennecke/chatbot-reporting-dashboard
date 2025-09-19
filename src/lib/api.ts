@@ -7,6 +7,24 @@ import {
   BulkAttributesResponse 
 } from './types';
 
+// Helper functions for environment-specific localStorage
+export const getEnvironmentSpecificKey = (key: string): string => {
+  const environment = localStorage.getItem('chatbot-dashboard-environment') || 'staging';
+  return `${key}-${environment}`;
+};
+
+export const getEnvironmentSpecificItem = (key: string): string | null => {
+  return localStorage.getItem(getEnvironmentSpecificKey(key));
+};
+
+export const setEnvironmentSpecificItem = (key: string, value: string): void => {
+  localStorage.setItem(getEnvironmentSpecificKey(key), value);
+};
+
+export const removeEnvironmentSpecificItem = (key: string): void => {
+  localStorage.removeItem(getEnvironmentSpecificKey(key));
+};
+
 // Helper function to get API base URL based on environment
 export const getApiBaseUrl = () => {
   const environment = localStorage.getItem('chatbot-dashboard-environment') || 'staging';

@@ -26,7 +26,7 @@ import {
   Check
 } from 'lucide-react';
 import { Conversation, Thread, Message, MessageContent } from '../lib/types';
-import { getApiBaseUrl } from '../lib/api';
+import { getApiBaseUrl, getEnvironmentSpecificItem } from '../lib/api';
 import { formatTimestamp, parseThreadId } from '../lib/utils';
 
 interface ConversationDetailProps {
@@ -194,8 +194,8 @@ export function ConversationDetail({
   const [fetchedConversation, setFetchedConversation] = useState<any>(null);
   const [showJsonOutput, setShowJsonOutput] = useState(false);
   const [apiKey, setApiKey] = useState(() => {
-    // Load API key from localStorage on component mount
-    return localStorage.getItem('chatbot-dashboard-api-key') || '';
+    // Load API key from environment-specific localStorage on component mount
+    return getEnvironmentSpecificItem('chatbot-dashboard-api-key') || '';
   });
   const [showApiKey, setShowApiKey] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);

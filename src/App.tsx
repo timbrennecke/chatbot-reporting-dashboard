@@ -26,7 +26,12 @@ import {
 import { ThreadsOverview } from './components/ThreadsOverview';
 import { ConversationDetail } from './components/ConversationDetail';
 import { UploadedData, Thread, Conversation } from './lib/types';
-import { setGlobalOfflineMode, getApiBaseUrl } from './lib/api';
+import { 
+  setGlobalOfflineMode, 
+  getApiBaseUrl, 
+  getEnvironmentSpecificItem, 
+  setEnvironmentSpecificItem 
+} from './lib/api';
 import { 
   mockConversation, 
   mockThreadsResponse, 
@@ -44,8 +49,8 @@ export default function App() {
     return localStorage.getItem('chatbot-dashboard-environment') || 'staging';
   });
   const [apiKey, setApiKey] = useState(() => {
-    // Load API key from localStorage on app start
-    return localStorage.getItem('chatbot-dashboard-api-key') || '';
+    // Load API key from environment-specific localStorage on app start
+    return getEnvironmentSpecificItem('chatbot-dashboard-api-key') || '';
   });
   const [showApiKey, setShowApiKey] = useState(false);
   
@@ -60,7 +65,7 @@ export default function App() {
   const [fetchedConversationsMap, setFetchedConversationsMap] = useState<Map<string, any>>(new Map());
   const [threadOrder, setThreadOrder] = useState<string[]>([]);
 
-  // Handle environment change - clear all data and state
+  // Handle environment change - load environment-specific data
   const handleEnvironmentChange = (newEnvironment: string) => {
     console.log('🌍 Environment changed to:', newEnvironment);
     
@@ -68,11 +73,34 @@ export default function App() {
     setEnvironment(newEnvironment);
     localStorage.setItem('chatbot-dashboard-environment', newEnvironment);
     
-    // Clear ALL state variables as if newly opening the page
-    setActiveTab('dashboard');
-    setApiKey('');
-    setShowApiKey(false);
-    setUploadedData({});
+    // Load environment-specific data
+    const newApiKey = getEnvironmentSpecificItem('chatbot-dashboard-api-key') || '';
+    setApiKey(newApiKey);
+    
+    // Load environment-specific uploaded data
+    try {
+      const savedData = getEnvironmentSpecificItem('chatbot-dashboard-data');
+      if (savedData) {
+        const parsedData = JSON.parse(savedData);
+        setUploadedData(parsedData);
+        
+        // Enable global offline mode if we have any data
+        const hasAnyData = (parsedData.conversations?.length || 0) > 0 || 
+                          !!parsedData.threadsResponse || 
+                          (parsedData.attributesResponses?.length || 0) > 0 || 
+                          (parsedData.bulkAttributesResponses?.length || 0) > 0;
+        setGlobalOfflineMode(hasAnyData);
+      } else {
+        setUploadedData({});
+        setGlobalOfflineMode(false);
+      }
+    } catch (error) {
+      console.error('Failed to load environment-specific data:', error);
+      setUploadedData({});
+      setGlobalOfflineMode(false);
+    }
+    
+    // Reset current selection state (but keep the data)
     setSelectedConversationId(undefined);
     setSelectedThread(undefined);
     setConversationSearchId('');
@@ -83,29 +111,17 @@ export default function App() {
     setFetchedConversationsMap(new Map());
     setThreadOrder([]);
     setShowConversationOverlay(false);
+    setActiveTab('dashboard');
+    setShowApiKey(false);
     
-    // Clear ALL localStorage data (except environment)
-    localStorage.removeItem('chatbot-dashboard-api-key');
-    localStorage.removeItem('chatbot-dashboard-data');
-    localStorage.removeItem('chatbot-dashboard-search-results');
-    localStorage.removeItem('chatbot-dashboard-search-params');
-    localStorage.removeItem('chatbot-dashboard-viewed-conversations');
-    localStorage.removeItem('chatbot-dashboard-viewed-threads');
-    
-    // Disable global offline mode
-    setGlobalOfflineMode(false);
-    
-    // Force a page reload to ensure all child components reset their state
-    window.location.reload();
-    
-    console.log('✅ All data cleared for environment switch - page reloading');
+    console.log('✅ Switched to', newEnvironment, 'environment with preserved data');
   };
 
-  // Save API key to localStorage
+  // Save API key to environment-specific localStorage
   const handleApiKeyChange = (newApiKey: string) => {
     setApiKey(newApiKey);
-    localStorage.setItem('chatbot-dashboard-api-key', newApiKey);
-    console.log('🔑 API key saved to localStorage from dashboard');
+    setEnvironmentSpecificItem('chatbot-dashboard-api-key', newApiKey);
+    console.log('🔑 API key saved to environment-specific localStorage from dashboard');
   };
 
   // Handle Enter key press to save API key
@@ -257,13 +273,13 @@ export default function App() {
   const handleConversationViewed = (conversationId: string) => {
     console.log('📋 Conversation marked as viewed:', conversationId);
     
-    // Update localStorage to mark conversation as viewed
+    // Update environment-specific localStorage to mark conversation as viewed
     try {
-      const existingViewed = localStorage.getItem('chatbot-dashboard-viewed-conversations');
+      const existingViewed = getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
       const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
       viewedSet.add(conversationId);
-      localStorage.setItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
-      console.log('✅ Updated localStorage with viewed conversation:', conversationId);
+      setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
+      console.log('✅ Updated environment-specific localStorage with viewed conversation:', conversationId);
       
       // Dispatch custom event to notify ThreadsOverview to refresh
       window.dispatchEvent(new CustomEvent('conversationViewed', { detail: { conversationId } }));
@@ -275,10 +291,10 @@ export default function App() {
   // Mark conversation as viewed (for navigation)
   const markConversationAsViewed = (conversationId: string) => {
     try {
-      const existingViewed = localStorage.getItem('chatbot-dashboard-viewed-conversations');
+      const existingViewed = getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
       const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
       viewedSet.add(conversationId);
-      localStorage.setItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
+      setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
       console.log('📋 Navigation: Marked conversation as viewed:', conversationId);
     } catch (error) {
       console.error('Failed to mark conversation as viewed:', error);
@@ -384,10 +400,10 @@ export default function App() {
     uploadedConversationsCount: uploadedData.conversations?.length || 0
   });
 
-  // Load data from localStorage on component mount
+  // Load environment-specific data from localStorage on component mount
   useEffect(() => {
     try {
-      const savedData = localStorage.getItem('chatbot-dashboard-data');
+      const savedData = getEnvironmentSpecificItem('chatbot-dashboard-data');
       if (savedData) {
         const parsedData = JSON.parse(savedData);
         setUploadedData(parsedData);
@@ -400,7 +416,7 @@ export default function App() {
         setGlobalOfflineMode(hasAnyData);
       }
     } catch (error) {
-      console.error('Failed to load saved data:', error);
+      console.error('Failed to load environment-specific saved data:', error);
     }
   }, []);
   const [showConversationOverlay, setShowConversationOverlay] = useState(false);
@@ -441,11 +457,11 @@ export default function App() {
                         (merged.bulkAttributesResponses?.length || 0) > 0;
       setGlobalOfflineMode(hasAnyData);
       
-      // Save to localStorage
+      // Save to environment-specific localStorage
       try {
-        localStorage.setItem('chatbot-dashboard-data', JSON.stringify(merged));
+        setEnvironmentSpecificItem('chatbot-dashboard-data', JSON.stringify(merged));
       } catch (error) {
-        console.error('Failed to save data to localStorage:', error);
+        console.error('Failed to save data to environment-specific localStorage:', error);
       }
       
       return merged;
@@ -470,11 +486,11 @@ export default function App() {
     // Disable global offline mode when data is cleared
     setGlobalOfflineMode(false);
     
-    // Clear from localStorage
+    // Clear from environment-specific localStorage
     try {
-      localStorage.removeItem('chatbot-dashboard-data');
+      setEnvironmentSpecificItem('chatbot-dashboard-data', '{}');
     } catch (error) {
-      console.error('Failed to clear data from localStorage:', error);
+      console.error('Failed to clear data from environment-specific localStorage:', error);
     }
   };
 

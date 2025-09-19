@@ -45,7 +45,13 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { Thread, ThreadsRequest, BulkAttributesRequest } from '../lib/types';
-import { api, ApiError, getApiBaseUrl } from '../lib/api';
+import { 
+  api, 
+  ApiError, 
+  getApiBaseUrl, 
+  getEnvironmentSpecificItem, 
+  setEnvironmentSpecificItem 
+} from '../lib/api';
 import { parseThreadId, calculateThreadAnalytics, formatTimestamp, debounce } from '../lib/utils';
 
 interface ThreadsOverviewProps {
@@ -71,23 +77,23 @@ export function ThreadsOverview({
     // If we have uploaded threads, use them and clear any saved search results
     if (uploadedThreads && uploadedThreads.length > 0) {
       try {
-        localStorage.removeItem('chatbot-dashboard-search-results');
-        localStorage.removeItem('chatbot-dashboard-search-params');
+        setEnvironmentSpecificItem('chatbot-dashboard-search-results', '[]');
+        setEnvironmentSpecificItem('chatbot-dashboard-search-params', '{}');
       } catch (error) {
         console.error('Failed to clear saved search data:', error);
       }
       return uploadedThreads;
     }
     
-    // Try to load saved search results
+    // Try to load environment-specific saved search results
     try {
-      const savedThreads = localStorage.getItem('chatbot-dashboard-search-results');
+      const savedThreads = getEnvironmentSpecificItem('chatbot-dashboard-search-results');
       if (savedThreads) {
         const parsed = JSON.parse(savedThreads);
         return parsed;
       }
     } catch (error) {
-      console.error('Failed to load saved search results:', error);
+      console.error('Failed to load environment-specific saved search results:', error);
     }
     
     return [];
@@ -101,10 +107,10 @@ export function ThreadsOverview({
   // Viewed threads tracking
   const [viewedThreads, setViewedThreads] = useState<Set<string>>(() => {
     try {
-      const saved = localStorage.getItem('chatbot-dashboard-viewed-threads');
+      const saved = getEnvironmentSpecificItem('chatbot-dashboard-viewed-threads');
       return saved ? new Set(JSON.parse(saved)) : new Set();
     } catch (error) {
-      console.error('Failed to load viewed threads:', error);
+      console.error('Failed to load environment-specific viewed threads:', error);
       return new Set();
     }
   });
@@ -112,10 +118,10 @@ export function ThreadsOverview({
   // Viewed conversations tracking
   const [viewedConversations, setViewedConversations] = useState<Set<string>>(() => {
     try {
-      const saved = localStorage.getItem('chatbot-dashboard-viewed-conversations');
+      const saved = getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
       return saved ? new Set(JSON.parse(saved)) : new Set();
     } catch (error) {
-      console.error('Failed to load viewed conversations:', error);
+      console.error('Failed to load environment-specific viewed conversations:', error);
       return new Set();
     }
   });
@@ -124,10 +130,10 @@ export function ThreadsOverview({
   useEffect(() => {
     const handleConversationViewed = (event: CustomEvent) => {
       try {
-        const saved = localStorage.getItem('chatbot-dashboard-viewed-conversations');
+        const saved = getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
         const newViewedConversations = saved ? new Set(JSON.parse(saved)) : new Set();
         setViewedConversations(newViewedConversations);
-        console.log('🔄 Refreshed viewed conversations from localStorage after navigation:', newViewedConversations.size);
+        console.log('🔄 Refreshed viewed conversations from environment-specific localStorage after navigation:', newViewedConversations.size);
       } catch (error) {
         console.error('Failed to refresh viewed conversations:', error);
       }
@@ -212,7 +218,7 @@ export function ThreadsOverview({
   useEffect(() => {
     // Try to load saved search parameters first
     try {
-      const savedParams = localStorage.getItem('chatbot-dashboard-search-params');
+      const savedParams = getEnvironmentSpecificItem('chatbot-dashboard-search-params');
       if (savedParams) {
         const parsed = JSON.parse(savedParams);
         setStartDate(parsed.startDate);
@@ -236,8 +242,8 @@ export function ThreadsOverview({
       
       // Clear saved search results when using uploaded data
       try {
-        localStorage.removeItem('chatbot-dashboard-search-results');
-        localStorage.removeItem('chatbot-dashboard-search-params');
+        setEnvironmentSpecificItem('chatbot-dashboard-search-results', '[]');
+        setEnvironmentSpecificItem('chatbot-dashboard-search-params', '{}');
       } catch (error) {
         console.error('Failed to clear saved search data:', error);
       }
@@ -250,7 +256,7 @@ export function ThreadsOverview({
     setError(null);
     
     try {
-      const apiKey = localStorage.getItem('chatbot-dashboard-api-key');
+      const apiKey = getEnvironmentSpecificItem('chatbot-dashboard-api-key');
       if (!apiKey) {
         throw new Error('API key not found. Please set it in the dashboard header.');
       }
@@ -328,8 +334,8 @@ export function ThreadsOverview({
       return;
     }
 
-    // Get API key from localStorage
-    const apiKey = localStorage.getItem('chatbot-dashboard-api-key');
+    // Get API key from environment-specific localStorage
+    const apiKey = getEnvironmentSpecificItem('chatbot-dashboard-api-key');
     if (!apiKey?.trim()) {
       setError('API key is required. Please set it in the dashboard header.');
       return;
@@ -369,15 +375,15 @@ export function ThreadsOverview({
       const fetchedThreads = data.threads?.map((item: any) => item.thread) || [];
       setThreads(fetchedThreads);
       
-      // Save search results and parameters to localStorage for persistence
+      // Save search results and parameters to environment-specific localStorage for persistence
       try {
-        localStorage.setItem('chatbot-dashboard-search-results', JSON.stringify(fetchedThreads));
-        localStorage.setItem('chatbot-dashboard-search-params', JSON.stringify({
+        setEnvironmentSpecificItem('chatbot-dashboard-search-results', JSON.stringify(fetchedThreads));
+        setEnvironmentSpecificItem('chatbot-dashboard-search-params', JSON.stringify({
           startDate,
           endDate
         }));
       } catch (error) {
-        console.error('Failed to save search data:', error);
+        console.error('Failed to save environment-specific search data:', error);
       }
       
       if (fetchedThreads.length === 0) {
@@ -638,7 +644,7 @@ export function ThreadsOverview({
     
     // Persist to localStorage
     try {
-      localStorage.setItem('chatbot-dashboard-viewed-threads', JSON.stringify(Array.from(newViewedThreads)));
+      setEnvironmentSpecificItem('chatbot-dashboard-viewed-threads', JSON.stringify(Array.from(newViewedThreads)));
     } catch (error) {
       console.error('Failed to save viewed threads:', error);
     }
@@ -655,7 +661,7 @@ export function ThreadsOverview({
     
     // Persist to localStorage
     try {
-      localStorage.setItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(newViewedConversations)));
+      setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(newViewedConversations)));
       console.log('📋 Marked conversation as viewed:', conversationId);
     } catch (error) {
       console.error('Failed to save viewed conversations:', error);
@@ -875,8 +881,8 @@ export function ThreadsOverview({
                     setMessageSearchEnabled(false);
                     setMessageSearchTerm('');
                     try {
-                      localStorage.removeItem('chatbot-dashboard-search-results');
-                      localStorage.removeItem('chatbot-dashboard-search-params');
+                      setEnvironmentSpecificItem('chatbot-dashboard-search-results', '[]');
+                      setEnvironmentSpecificItem('chatbot-dashboard-search-params', '{}');
                     } catch (error) {
                       console.error('Failed to clear saved search data:', error);
                     }
