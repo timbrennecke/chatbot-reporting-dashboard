@@ -297,19 +297,29 @@ EOF
 # Function to show main menu
 show_main_menu() {
     local status_message=""
+    local dialog_options=""
+    local button_list=""
+    local default_button=""
+    
     if check_existing_installation; then
         status_message="✅ Existing installation found at:\n$INSTALL_DIR\n\n"
+        dialog_options="Please choose an option:\n\n🚀 Just Open Dashboard - Open existing installation without checking for updates\n\n🔄 Check for Updates & Install - Check for GitHub repo updates and install/update as needed\n\n❌ Exit - Close the installer"
+        button_list="{\"Exit\", \"Just Open\", \"Check Updates\"}"
+        default_button="\"Check Updates\""
     else
         status_message="ℹ️ No existing installation found.\n\n"
+        dialog_options="Please choose an option:\n\n📦 Install - Install the Chatbot Dashboard\n\n❌ Exit - Close the installer"
+        button_list="{\"Exit\", \"Install\"}"
+        default_button="\"Install\""
     fi
     
-    choice=$(osascript -e "display dialog \"${status_message}Please choose an option:\n\n🚀 Just Open Dashboard - Open existing installation without checking for updates\n\n🔄 Check for Updates & Install - Check for GitHub repo updates and install/update as needed\n\n❌ Exit - Close the installer\" with title \"Chatbot Dashboard Installer\" with icon note buttons {\"Exit\", \"Just Open\", \"Check Updates\"} default button \"Check Updates\"" 2>/dev/null || echo "Exit")
+    choice=$(osascript -e "display dialog \"${status_message}${dialog_options}\" with title \"Chatbot Dashboard Installer\" with icon note buttons ${button_list} default button ${default_button}" 2>/dev/null || echo "Exit")
     
     case "$choice" in
         *"Just Open"*)
             open_existing_dashboard
             ;;
-        *"Check Updates"*)
+        *"Check Updates"*|*"Install"*)
             if check_existing_installation; then
                 show_dialog "Starting Update Check" "🔍 Starting update check...\n\nThis will contact GitHub to check for updates."
                 check_for_updates
