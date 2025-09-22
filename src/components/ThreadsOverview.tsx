@@ -63,6 +63,7 @@ interface ThreadsOverviewProps {
   onFetchedConversationsChange?: (conversations: Map<string, any>) => void;
   onThreadOrderChange?: (threadOrder: string[]) => void;
   onConversationViewed?: (conversationId: string) => void;
+  onThreadsChange?: (threads: Thread[]) => void; // New callback to pass current threads to parent
   savedConversationIds?: Set<string>;
 }
 
@@ -74,8 +75,10 @@ export function ThreadsOverview({
   onFetchedConversationsChange,
   onThreadOrderChange,
   onConversationViewed,
+  onThreadsChange,
   savedConversationIds = new Set()
 }: ThreadsOverviewProps) {
+  console.log('🚀 ThreadsOverview loaded with system message fixes, onThreadsChange available:', !!onThreadsChange);
   const [threads, setThreads] = useState<Thread[]>(() => {
     // If we have uploaded threads, use them and clear any saved search results
     if (uploadedThreads && uploadedThreads.length > 0) {
@@ -278,6 +281,19 @@ export function ThreadsOverview({
       }
     }
   }, [uploadedThreads]);
+
+  // Notify parent component when threads change (for navigation with system messages)
+  useEffect(() => {
+    console.log('🔍 ThreadsOverview: About to call onThreadsChange with', threads.length, 'threads');
+    console.log('🔍 ThreadsOverview: onThreadsChange callback available?', !!onThreadsChange);
+    if (onThreadsChange) {
+      console.log('🔍 ThreadsOverview: Calling onThreadsChange...');
+      onThreadsChange(threads);
+      console.log('🔍 ThreadsOverview: onThreadsChange called successfully');
+    } else {
+      console.log('❌ ThreadsOverview: onThreadsChange callback not provided');
+    }
+  }, [threads, onThreadsChange]);
 
   // Batch fetch conversations for message search
   const fetchConversationsForThreads = async (threadsToFetch: Thread[]) => {

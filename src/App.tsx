@@ -42,6 +42,7 @@ import {
 } from './lib/mockData';
 
 export default function App() {
+  console.log('🚀 App.tsx loaded with system message fixes');
   const [activeTab, setActiveTab] = useState('dashboard');
   const [uploadedData, setUploadedData] = useState<UploadedData>({});
   const [selectedConversationId, setSelectedConversationId] = useState<string>();
@@ -66,6 +67,7 @@ export default function App() {
   const [currentConversationIndex, setCurrentConversationIndex] = useState<number>(-1);
   const [fetchedConversationsMap, setFetchedConversationsMap] = useState<Map<string, any>>(new Map());
   const [threadOrder, setThreadOrder] = useState<string[]>([]);
+  const [currentThreads, setCurrentThreads] = useState<Thread[]>([]); // Store current threads from ThreadsOverview
   
   // Use ref to store current thread order to avoid stale closures in navigation
   const threadOrderRef = useRef<string[]>([]);
@@ -448,6 +450,13 @@ export default function App() {
     }
   }, []);
 
+  // Handle threads change from ThreadsOverview (for navigation with system messages)
+  const handleThreadsChange = useCallback((threads: Thread[]) => {
+    console.log('📋 Current threads received in App.tsx:', threads.length, 'threads');
+    console.log('📋 Sample thread IDs:', threads.slice(0, 3).map(t => t.id));
+    setCurrentThreads(threads);
+  }, []);
+
   // Handle conversation viewed from ThreadsOverview or navigation
   const handleConversationViewed = (conversationId: string) => {
     console.log('📋 Conversation marked as viewed:', conversationId);
@@ -478,6 +487,37 @@ export default function App() {
     } catch (error) {
       console.error('Failed to mark conversation as viewed:', error);
     }
+  };
+
+  // Find and set thread data for a conversation (for navigation with system messages)
+  const findAndSetThreadForConversation = (conversationId: string) => {
+    console.log('🔍 findAndSetThreadForConversation called for:', conversationId);
+    // First try uploaded threads (for uploaded data scenario)
+    const uploadedThreads = uploadedData.threadsResponse?.threads || [];
+    const uploadedThread = uploadedThreads.find(threadData => threadData.thread.conversationId === conversationId);
+    
+    if (uploadedThread) {
+      console.log('🔍 Found associated thread in uploaded data for navigation:', uploadedThread.thread.id, 'for conversation:', conversationId);
+      setSelectedThread(uploadedThread.thread);
+      return;
+    }
+    
+    // Then try current threads from ThreadsOverview (for search results scenario)
+    const currentThread = currentThreads.find(thread => thread.conversationId === conversationId);
+    
+    if (currentThread) {
+      console.log('🔍 Found associated thread in search results for navigation:', currentThread.id, 'for conversation:', conversationId);
+      setSelectedThread(currentThread);
+      return;
+    }
+    
+    console.log('❌ No thread found for conversation:', conversationId, 'Available sources:', {
+      uploadedThreads: uploadedThreads.length,
+      currentThreads: currentThreads.length,
+      searchedInUploaded: uploadedThreads.map(t => t.thread.conversationId),
+      searchedInCurrent: currentThreads.map(t => t.conversationId)
+    });
+    setSelectedThread(undefined);
   };
 
   // Synchronize threadOrder with ref and maintain legacy state for compatibility
@@ -567,8 +607,9 @@ export default function App() {
       // Mark conversation as viewed through ThreadsOverview callback
       handleConversationViewed(conversationId);
       
-      // Clear any previously selected thread
-      setSelectedThread(undefined);
+      // Find and set the associated thread for system messages
+      console.log('🔍 About to call findAndSetThreadForConversation for:', conversationId);
+      findAndSetThreadForConversation(conversationId);
     } else {
       console.log('❌ Cannot navigate to previous - no previous conversation available', {
         hasPrevious: navState.hasPrevious,
@@ -626,8 +667,9 @@ export default function App() {
       // Mark conversation as viewed through ThreadsOverview callback
       handleConversationViewed(conversationId);
       
-      // Clear any previously selected thread
-      setSelectedThread(undefined);
+      // Find and set the associated thread for system messages
+      console.log('🔍 About to call findAndSetThreadForConversation for:', conversationId);
+      findAndSetThreadForConversation(conversationId);
     } else {
       console.log('❌ Cannot navigate to next - no next conversation available', {
         hasNext: navState.hasNext,
@@ -1102,6 +1144,7 @@ export default function App() {
               onFetchedConversationsChange={handleFetchedConversationsChange}
               onThreadOrderChange={handleThreadOrderChange}
               onConversationViewed={handleConversationViewed}
+              onThreadsChange={handleThreadsChange}
               savedConversationIds={savedChats}
             />
           )}

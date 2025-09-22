@@ -260,8 +260,18 @@ export function ConversationDetail({
 
   // Determine which conversation data to use
   const activeConversation = useMemo(() => {
-    return conversation || uploadedConversation || fetchedConversation;
-  }, [conversation, uploadedConversation, fetchedConversation]);
+    const result = conversation || uploadedConversation || fetchedConversation;
+    console.log('🔍 Active Conversation Debug:', {
+      hasConversation: !!conversation,
+      hasUploadedConversation: !!uploadedConversation,
+      hasFetchedConversation: !!fetchedConversation,
+      hasSelectedThread: !!selectedThread,
+      selectedThreadId: selectedThread?.id,
+      activeConversationId: result?.id,
+      usingConversationType: conversation ? 'conversation' : uploadedConversation ? 'uploadedConversation' : fetchedConversation ? 'fetchedConversation' : 'none'
+    });
+    return result;
+  }, [conversation, uploadedConversation, fetchedConversation, selectedThread]);
 
 
   // Auto-fetch conversation when component mounts or conversation ID changes
@@ -287,6 +297,7 @@ export function ConversationDetail({
       setPaginationConversationId(newId);
     }
   }, [conversationId, conversation?.id, selectedThread?.conversationId, paginationConversationId, fetchedConversation]);
+
 
   const analytics = useMemo((): ConversationAnalytics | null => {
     if (!activeConversation) return null;
@@ -659,7 +670,18 @@ export function ConversationDetail({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setShowSystemMessages(!showSystemMessages)}
+                  onClick={() => {
+                    const newValue = !showSystemMessages;
+                    console.log('🔍 Show System Button Clicked:', {
+                      currentValue: showSystemMessages,
+                      newValue,
+                      hasSelectedThread: !!selectedThread,
+                      selectedThreadId: selectedThread?.id,
+                      threadMessagesCount: selectedThread?.messages?.length || 0,
+                      systemMessagesInThread: selectedThread?.messages?.filter(msg => msg.role === 'system').length || 0
+                    });
+                    setShowSystemMessages(newValue);
+                  }}
                   className="flex items-center gap-2"
                 >
                   {showSystemMessages ? (
@@ -682,7 +704,25 @@ export function ConversationDetail({
                   // Merge uploaded conversation messages with thread system messages chronologically
                   const conversationMessages = uploadedConversation.messages || [];
                   const threadMessages = selectedThread?.messages || [];
+                  
+                  // Debug logging for system messages
+                  console.log('🔍 System Messages Debug:', {
+                    showSystemMessages,
+                    hasSelectedThread: !!selectedThread,
+                    threadId: selectedThread?.id,
+                    conversationMessagesCount: conversationMessages.length,
+                    threadMessagesCount: threadMessages.length,
+                    threadSystemMessages: threadMessages.filter(msg => msg.role === 'system').length,
+                    allThreadMessageRoles: threadMessages.map(msg => msg.role)
+                  });
+                  
                   const mergedMessages = mergeMessagesChronologically(conversationMessages, threadMessages);
+                  
+                  console.log('🔍 Merged Messages Debug:', {
+                    mergedMessagesCount: mergedMessages.length,
+                    systemMessagesInMerged: mergedMessages.filter(msg => msg.role === 'system').length,
+                    allMergedRoles: mergedMessages.map(msg => msg.role)
+                  });
                   
                   const filteredMessages = mergedMessages
                     .filter(message => {
@@ -692,6 +732,11 @@ export function ConversationDetail({
                       if (message.role === 'system') return showSystemMessages;
                       return true;
                     });
+                  
+                  console.log('🔍 Filtered Messages Debug:', {
+                    filteredMessagesCount: filteredMessages.length,
+                    systemMessagesInFiltered: filteredMessages.filter(msg => msg.role === 'system').length
+                  });
                   
                   return filteredMessages.map((message, index) => {
                   const { consolidatedText, otherContents } = consolidateMessageContent(message.content || []);
@@ -1124,7 +1169,18 @@ export function ConversationDetail({
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setShowSystemMessages(!showSystemMessages)}
+                      onClick={() => {
+                        const newValue = !showSystemMessages;
+                        console.log('🔍 Show System Button Clicked (Fetched):', {
+                          currentValue: showSystemMessages,
+                          newValue,
+                          hasSelectedThread: !!selectedThread,
+                          selectedThreadId: selectedThread?.id,
+                          threadMessagesCount: selectedThread?.messages?.length || 0,
+                          systemMessagesInThread: selectedThread?.messages?.filter(msg => msg.role === 'system').length || 0
+                        });
+                        setShowSystemMessages(newValue);
+                      }}
                       className="flex items-center gap-2"
                     >
                       {showSystemMessages ? (
@@ -1147,17 +1203,41 @@ export function ConversationDetail({
                       // Merge conversation messages with thread system messages chronologically
                       const conversationMessages = fetchedConversation.messages || [];
                       const threadMessages = selectedThread?.messages || [];
+                      
+                      // Debug logging for system messages (fetched conversation)
+                      console.log('🔍 System Messages Debug (Fetched):', {
+                        showSystemMessages,
+                        hasSelectedThread: !!selectedThread,
+                        threadId: selectedThread?.id,
+                        conversationMessagesCount: conversationMessages.length,
+                        threadMessagesCount: threadMessages.length,
+                        threadSystemMessages: threadMessages.filter(msg => msg.role === 'system').length,
+                        allThreadMessageRoles: threadMessages.map(msg => msg.role)
+                      });
+                      
                       const mergedMessages = mergeMessagesChronologically(conversationMessages, threadMessages);
                       
+                      console.log('🔍 Merged Messages Debug (Fetched):', {
+                        mergedMessagesCount: mergedMessages.length,
+                        systemMessagesInMerged: mergedMessages.filter(msg => msg.role === 'system').length,
+                        allMergedRoles: mergedMessages.map(msg => msg.role)
+                      });
                       
-                      return mergedMessages
+                      const filteredMessages = mergedMessages
                         ?.filter(message => {
                           // Always show user and assistant messages
                           if (message.role === 'user' || message.role === 'assistant') return true;
                           // Show system messages based on toggle
                           if (message.role === 'system') return showSystemMessages;
                           return true;
-                        })
+                        });
+                      
+                      console.log('🔍 Filtered Messages Debug (Fetched):', {
+                        filteredMessagesCount: filteredMessages?.length,
+                        systemMessagesInFiltered: filteredMessages?.filter(msg => msg.role === 'system').length
+                      });
+                      
+                      return filteredMessages
                         ?.map((message, index) => {
                         const { consolidatedText, otherContents } = consolidateMessageContent(message.content || []);
                         
