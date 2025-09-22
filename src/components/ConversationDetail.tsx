@@ -705,24 +705,7 @@ export function ConversationDetail({
                   const conversationMessages = uploadedConversation.messages || [];
                   const threadMessages = selectedThread?.messages || [];
                   
-                  // Debug logging for system messages
-                  console.log('🔍 System Messages Debug:', {
-                    showSystemMessages,
-                    hasSelectedThread: !!selectedThread,
-                    threadId: selectedThread?.id,
-                    conversationMessagesCount: conversationMessages.length,
-                    threadMessagesCount: threadMessages.length,
-                    threadSystemMessages: threadMessages.filter(msg => msg.role === 'system').length,
-                    allThreadMessageRoles: threadMessages.map(msg => msg.role)
-                  });
-                  
                   const mergedMessages = mergeMessagesChronologically(conversationMessages, threadMessages);
-                  
-                  console.log('🔍 Merged Messages Debug:', {
-                    mergedMessagesCount: mergedMessages.length,
-                    systemMessagesInMerged: mergedMessages.filter(msg => msg.role === 'system').length,
-                    allMergedRoles: mergedMessages.map(msg => msg.role)
-                  });
                   
                   const filteredMessages = mergedMessages
                     .filter(message => {
@@ -732,11 +715,6 @@ export function ConversationDetail({
                       if (message.role === 'system') return showSystemMessages;
                       return true;
                     });
-                  
-                  console.log('🔍 Filtered Messages Debug:', {
-                    filteredMessagesCount: filteredMessages.length,
-                    systemMessagesInFiltered: filteredMessages.filter(msg => msg.role === 'system').length
-                  });
                   
                   return filteredMessages.map((message, index) => {
                   const { consolidatedText, otherContents } = consolidateMessageContent(message.content || []);
@@ -1204,24 +1182,7 @@ export function ConversationDetail({
                       const conversationMessages = fetchedConversation.messages || [];
                       const threadMessages = selectedThread?.messages || [];
                       
-                      // Debug logging for system messages (fetched conversation)
-                      console.log('🔍 System Messages Debug (Fetched):', {
-                        showSystemMessages,
-                        hasSelectedThread: !!selectedThread,
-                        threadId: selectedThread?.id,
-                        conversationMessagesCount: conversationMessages.length,
-                        threadMessagesCount: threadMessages.length,
-                        threadSystemMessages: threadMessages.filter(msg => msg.role === 'system').length,
-                        allThreadMessageRoles: threadMessages.map(msg => msg.role)
-                      });
-                      
                       const mergedMessages = mergeMessagesChronologically(conversationMessages, threadMessages);
-                      
-                      console.log('🔍 Merged Messages Debug (Fetched):', {
-                        mergedMessagesCount: mergedMessages.length,
-                        systemMessagesInMerged: mergedMessages.filter(msg => msg.role === 'system').length,
-                        allMergedRoles: mergedMessages.map(msg => msg.role)
-                      });
                       
                       const filteredMessages = mergedMessages
                         ?.filter(message => {
@@ -1231,11 +1192,6 @@ export function ConversationDetail({
                           if (message.role === 'system') return showSystemMessages;
                           return true;
                         });
-                      
-                      console.log('🔍 Filtered Messages Debug (Fetched):', {
-                        filteredMessagesCount: filteredMessages?.length,
-                        systemMessagesInFiltered: filteredMessages?.filter(msg => msg.role === 'system').length
-                      });
                       
                       return filteredMessages
                         ?.map((message, index) => {

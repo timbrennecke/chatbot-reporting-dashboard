@@ -42,7 +42,6 @@ import {
 } from './lib/mockData';
 
 export default function App() {
-  console.log('🚀 App.tsx loaded with system message fixes');
   const [activeTab, setActiveTab] = useState('dashboard');
   const [uploadedData, setUploadedData] = useState<UploadedData>({});
   const [selectedConversationId, setSelectedConversationId] = useState<string>();
@@ -452,8 +451,6 @@ export default function App() {
 
   // Handle threads change from ThreadsOverview (for navigation with system messages)
   const handleThreadsChange = useCallback((threads: Thread[]) => {
-    console.log('📋 Current threads received in App.tsx:', threads.length, 'threads');
-    console.log('📋 Sample thread IDs:', threads.slice(0, 3).map(t => t.id));
     setCurrentThreads(threads);
   }, []);
 
@@ -491,7 +488,6 @@ export default function App() {
 
   // Find and set thread data for a conversation (for navigation with system messages)
   const findAndSetThreadForConversation = (conversationId: string) => {
-    console.log('🔍 findAndSetThreadForConversation called for:', conversationId);
     // First try uploaded threads (for uploaded data scenario)
     const uploadedThreads = uploadedData.threadsResponse?.threads || [];
     const uploadedThread = uploadedThreads.find(threadData => threadData.thread.conversationId === conversationId);
@@ -608,7 +604,6 @@ export default function App() {
       handleConversationViewed(conversationId);
       
       // Find and set the associated thread for system messages
-      console.log('🔍 About to call findAndSetThreadForConversation for:', conversationId);
       findAndSetThreadForConversation(conversationId);
     } else {
       console.log('❌ Cannot navigate to previous - no previous conversation available', {
@@ -668,7 +663,6 @@ export default function App() {
       handleConversationViewed(conversationId);
       
       // Find and set the associated thread for system messages
-      console.log('🔍 About to call findAndSetThreadForConversation for:', conversationId);
       findAndSetThreadForConversation(conversationId);
     } else {
       console.log('❌ Cannot navigate to next - no next conversation available', {

@@ -78,7 +78,6 @@ export function ThreadsOverview({
   onThreadsChange,
   savedConversationIds = new Set()
 }: ThreadsOverviewProps) {
-  console.log('🚀 ThreadsOverview loaded with system message fixes, onThreadsChange available:', !!onThreadsChange);
   const [threads, setThreads] = useState<Thread[]>(() => {
     // If we have uploaded threads, use them and clear any saved search results
     if (uploadedThreads && uploadedThreads.length > 0) {
@@ -284,15 +283,7 @@ export function ThreadsOverview({
 
   // Notify parent component when threads change (for navigation with system messages)
   useEffect(() => {
-    console.log('🔍 ThreadsOverview: About to call onThreadsChange with', threads.length, 'threads');
-    console.log('🔍 ThreadsOverview: onThreadsChange callback available?', !!onThreadsChange);
-    if (onThreadsChange) {
-      console.log('🔍 ThreadsOverview: Calling onThreadsChange...');
-      onThreadsChange(threads);
-      console.log('🔍 ThreadsOverview: onThreadsChange called successfully');
-    } else {
-      console.log('❌ ThreadsOverview: onThreadsChange callback not provided');
-    }
+    onThreadsChange?.(threads);
   }, [threads, onThreadsChange]);
 
   // Batch fetch conversations for message search
@@ -360,7 +351,7 @@ export function ThreadsOverview({
       }
       
       setConversationsFetched(true);
-      console.log('✅ Fetched conversations for message search:', newConversations.size, 'conversations');
+      console.log('✅ Fetched', newConversations.size, 'conversations for message search');
       
       // Notify parent component about fetched conversations
       onFetchedConversationsChange?.(newConversations);
@@ -484,21 +475,52 @@ export function ThreadsOverview({
         }
         
         const searchLower = messageSearchTerm.toLowerCase();
+        
+        // Debug: Log the first few messages to understand structure (only for first thread processed)
+        if (conversation.messages?.length > 0 && threads.length > 0 && thread.conversationId === threads[0].conversationId) {
+          console.log('🔍 Message Search Debug for first conversation:', {
+            conversationId: thread.conversationId,
+            totalMessages: conversation.messages.length,
+            messageRoles: conversation.messages.map((m: any) => m.role),
+            searchTerm: searchLower,
+            sampleMessage: {
+              role: conversation.messages[0].role,
+              contentStructure: conversation.messages[0].content?.map((c: any) => ({
+                kind: c.kind,
+                hasText: !!c.text,
+                hasContent: !!c.content,
+                textPreview: c.text?.substring(0, 50) || c.content?.substring(0, 50)
+              }))
+            }
+          });
+        }
+        
         const hasMatchingMessage = conversation.messages?.some((message: any) => {
-          // Search in message content
-          if (message.content) {
-            return message.content.some((content: any) => {
-              if (content.text && content.text.toLowerCase().includes(searchLower)) {
-                return true;
-              }
-              if (content.content && content.content.toLowerCase().includes(searchLower)) {
-                return true;
-              }
-              return false;
-            });
+          try {
+            // Search in message content
+            if (message.content && Array.isArray(message.content)) {
+              const matchFound = message.content.some((content: any) => {
+                try {
+                  if (content.text && typeof content.text === 'string' && content.text.toLowerCase().includes(searchLower)) {
+                    console.log('✅ Match found:', message.role, '-', content.text.substring(0, 80));
+                    return true;
+                  }
+                  if (content.content && typeof content.content === 'string' && content.content.toLowerCase().includes(searchLower)) {
+                    console.log('✅ Match found:', message.role, '-', content.content.substring(0, 80));
+                    return true;
+                  }
+                } catch (e) {
+                  console.warn('Error processing content item:', e);
+                }
+                return false;
+              });
+              return matchFound;
+            }
+          } catch (e) {
+            console.warn('Error processing message:', e);
           }
           return false;
-        });
+        }) || false;
         
         if (!hasMatchingMessage) return false;
       }
@@ -1014,7 +1036,8 @@ export function ThreadsOverview({
                   
                   {conversationsFetched && messageSearchTerm && (
                     <div className="text-sm text-green-600 font-medium">
-                      ✓ Found {filteredThreads.length} threads containing "{messageSearchTerm}"
+                      ✓ Found {filteredThreads.length} threads containing "{messageSearchTerm}" 
+                      (searched {fetchedConversations.size} conversations)
                     </div>
                   )}
                 </div>
