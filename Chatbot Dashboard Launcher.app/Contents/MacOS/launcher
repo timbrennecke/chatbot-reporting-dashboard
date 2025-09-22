@@ -155,8 +155,8 @@ handle_not_installed() {
         # Try to find and open an installer
         local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
         
-        if [ -f "$script_dir/Simple Installer.app/Contents/MacOS/installer" ]; then
-            "$script_dir/Simple Installer.app/Contents/MacOS/installer"
+        if [ -f "$script_dir/Chatbot Dashboard Installer.app/Contents/MacOS/installer" ]; then
+            "$script_dir/Chatbot Dashboard Installer.app/Contents/MacOS/installer"
         elif [ -f "$script_dir/mac-installer.command" ]; then
             "$script_dir/mac-installer.command"
         else

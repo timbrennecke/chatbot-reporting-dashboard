@@ -20,10 +20,10 @@ The easiest way to get the application running on any computer is to use our aut
 
 > ⚠️ **Security Note for .app files**: macOS may block these apps because they're not Apple-signed. See [Security Instructions](SECURITY_INSTRUCTIONS.md) for safe bypass methods.
 
-**Option 2: Simple Installer** 
-1. Download the `Simple Installer.app` from the repository
+**Option 2: Dashboard Launcher** 
+1. Download the `Chatbot Dashboard Launcher.app` from the repository
 2. **Right-click** → **Open** (to bypass security warning)
-3. The app will guide you through installing prerequisites if needed
+3. The app will launch the dashboard after installation
 
 **Option 3: Advanced Installer** 
 1. Download the `Chatbot Dashboard Installer.app` from the repository  
@@ -178,7 +178,7 @@ To update to the latest version:
 
 ### **Installation Files:**
 - `mac-installer.command` - 🌟 No security warnings installer (double-click)
-- `Simple Installer.app` - GUI installer with prerequisites guide (right-click → open)
+- `Chatbot Dashboard Launcher.app` - GUI launcher for quick dashboard access (right-click → open)
 - `Chatbot Dashboard Installer.app` - Advanced GUI installer (right-click → open)
 - `fix-security.sh` - Removes security warnings from .app files
 - `easy-install.sh`, `deploy.sh`, `deploy.js`, `deploy.bat` - Terminal installers

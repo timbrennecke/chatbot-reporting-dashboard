@@ -24,8 +24,8 @@ echo "📁 Checking current directory: $(pwd)"
 echo ""
 
 # Fix both installer apps
-fix_app "Simple Installer.app"
 fix_app "Chatbot Dashboard Installer.app"
+fix_app "Chatbot Dashboard Launcher.app"
 
 echo ""
 echo "🎉 Security fix complete!"

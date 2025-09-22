@@ -1,6 +1,6 @@
 # Security Instructions for Mac Apps
 
-When you download the Mac installer apps (`Simple Installer.app` or `Chatbot Dashboard Installer.app`), macOS may block them because they're not signed with an Apple Developer certificate. Here's how to safely run them:
+When you download the Mac installer apps (`Chatbot Dashboard Installer.app` or `Chatbot Dashboard Launcher.app`), macOS may block them because they're not signed with an Apple Developer certificate. Here's how to safely run them:
 
 ## 🔒 Why is this happening?
 
@@ -9,7 +9,7 @@ macOS has a security feature called **Gatekeeper** that prevents running apps fr
 ## ✅ How to safely run the installers:
 
 ### Method 1: Right-click to open (Recommended)
-1. **Download** the installer app (`Simple Installer.app` or `Chatbot Dashboard Installer.app`)
+1. **Download** the installer app (`Chatbot Dashboard Installer.app` or `Chatbot Dashboard Launcher.app`)
 2. **Right-click** (or Control+click) on the app
 3. Select **"Open"** from the context menu
 4. Click **"Open"** in the security dialog that appears
@@ -26,9 +26,9 @@ macOS has a security feature called **Gatekeeper** that prevents running apps fr
 ### Method 3: Terminal bypass (Advanced users)
 ```bash
 # Remove the quarantine attribute from the app
-xattr -d com.apple.quarantine "Simple Installer.app"
-# or
 xattr -d com.apple.quarantine "Chatbot Dashboard Installer.app"
+# or
+xattr -d com.apple.quarantine "Chatbot Dashboard Launcher.app"
 ```
 
 ## 🛡️ Is this safe?
