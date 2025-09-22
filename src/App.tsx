@@ -365,9 +365,26 @@ export default function App() {
       
       // Show brief message before the app closes
       alert('Closing application...');
+      
+      // Attempt to close the browser tab/window
+      // Note: This may not work in all browsers due to security restrictions
+      try {
+        window.close();
+      } catch (closeError) {
+        console.log('Could not close tab automatically - please close manually');
+        // If window.close() fails, show a message to close manually
+        alert('Please close this browser tab manually to complete the shutdown.');
+      }
     } catch (error) {
       // This is expected as the server will terminate
       console.log('Application closure initiated');
+      
+      // Still attempt to close the tab even if server shutdown fails
+      try {
+        window.close();
+      } catch (closeError) {
+        console.log('Could not close tab automatically - please close manually');
+      }
     }
   };
 
