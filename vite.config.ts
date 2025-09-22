@@ -3,8 +3,32 @@
   import react from '@vitejs/plugin-react-swc';
   import path from 'path';
 
+  // Plugin to handle server shutdown
+  function shutdownPlugin() {
+    return {
+      name: 'shutdown-plugin',
+      configureServer(server) {
+        server.middlewares.use('/api/shutdown', (req, res) => {
+          if (req.method === 'POST') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ message: 'Server shutting down...' }));
+            
+            // Give response time to be sent before shutting down
+            setTimeout(() => {
+              console.log('🔥 Server shutdown requested from dashboard');
+              process.exit(0);
+            }, 100);
+          } else {
+            res.writeHead(405, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Method not allowed' }));
+          }
+        });
+      }
+    };
+  }
+
   export default defineConfig({
-    plugins: [react()],
+    plugins: [react(), shutdownPlugin()],
     resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
       alias: {

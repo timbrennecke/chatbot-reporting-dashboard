@@ -12,7 +12,8 @@ import {
   Eye,
   EyeOff,
   Search,
-  RefreshCw
+  RefreshCw,
+  Power
 } from 'lucide-react';
 import { Badge } from './components/ui/badge';
 import { 
@@ -343,6 +344,30 @@ export default function App() {
     if (e.key === 'Enter') {
       e.preventDefault();
       handleConversationSearch();
+    }
+  };
+
+  // Handle app closure
+  const handleServerShutdown = async () => {
+    try {
+      // Show confirmation dialog
+      if (!window.confirm('Are you sure you want to close the application?')) {
+        return;
+      }
+
+      // Call the shutdown endpoint
+      await fetch('/api/shutdown', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      // Show brief message before the app closes
+      alert('Closing application...');
+    } catch (error) {
+      // This is expected as the server will terminate
+      console.log('Application closure initiated');
     }
   };
 
@@ -949,13 +974,14 @@ export default function App() {
                     onBlur={() => handleApiKeyChange(apiKey)}
                     onKeyDown={handleApiKeyKeyDown}
                     placeholder="Enter API key"
-                    className="w-48 pr-10 text-sm"
+                    className="w-48 text-sm"
+                    style={{ paddingRight: '40px' }}
                   />
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="absolute right-0 top-0 h-full px-2 hover:bg-transparent"
+                    className="absolute right-1 top-0 h-full w-8 hover:bg-transparent flex items-center justify-center"
                     onClick={() => setShowApiKey(!showApiKey)}
                   >
                     {showApiKey ? (
@@ -989,6 +1015,18 @@ export default function App() {
                   </Button>
                 </>
               )}
+              
+              {/* Close App Button */}
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={handleServerShutdown}
+                className="flex items-center gap-2 border-red-500 text-red-600 hover:bg-red-50 hover:border-red-600"
+                title="Close the application"
+              >
+                <Power className="h-4 w-4" />
+                Close App
+              </Button>
             </div>
           </div>
         </div>
