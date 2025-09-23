@@ -6,6 +6,7 @@ import { Label } from './ui/label';
 import { Alert, AlertDescription } from './ui/alert';
 import { Badge } from './ui/badge';
 import { Checkbox } from './ui/checkbox';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { 
   Table, 
   TableBody, 
@@ -43,7 +44,9 @@ import {
   Clock,
   Zap,
   ExternalLink,
-  Bookmark
+  Bookmark,
+  ChevronDown,
+  Filter
 } from 'lucide-react';
 import { Thread, ThreadsRequest, BulkAttributesRequest } from '../lib/types';
 import { 
@@ -184,6 +187,69 @@ export function ThreadsOverview({
 
   const [hasUiFilter, setHasUiFilter] = useState(false);
   const [hasLinkoutFilter, setHasLinkoutFilter] = useState(false);
+  const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set());
+  
+  // Extract all available tools from system messages
+  const availableTools = useMemo(() => {
+    const toolsSet = new Set<string>();
+    
+    console.log('🔍 Extracting tools from', threads.length, 'threads');
+    
+    threads.forEach(thread => {
+      thread.messages.forEach(message => {
+        if (message.role === 'system') {
+          message.content.forEach(content => {
+            if (content.text || content.content) {
+              const text = content.text || content.content || '';
+              
+              // Debug: Log system message content
+              if (text.length > 0) {
+                console.log('📝 System message:', text.substring(0, 200) + '...');
+              }
+              
+              // Look for tool call patterns like "tool_name(" or "calling tool_name"
+              const toolCallPatterns = [
+                /calling\s+(\w+)/gi,
+                /(\w+)\s*\(/g,
+                /tool[:\s]*(\w+)/gi,
+                /function[:\s]*(\w+)/gi,
+                // Add more specific patterns for common tool formats
+                /mcp_([^_]+_[^_]+_[^_]+_\w+)/gi,  // MCP tool pattern
+                /"name"[:\s]*"([^"]+)"/gi,       // JSON name field
+                /invoke[:\s]+(\w+)/gi,           // invoke pattern
+                /\*\*(\w+)\*\*/gi                // **tool_name** pattern
+              ];
+              
+              toolCallPatterns.forEach(pattern => {
+                const matches = text.matchAll(pattern);
+                for (const match of matches) {
+                  const toolName = match[1];
+                  if (toolName && toolName.length > 2 && !toolName.match(/^(the|and|for|with|from|this|that|null|true|false|undefined|Output|Input|Error|Response|Request)$/i)) {
+                    console.log('🔧 Found tool:', toolName);
+                    toolsSet.add(toolName);
+                  }
+                }
+              });
+              
+              // Also look for common tool patterns in JSON-like structures
+              const jsonToolPattern = /"tool"[:\s]*"([^"]+)"/gi;
+              const jsonMatches = text.matchAll(jsonToolPattern);
+              for (const match of jsonMatches) {
+                if (match[1]) {
+                  console.log('🔧 Found JSON tool:', match[1]);
+                  toolsSet.add(match[1]);
+                }
+              }
+            }
+          });
+        }
+      });
+    });
+    
+    const tools = Array.from(toolsSet).sort();
+    console.log('🛠️ Available tools:', tools);
+    return tools;
+  }, [threads]);
   
   // Message search functionality
   const [messageSearchEnabled, setMessageSearchEnabled] = useState(false);
@@ -541,6 +607,53 @@ export function ThreadsOverview({
         if (!hasLinkout) return false;
       }
 
+      // Tool filter
+      if (selectedTools.size > 0) {
+        const threadTools = new Set<string>();
+        
+        // Extract tools from this thread's system messages
+        thread.messages.forEach(message => {
+          if (message.role === 'system') {
+            message.content.forEach(content => {
+              if (content.text || content.content) {
+                const text = content.text || content.content || '';
+                
+                // Look for tool call patterns
+                const toolCallPatterns = [
+                  /calling\s+(\w+)/gi,
+                  /(\w+)\s*\(/g,
+                  /tool[:\s]*(\w+)/gi,
+                  /function[:\s]*(\w+)/gi
+                ];
+                
+                toolCallPatterns.forEach(pattern => {
+                  const matches = text.matchAll(pattern);
+                  for (const match of matches) {
+                    const toolName = match[1];
+                    if (toolName && toolName.length > 2 && !toolName.match(/^(the|and|for|with|from|this|that|null|true|false|undefined)$/i)) {
+                      threadTools.add(toolName);
+                    }
+                  }
+                });
+                
+                // Also look for JSON tool patterns
+                const jsonToolPattern = /"tool"[:\s]*"([^"]+)"/gi;
+                const jsonMatches = text.matchAll(jsonToolPattern);
+                for (const match of jsonMatches) {
+                  if (match[1]) {
+                    threadTools.add(match[1]);
+                  }
+                }
+              }
+            });
+          }
+        });
+        
+        // Check if thread has any of the selected tools
+        const hasSelectedTool = Array.from(selectedTools).some(tool => threadTools.has(tool));
+        if (!hasSelectedTool) return false;
+      }
+
       return true;
     }).sort((a, b) => {
       // Sort by createdAt timestamp with most recent first (descending order)
@@ -548,7 +661,7 @@ export function ThreadsOverview({
       const timeB = new Date(b.createdAt).getTime();
       return timeB - timeA; // Most recent first
     });
-  }, [threads, searchTerm, hasUiFilter, hasLinkoutFilter, messageSearchEnabled, messageSearchTerm, fetchedConversations, conversationsFetched]);
+  }, [threads, searchTerm, hasUiFilter, hasLinkoutFilter, selectedTools, messageSearchEnabled, messageSearchTerm, fetchedConversations, conversationsFetched]);
 
   // Update thread order whenever filtered threads change to keep navigation in sync
   useEffect(() => {
@@ -569,7 +682,7 @@ export function ThreadsOverview({
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, hasUiFilter, hasLinkoutFilter]);
+  }, [searchTerm, hasUiFilter, hasLinkoutFilter, selectedTools]);
 
   const analytics = useMemo(() => calculateThreadAnalytics(filteredThreads), [filteredThreads]);
 
@@ -1230,6 +1343,83 @@ export function ThreadsOverview({
                     />
                     <Label htmlFor="hasLinkout" className="text-sm">Has Linkouts</Label>
                   </div>
+                  
+                  {/* Tool Filter Dropdown */}
+                  {(() => {
+                    console.log('🎛️ Rendering tool filter, available tools:', availableTools.length, availableTools);
+                    // Always show for testing - remove this condition later
+                    return true; // availableTools.length > 0;
+                  })() && (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="h-8 border-dashed"
+                        >
+                          <Filter className="mr-2 h-3 w-3" />
+                          Tools
+                          {selectedTools.size > 0 && (
+                            <Badge variant="secondary" className="ml-2 px-1 py-0 text-xs">
+                              {selectedTools.size}
+                            </Badge>
+                          )}
+                          <ChevronDown className="ml-2 h-3 w-3" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-64 p-0" align="start">
+                        <div className="p-3">
+                          <div className="flex items-center justify-between mb-3">
+                            <Label className="text-sm font-medium">Filter by Tools</Label>
+                            {selectedTools.size > 0 && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-xs"
+                                onClick={() => setSelectedTools(new Set())}
+                              >
+                                Clear
+                              </Button>
+                            )}
+                          </div>
+                          <div className="space-y-2 max-h-48 overflow-y-auto">
+                            {availableTools.length > 0 ? (
+                              availableTools.map((tool) => (
+                                <div key={tool} className="flex items-center space-x-2">
+                                  <Checkbox
+                                    id={`tool-${tool}`}
+                                    checked={selectedTools.has(tool)}
+                                    onCheckedChange={(checked) => {
+                                      const newSelected = new Set(selectedTools);
+                                      if (checked) {
+                                        newSelected.add(tool);
+                                      } else {
+                                        newSelected.delete(tool);
+                                      }
+                                      setSelectedTools(newSelected);
+                                    }}
+                                  />
+                                  <Label 
+                                    htmlFor={`tool-${tool}`} 
+                                    className="text-sm font-mono cursor-pointer"
+                                  >
+                                    {tool}
+                                  </Label>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="text-sm text-muted-foreground text-center py-4">
+                                <div>No tools found in system messages</div>
+                                <div className="text-xs mt-2">
+                                  Tools will appear here after searching threads
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  )}
                 </div>
               </div>
             </div>
