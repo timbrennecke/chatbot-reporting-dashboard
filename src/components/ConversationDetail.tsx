@@ -110,6 +110,34 @@ function cleanText(text: string): string {
   return cleaned;
 }
 
+// Function to check if a system message contains errors
+function systemMessageHasErrors(message: any): boolean {
+  if (message.role !== 'system') return false;
+  
+  return message.content.some((content: any) => {
+    if (content.text || content.content) {
+      const text = content.text || content.content || '';
+      
+      // Check for error patterns
+      const errorPatterns = [
+        /Agent execution error/gi,
+        /Error:/gi,
+        /Failed:/gi,
+        /Exception:/gi,
+        /Timeout/gi,
+        /Connection error/gi,
+        /Invalid/gi,
+        /Not found/gi,
+        /Unauthorized/gi,
+        /Forbidden/gi
+      ];
+      
+      return errorPatterns.some(pattern => pattern.test(text));
+    }
+    return false;
+  });
+}
+
 function formatJsonInText(text: string): { hasJson: boolean; formattedText: string } {
   let formattedText = text;
   let hasJson = false;
@@ -1390,20 +1418,31 @@ export function ConversationDetail({
                                   : message.role === 'assistant'
                                   ? 'bg-slate-50 text-slate-800 border-green-200 shadow-sm'
                                   : message.role === 'system'
-                                  ? 'bg-amber-50 text-amber-900 border-amber-200'
+                                  ? systemMessageHasErrors(message)
+                                    ? 'bg-red-200 text-red-950 border-red-400'
+                                    : 'bg-amber-50 text-amber-900 border-amber-200'
                                   : 'bg-slate-50 text-slate-800 border-slate-200'
                               }`}
                               style={{
                                 borderRadius: '1rem',
                                 padding: '1.5rem',
                                 border: '1px solid',
-                                borderColor: message.role === 'user' ? '#bfdbfe' : message.role === 'system' ? '#fde68a' : message.role === 'assistant' ? '#bbf7d0' : '#e2e8f0',
+                                borderColor: message.role === 'user' 
+                                  ? '#bfdbfe' 
+                                  : message.role === 'system' 
+                                  ? systemMessageHasErrors(message) 
+                                    ? '#f87171' 
+                                    : '#fde68a'
+                                  : message.role === 'assistant' 
+                                  ? '#bbf7d0' 
+                                  : '#e2e8f0',
                                 ...(message.role === 'system' && {
                                   maxHeight: '320px',
                                   overflowY: 'auto',
                                   overflowX: 'hidden',
                                   wordWrap: 'break-word',
-                                  wordBreak: 'break-word'
+                                  wordBreak: 'break-word',
+                                  backgroundColor: systemMessageHasErrors(message) ? '#fecaca' : '#fffbeb'
                                 })
                               }}
                             >

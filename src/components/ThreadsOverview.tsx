@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
@@ -189,6 +189,9 @@ export function ThreadsOverview({
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set());
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const toolDropdownRef = useRef<HTMLDivElement>(null);
+  const [selectedErrors, setSelectedErrors] = useState<Set<string>>(new Set());
+  const [errorDropdownOpen, setErrorDropdownOpen] = useState(false);
+  const errorDropdownRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -196,16 +199,19 @@ export function ThreadsOverview({
       if (toolDropdownRef.current && !toolDropdownRef.current.contains(event.target as Node)) {
         setToolDropdownOpen(false);
       }
+      if (errorDropdownRef.current && !errorDropdownRef.current.contains(event.target as Node)) {
+        setErrorDropdownOpen(false);
+      }
     }
 
-    if (toolDropdownOpen) {
+    if (toolDropdownOpen || errorDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [toolDropdownOpen]);
+  }, [toolDropdownOpen, errorDropdownOpen]);
   
   // Extract all available tools from system messages with counts
   const availableToolsWithCounts = useMemo(() => {
@@ -255,6 +261,92 @@ export function ThreadsOverview({
   const availableTools = useMemo(() => {
     return availableToolsWithCounts.map(tool => tool.name);
   }, [availableToolsWithCounts]);
+
+  // Extract all available errors from system messages with counts
+  const availableErrorsWithCounts = useMemo(() => {
+    const errorCounts = new Map<string, number>();
+    
+    console.log('🔍 Extracting errors from', threads.length, 'threads');
+    
+    threads.forEach(thread => {
+      thread.messages.forEach(message => {
+        if (message.role === 'system') {
+          message.content.forEach(content => {
+            if (content.text || content.content) {
+              const text = content.text || content.content || '';
+              
+              // Look for various error patterns in system messages
+              const errorPatterns = [
+                /Agent execution error/gi,
+                /Error:/gi,
+                /Failed:/gi,
+                /Exception:/gi,
+                /Timeout/gi,
+                /Connection error/gi,
+                /Invalid/gi,
+                /Not found/gi,
+                /Unauthorized/gi,
+                /Forbidden/gi
+              ];
+              
+              errorPatterns.forEach(pattern => {
+                const matches = text.matchAll(pattern);
+                for (const match of matches) {
+                  const errorType = match[0];
+                  if (errorType && errorType.length > 2) {
+                    console.log('❌ Found error:', errorType);
+                    errorCounts.set(errorType, (errorCounts.get(errorType) || 0) + 1);
+                  }
+                }
+              });
+            }
+          });
+        }
+      });
+    });
+    
+    // Convert to array and sort by name
+    const errorsWithCounts = Array.from(errorCounts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    
+    console.log('❌ Available errors with counts:', errorsWithCounts);
+    return errorsWithCounts;
+  }, [threads]);
+
+  // For backwards compatibility, extract just the error names
+  const availableErrors = useMemo(() => {
+    return availableErrorsWithCounts.map(error => error.name);
+  }, [availableErrorsWithCounts]);
+
+  // Function to check if a thread has errors
+  const threadHasErrors = useCallback((thread: any) => {
+    return thread.messages.some((message: any) => {
+      if (message.role === 'system') {
+        return message.content.some((content: any) => {
+          if (content.text || content.content) {
+            const text = content.text || content.content || '';
+            // Check for any error patterns
+            const errorPatterns = [
+              /Agent execution error/gi,
+              /Error:/gi,
+              /Failed:/gi,
+              /Exception:/gi,
+              /Timeout/gi,
+              /Connection error/gi,
+              /Invalid/gi,
+              /Not found/gi,
+              /Unauthorized/gi,
+              /Forbidden/gi
+            ];
+            return errorPatterns.some(pattern => pattern.test(text));
+          }
+          return false;
+        });
+      }
+      return false;
+    });
+  }, []);
   
   // Message search functionality
   const [messageSearchEnabled, setMessageSearchEnabled] = useState(false);
@@ -643,6 +735,50 @@ export function ThreadsOverview({
         if (!hasSelectedTool) return false;
       }
 
+      // Error filter
+      if (selectedErrors.size > 0) {
+        const threadErrors = new Set<string>();
+        
+        // Extract errors from this thread's system messages using same pattern as availableErrors
+        thread.messages.forEach(message => {
+          if (message.role === 'system') {
+            message.content.forEach(content => {
+              if (content.text || content.content) {
+                const text = content.text || content.content || '';
+                
+                // Look for error patterns
+                const errorPatterns = [
+                  /Agent execution error/gi,
+                  /Error:/gi,
+                  /Failed:/gi,
+                  /Exception:/gi,
+                  /Timeout/gi,
+                  /Connection error/gi,
+                  /Invalid/gi,
+                  /Not found/gi,
+                  /Unauthorized/gi,
+                  /Forbidden/gi
+                ];
+                
+                errorPatterns.forEach(pattern => {
+                  const matches = text.matchAll(pattern);
+                  for (const match of matches) {
+                    const errorType = match[0];
+                    if (errorType && errorType.length > 2) {
+                      threadErrors.add(errorType);
+                    }
+                  }
+                });
+              }
+            });
+          }
+        });
+        
+        // Check if thread has any of the selected errors
+        const hasSelectedError = Array.from(selectedErrors).some(error => threadErrors.has(error));
+        if (!hasSelectedError) return false;
+      }
+
       return true;
     }).sort((a, b) => {
       // Sort by createdAt timestamp with most recent first (descending order)
@@ -650,7 +786,7 @@ export function ThreadsOverview({
       const timeB = new Date(b.createdAt).getTime();
       return timeB - timeA; // Most recent first
     });
-  }, [threads, searchTerm, hasUiFilter, hasLinkoutFilter, selectedTools, messageSearchEnabled, messageSearchTerm, fetchedConversations, conversationsFetched]);
+  }, [threads, searchTerm, hasUiFilter, hasLinkoutFilter, selectedTools, selectedErrors, messageSearchEnabled, messageSearchTerm, fetchedConversations, conversationsFetched]);
 
   // Update thread order whenever filtered threads change to keep navigation in sync
   useEffect(() => {
@@ -671,7 +807,7 @@ export function ThreadsOverview({
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, hasUiFilter, hasLinkoutFilter, selectedTools]);
+  }, [searchTerm, hasUiFilter, hasLinkoutFilter, selectedTools, selectedErrors]);
 
   const analytics = useMemo(() => calculateThreadAnalytics(filteredThreads), [filteredThreads]);
 
@@ -1360,7 +1496,7 @@ export function ThreadsOverview({
                       </Button>
                       
                       {toolDropdownOpen && (
-                        <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-md shadow-lg z-50 backdrop-blur-sm" style={{ backgroundColor: 'white' }}>
+                        <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-md shadow-lg z-50 backdrop-blur-sm" style={{ backgroundColor: 'white' }}>
                           <div className="p-2">
                             <div className="flex items-center justify-between mb-2">
                               <Label className="text-xs font-medium text-gray-600">Filter by Tools</Label>
@@ -1375,7 +1511,7 @@ export function ThreadsOverview({
                                 </Button>
                               )}
                             </div>
-                            <div className="space-y-1 max-h-32 overflow-y-auto">
+                            <div className="space-y-1 max-h-24 overflow-y-auto">
                               {availableToolsWithCounts.length > 0 ? (
                                 availableToolsWithCounts.map((toolInfo) => (
                                   <div key={toolInfo.name} className="flex items-center space-x-2 py-1">
@@ -1412,6 +1548,95 @@ export function ThreadsOverview({
                                   <div>No tools found in system messages</div>
                                   <div className="text-xs mt-1 opacity-75">
                                     Tools will appear here after searching threads
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Error Filter Dropdown */}
+                  {(() => {
+                    console.log('❌ Rendering error filter, available errors:', availableErrorsWithCounts.length, availableErrorsWithCounts);
+                    // Always show for testing - remove this condition later
+                    return true; // availableErrorsWithCounts.length > 0;
+                  })() && (
+                    <div className="relative" ref={errorDropdownRef}>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="h-8 border-dashed"
+                        onClick={() => {
+                          console.log('❌ Errors button clicked, current state:', errorDropdownOpen);
+                          setErrorDropdownOpen(!errorDropdownOpen);
+                        }}
+                      >
+                        <AlertCircle className="mr-2 h-3 w-3" />
+                        Errors
+                        {selectedErrors.size > 0 && (
+                          <Badge variant="secondary" className="ml-2 px-1 py-0 text-xs">
+                            {selectedErrors.size}
+                          </Badge>
+                        )}
+                        <ChevronDown className="ml-2 h-3 w-3" />
+                      </Button>
+                      
+                      {errorDropdownOpen && (
+                        <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-md shadow-lg z-50 backdrop-blur-sm" style={{ backgroundColor: 'white' }}>
+                          <div className="p-2">
+                            <div className="flex items-center justify-between mb-2">
+                              <Label className="text-xs font-medium text-gray-600">Filter by Errors</Label>
+                              {selectedErrors.size > 0 && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-5 px-1 text-xs"
+                                  onClick={() => setSelectedErrors(new Set())}
+                                >
+                                  Clear
+                                </Button>
+                              )}
+                            </div>
+                            <div className="space-y-1 max-h-32 overflow-y-auto">
+                              {availableErrorsWithCounts.length > 0 ? (
+                                availableErrorsWithCounts.map((errorInfo) => (
+                                  <div key={errorInfo.name} className="flex items-center space-x-2 py-1">
+                                    <Checkbox
+                                      id={`error-${errorInfo.name}`}
+                                      checked={selectedErrors.has(errorInfo.name)}
+                                      onCheckedChange={(checked) => {
+                                        const newSelected = new Set(selectedErrors);
+                                        if (checked) {
+                                          newSelected.add(errorInfo.name);
+                                        } else {
+                                          newSelected.delete(errorInfo.name);
+                                        }
+                                        setSelectedErrors(newSelected);
+                                      }}
+                                      className="h-3 w-3"
+                                    />
+                                    <div className="flex-1 flex items-center justify-between min-w-0">
+                                      <Label 
+                                        htmlFor={`error-${errorInfo.name}`} 
+                                        className="text-xs font-mono cursor-pointer truncate flex-1 mr-2 text-red-600"
+                                        title={errorInfo.name}
+                                      >
+                                        {errorInfo.name}
+                                      </Label>
+                                      <Badge variant="destructive" className="text-xs px-1 py-0 h-4 min-w-0 shrink-0">
+                                        {errorInfo.count}
+                                      </Badge>
+                                    </div>
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="text-xs text-muted-foreground text-center py-3">
+                                  <div>No errors found in system messages</div>
+                                  <div className="text-xs mt-1 opacity-75">
+                                    Errors will appear here after searching threads
                                   </div>
                                 </div>
                               )}
@@ -1471,7 +1696,10 @@ export function ThreadsOverview({
                   const isAnyViewed = isThreadViewed || isConversationViewed;
                   
                   return (
-                    <TableRow key={thread.id} className={`cursor-pointer hover:bg-muted/50 ${isAnyViewed ? 'bg-gray-50' : ''} h-16`}>
+                    <TableRow 
+                      key={thread.id} 
+                      className={`cursor-pointer hover:bg-muted/50 ${isAnyViewed ? 'bg-gray-50' : ''} ${threadHasErrors(thread) ? 'bg-red-50 border-l-4 border-l-red-500' : ''} h-16`}
+                    >
                       <TableCell onClick={(e) => e.stopPropagation()} className="py-4">
                         <Checkbox
                           checked={selectedThreads.has(thread.id)}
