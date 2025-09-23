@@ -225,37 +225,26 @@ export function ThreadsOverview({
                 console.log('📝 System message:', text.substring(0, 200) + '...');
               }
               
-              // Look for tool call patterns like "tool_name(" or "calling tool_name"
-              const toolCallPatterns = [
-                /calling\s+(\w+)/gi,
-                /(\w+)\s*\(/g,
-                /tool[:\s]*(\w+)/gi,
-                /function[:\s]*(\w+)/gi,
-                // Add more specific patterns for common tool formats
-                /mcp_([^_]+_[^_]+_[^_]+_\w+)/gi,  // MCP tool pattern
-                /"name"[:\s]*"([^"]+)"/gi,       // JSON name field
-                /invoke[:\s]+(\w+)/gi,           // invoke pattern
-                /\*\*(\w+)\*\*/gi                // **tool_name** pattern
-              ];
+              // Look specifically for "tool name" pattern - this is what we want to extract
+              const toolNamePattern = /tool\s+(\w+)/gi;
+              const matches = text.matchAll(toolNamePattern);
               
-              toolCallPatterns.forEach(pattern => {
-                const matches = text.matchAll(pattern);
-                for (const match of matches) {
-                  const toolName = match[1];
-                  if (toolName && toolName.length > 2 && !toolName.match(/^(the|and|for|with|from|this|that|null|true|false|undefined|Output|Input|Error|Response|Request)$/i)) {
-                    console.log('🔧 Found tool:', toolName);
-                    toolsSet.add(toolName);
-                  }
+              for (const match of matches) {
+                const toolName = match[1];
+                if (toolName && toolName.length > 1) {
+                  console.log('🔧 Found tool from "tool name" pattern:', toolName);
+                  toolsSet.add(toolName);
                 }
-              });
+              }
               
-              // Also look for common tool patterns in JSON-like structures
-              const jsonToolPattern = /"tool"[:\s]*"([^"]+)"/gi;
-              const jsonMatches = text.matchAll(jsonToolPattern);
-              for (const match of jsonMatches) {
-                if (match[1]) {
-                  console.log('🔧 Found JSON tool:', match[1]);
-                  toolsSet.add(match[1]);
+              // Also look for "tool: name" pattern
+              const toolColonPattern = /tool:\s*(\w+)/gi;
+              const colonMatches = text.matchAll(toolColonPattern);
+              for (const match of colonMatches) {
+                const toolName = match[1];
+                if (toolName && toolName.length > 1) {
+                  console.log('🔧 Found tool from "tool: name" pattern:', toolName);
+                  toolsSet.add(toolName);
                 }
               }
             }
@@ -629,37 +618,31 @@ export function ThreadsOverview({
       if (selectedTools.size > 0) {
         const threadTools = new Set<string>();
         
-        // Extract tools from this thread's system messages
+        // Extract tools from this thread's system messages using same pattern as availableTools
         thread.messages.forEach(message => {
           if (message.role === 'system') {
             message.content.forEach(content => {
               if (content.text || content.content) {
                 const text = content.text || content.content || '';
                 
-                // Look for tool call patterns
-                const toolCallPatterns = [
-                  /calling\s+(\w+)/gi,
-                  /(\w+)\s*\(/g,
-                  /tool[:\s]*(\w+)/gi,
-                  /function[:\s]*(\w+)/gi
-                ];
+                // Look specifically for "tool name" pattern
+                const toolNamePattern = /tool\s+(\w+)/gi;
+                const matches = text.matchAll(toolNamePattern);
                 
-                toolCallPatterns.forEach(pattern => {
-                  const matches = text.matchAll(pattern);
-                  for (const match of matches) {
-                    const toolName = match[1];
-                    if (toolName && toolName.length > 2 && !toolName.match(/^(the|and|for|with|from|this|that|null|true|false|undefined)$/i)) {
-                      threadTools.add(toolName);
-                    }
+                for (const match of matches) {
+                  const toolName = match[1];
+                  if (toolName && toolName.length > 1) {
+                    threadTools.add(toolName);
                   }
-                });
+                }
                 
-                // Also look for JSON tool patterns
-                const jsonToolPattern = /"tool"[:\s]*"([^"]+)"/gi;
-                const jsonMatches = text.matchAll(jsonToolPattern);
-                for (const match of jsonMatches) {
-                  if (match[1]) {
-                    threadTools.add(match[1]);
+                // Also look for "tool: name" pattern
+                const toolColonPattern = /tool:\s*(\w+)/gi;
+                const colonMatches = text.matchAll(toolColonPattern);
+                for (const match of colonMatches) {
+                  const toolName = match[1];
+                  if (toolName && toolName.length > 1) {
+                    threadTools.add(toolName);
                   }
                 }
               }
@@ -1389,7 +1372,7 @@ export function ThreadsOverview({
                       </Button>
                       
                       {toolDropdownOpen && (
-                        <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-50">
+                        <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-50 backdrop-blur-sm" style={{ backgroundColor: 'white' }}>
                           <div className="p-3">
                             <div className="flex items-center justify-between mb-3">
                               <Label className="text-sm font-medium">Filter by Tools</Label>
