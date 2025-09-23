@@ -207,9 +207,9 @@ export function ThreadsOverview({
     };
   }, [toolDropdownOpen]);
   
-  // Extract all available tools from system messages
-  const availableTools = useMemo(() => {
-    const toolsSet = new Set<string>();
+  // Extract all available tools from system messages with counts
+  const availableToolsWithCounts = useMemo(() => {
+    const toolCounts = new Map<string, number>();
     
     console.log('🔍 Extracting tools from', threads.length, 'threads');
     
@@ -225,26 +225,15 @@ export function ThreadsOverview({
                 console.log('📝 System message:', text.substring(0, 200) + '...');
               }
               
-              // Look specifically for "tool name" pattern - this is what we want to extract
-              const toolNamePattern = /tool\s+(\w+)/gi;
+              // Look specifically for "**Tool Name:**" pattern in system messages
+              const toolNamePattern = /\*\*Tool Name:\*\*\s*`([^`]+)`/gi;
               const matches = text.matchAll(toolNamePattern);
               
               for (const match of matches) {
                 const toolName = match[1];
                 if (toolName && toolName.length > 1) {
-                  console.log('🔧 Found tool from "tool name" pattern:', toolName);
-                  toolsSet.add(toolName);
-                }
-              }
-              
-              // Also look for "tool: name" pattern
-              const toolColonPattern = /tool:\s*(\w+)/gi;
-              const colonMatches = text.matchAll(toolColonPattern);
-              for (const match of colonMatches) {
-                const toolName = match[1];
-                if (toolName && toolName.length > 1) {
-                  console.log('🔧 Found tool from "tool: name" pattern:', toolName);
-                  toolsSet.add(toolName);
+                  console.log('🔧 Found tool from "**Tool Name:**" pattern:', toolName);
+                  toolCounts.set(toolName, (toolCounts.get(toolName) || 0) + 1);
                 }
               }
             }
@@ -253,10 +242,19 @@ export function ThreadsOverview({
       });
     });
     
-    const tools = Array.from(toolsSet).sort();
-    console.log('🛠️ Available tools:', tools);
-    return tools;
+    // Convert to array and sort by name
+    const toolsWithCounts = Array.from(toolCounts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    
+    console.log('🛠️ Available tools with counts:', toolsWithCounts);
+    return toolsWithCounts;
   }, [threads]);
+
+  // For backwards compatibility, extract just the tool names
+  const availableTools = useMemo(() => {
+    return availableToolsWithCounts.map(tool => tool.name);
+  }, [availableToolsWithCounts]);
   
   // Message search functionality
   const [messageSearchEnabled, setMessageSearchEnabled] = useState(false);
@@ -625,21 +623,11 @@ export function ThreadsOverview({
               if (content.text || content.content) {
                 const text = content.text || content.content || '';
                 
-                // Look specifically for "tool name" pattern
-                const toolNamePattern = /tool\s+(\w+)/gi;
+                // Look specifically for "**Tool Name:**" pattern in system messages
+                const toolNamePattern = /\*\*Tool Name:\*\*\s*`([^`]+)`/gi;
                 const matches = text.matchAll(toolNamePattern);
                 
                 for (const match of matches) {
-                  const toolName = match[1];
-                  if (toolName && toolName.length > 1) {
-                    threadTools.add(toolName);
-                  }
-                }
-                
-                // Also look for "tool: name" pattern
-                const toolColonPattern = /tool:\s*(\w+)/gi;
-                const colonMatches = text.matchAll(toolColonPattern);
-                for (const match of colonMatches) {
                   const toolName = match[1];
                   if (toolName && toolName.length > 1) {
                     threadTools.add(toolName);
@@ -1372,50 +1360,57 @@ export function ThreadsOverview({
                       </Button>
                       
                       {toolDropdownOpen && (
-                        <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-50 backdrop-blur-sm" style={{ backgroundColor: 'white' }}>
-                          <div className="p-3">
-                            <div className="flex items-center justify-between mb-3">
-                              <Label className="text-sm font-medium">Filter by Tools</Label>
+                        <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-md shadow-lg z-50 backdrop-blur-sm" style={{ backgroundColor: 'white' }}>
+                          <div className="p-2">
+                            <div className="flex items-center justify-between mb-2">
+                              <Label className="text-xs font-medium text-gray-600">Filter by Tools</Label>
                               {selectedTools.size > 0 && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-6 px-2 text-xs"
+                                  className="h-5 px-1 text-xs"
                                   onClick={() => setSelectedTools(new Set())}
                                 >
                                   Clear
                                 </Button>
                               )}
                             </div>
-                            <div className="space-y-2 max-h-48 overflow-y-auto">
-                              {availableTools.length > 0 ? (
-                                availableTools.map((tool) => (
-                                  <div key={tool} className="flex items-center space-x-2">
+                            <div className="space-y-1 max-h-32 overflow-y-auto">
+                              {availableToolsWithCounts.length > 0 ? (
+                                availableToolsWithCounts.map((toolInfo) => (
+                                  <div key={toolInfo.name} className="flex items-center space-x-2 py-1">
                                     <Checkbox
-                                      id={`tool-${tool}`}
-                                      checked={selectedTools.has(tool)}
+                                      id={`tool-${toolInfo.name}`}
+                                      checked={selectedTools.has(toolInfo.name)}
                                       onCheckedChange={(checked) => {
                                         const newSelected = new Set(selectedTools);
                                         if (checked) {
-                                          newSelected.add(tool);
+                                          newSelected.add(toolInfo.name);
                                         } else {
-                                          newSelected.delete(tool);
+                                          newSelected.delete(toolInfo.name);
                                         }
                                         setSelectedTools(newSelected);
                                       }}
+                                      className="h-3 w-3"
                                     />
-                                    <Label 
-                                      htmlFor={`tool-${tool}`} 
-                                      className="text-sm font-mono cursor-pointer"
-                                    >
-                                      {tool}
-                                    </Label>
+                                    <div className="flex-1 flex items-center justify-between min-w-0">
+                                      <Label 
+                                        htmlFor={`tool-${toolInfo.name}`} 
+                                        className="text-xs font-mono cursor-pointer truncate flex-1 mr-2"
+                                        title={toolInfo.name}
+                                      >
+                                        {toolInfo.name}
+                                      </Label>
+                                      <Badge variant="secondary" className="text-xs px-1 py-0 h-4 min-w-0 shrink-0">
+                                        {toolInfo.count}
+                                      </Badge>
+                                    </div>
                                   </div>
                                 ))
                               ) : (
-                                <div className="text-sm text-muted-foreground text-center py-4">
+                                <div className="text-xs text-muted-foreground text-center py-3">
                                   <div>No tools found in system messages</div>
-                                  <div className="text-xs mt-2">
+                                  <div className="text-xs mt-1 opacity-75">
                                     Tools will appear here after searching threads
                                   </div>
                                 </div>
