@@ -110,6 +110,108 @@ function cleanText(text: string): string {
   return cleaned;
 }
 
+function formatJsonInText(text: string): { hasJson: boolean; formattedText: string } {
+  let formattedText = text;
+  let hasJson = false;
+  
+  // First, check if we already have formatted JSON blocks and skip them
+  if (formattedText.includes('```json')) {
+    return { hasJson: true, formattedText };
+  }
+  
+  // Helper function to find matching braces
+  function findJsonEnd(str: string, startIndex: number): number {
+    let braceCount = 0;
+    let inString = false;
+    let escaped = false;
+    
+    for (let i = startIndex; i < str.length; i++) {
+      const char = str[i];
+      
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      
+      if (char === '"' && !escaped) {
+        inString = !inString;
+        continue;
+      }
+      
+      if (!inString) {
+        if (char === '{') {
+          braceCount++;
+        } else if (char === '}') {
+          braceCount--;
+          if (braceCount === 0) {
+            return i;
+          }
+        }
+      }
+    }
+    
+    return -1;
+  }
+  
+  // Look for JSON starting with { and containing escaped quotes
+  let searchIndex = 0;
+  while (true) {
+    const startIndex = formattedText.indexOf('{\\', searchIndex);
+    if (startIndex === -1) break;
+    
+    const endIndex = findJsonEnd(formattedText, startIndex);
+    if (endIndex === -1) {
+      searchIndex = startIndex + 1;
+      continue;
+    }
+    
+    const jsonString = formattedText.substring(startIndex, endIndex + 1);
+    
+    // Only process if it looks like a substantial JSON object
+    if (jsonString.length > 50 && jsonString.includes('\\"')) {
+      try {
+        // Try to unescape the JSON string
+        const unescapedJson = jsonString
+          .replace(/\\"/g, '"')
+          .replace(/\\\\/g, '\\')
+          .replace(/\\n/g, '\n')
+          .replace(/\\t/g, '\t')
+          .replace(/\\r/g, '\r');
+        
+        // Try to parse the unescaped JSON
+        const parsedJson = JSON.parse(unescapedJson);
+        // Format it nicely with 2-space indentation
+        const formattedJson = JSON.stringify(parsedJson, null, 2);
+        // Replace the original match with the formatted version
+        formattedText = formattedText.replace(jsonString, '\n\n```json\n' + formattedJson + '\n```\n\n');
+        hasJson = true;
+        // Continue searching after the replacement
+        searchIndex = startIndex + formattedJson.length;
+      } catch (error) {
+        // If parsing fails, still try to format as a code block for better readability
+        console.warn('Failed to parse JSON, formatting as code block:', error.message);
+        const unescapedJson = jsonString
+          .replace(/\\"/g, '"')
+          .replace(/\\\\/g, '\\')
+          .replace(/\\n/g, '\n')
+          .replace(/\\t/g, '\t');
+        formattedText = formattedText.replace(jsonString, '\n\n```json\n' + unescapedJson + '\n```\n\n');
+        hasJson = true;
+        searchIndex = startIndex + unescapedJson.length;
+      }
+    } else {
+      searchIndex = startIndex + 1;
+    }
+  }
+  
+  return { hasJson, formattedText };
+}
+
 function processMessageText(content: MessageContent[]): string {
   const textContents = content.filter(c => c.kind === 'text');
   
@@ -156,7 +258,11 @@ function consolidateMessageContent(content: MessageContent[]) {
   const textContents = content.filter(c => c.kind === 'text');
   const otherContents = content.filter(c => c.kind !== 'text');
   
-  const consolidatedText = processMessageText(content);
+  let consolidatedText = processMessageText(content);
+  
+  // Apply JSON formatting if the text contains JSON
+  const { formattedText } = formatJsonInText(consolidatedText);
+  consolidatedText = formattedText;
     
   return { consolidatedText, otherContents };
 }
@@ -797,14 +903,39 @@ export function ConversationDetail({
                             })
                           }}
                         >
-                          {/* Text content */}
-                          {consolidatedText && (
-                            <div className="prose prose-sm max-w-none">
-                              <p className="whitespace-pre-wrap leading-relaxed m-0 text-slate-700 text-base">
-                                {consolidatedText}
-                              </p>
-                            </div>
-                          )}
+                              {/* Text content */}
+                              {consolidatedText && (
+                                <div className="prose prose-sm max-w-none">
+                                  {consolidatedText.includes('```json') ? (
+                                    // Render formatted JSON with code highlighting
+                                    <div className="whitespace-pre-wrap leading-relaxed m-0 text-slate-700 text-base">
+                                      {consolidatedText.split(/(```json[\s\S]*?```)/g).map((part, index) => {
+                                        if (part.startsWith('```json') && part.endsWith('```')) {
+                                          const jsonContent = part.replace(/```json\n?/, '').replace(/\n?```$/, '');
+                                          return (
+                                            <div key={index} className="my-4">
+                                              <div className="bg-slate-900 text-green-400 p-4 rounded-lg overflow-x-auto">
+                                                <pre className="text-sm font-mono whitespace-pre-wrap">
+                                                  <code>{jsonContent}</code>
+                                                </pre>
+                                              </div>
+                                            </div>
+                                          );
+                                        } else {
+                                          return part ? (
+                                            <span key={index}>{part}</span>
+                                          ) : null;
+                                        }
+                                      })}
+                                    </div>
+                                  ) : (
+                                    // Regular text rendering
+                                    <p className="whitespace-pre-wrap leading-relaxed m-0 text-slate-700 text-base">
+                                      {consolidatedText}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
                           
                           {/* Other content types (UI components, linkouts, etc.) */}
                           {otherContents.length > 0 && (
