@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
@@ -43,7 +43,9 @@ import {
   Clock,
   Zap,
   ExternalLink,
-  Bookmark
+  Bookmark,
+  ChevronDown,
+  Filter
 } from 'lucide-react';
 import { Thread, ThreadsRequest, BulkAttributesRequest } from '../lib/types';
 import { 
@@ -184,6 +186,167 @@ export function ThreadsOverview({
 
   const [hasUiFilter, setHasUiFilter] = useState(false);
   const [hasLinkoutFilter, setHasLinkoutFilter] = useState(false);
+  const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set());
+  const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
+  const toolDropdownRef = useRef<HTMLDivElement>(null);
+  const [selectedErrors, setSelectedErrors] = useState<Set<string>>(new Set());
+  const [errorDropdownOpen, setErrorDropdownOpen] = useState(false);
+  const errorDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (toolDropdownRef.current && !toolDropdownRef.current.contains(event.target as Node)) {
+        setToolDropdownOpen(false);
+      }
+      if (errorDropdownRef.current && !errorDropdownRef.current.contains(event.target as Node)) {
+        setErrorDropdownOpen(false);
+      }
+    }
+
+    if (toolDropdownOpen || errorDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [toolDropdownOpen, errorDropdownOpen]);
+  
+  // Extract all available tools from system messages with counts
+  const availableToolsWithCounts = useMemo(() => {
+    const toolCounts = new Map<string, number>();
+    
+    console.log('🔍 Extracting tools from', threads.length, 'threads');
+    
+    threads.forEach(thread => {
+      thread.messages.forEach(message => {
+        if (message.role === 'system') {
+          message.content.forEach(content => {
+            if (content.text || content.content) {
+              const text = content.text || content.content || '';
+              
+              // Debug: Log system message content
+              if (text.length > 0) {
+                console.log('📝 System message:', text.substring(0, 200) + '...');
+              }
+              
+              // Look specifically for "**Tool Name:**" pattern in system messages
+              const toolNamePattern = /\*\*Tool Name:\*\*\s*`([^`]+)`/gi;
+              const matches = text.matchAll(toolNamePattern);
+              
+              for (const match of matches) {
+                const toolName = match[1];
+                if (toolName && toolName.length > 1) {
+                  console.log('🔧 Found tool from "**Tool Name:**" pattern:', toolName);
+                  toolCounts.set(toolName, (toolCounts.get(toolName) || 0) + 1);
+                }
+              }
+            }
+          });
+        }
+      });
+    });
+    
+    // Convert to array and sort by name
+    const toolsWithCounts = Array.from(toolCounts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    
+    console.log('🛠️ Available tools with counts:', toolsWithCounts);
+    return toolsWithCounts;
+  }, [threads]);
+
+  // For backwards compatibility, extract just the tool names
+  const availableTools = useMemo(() => {
+    return availableToolsWithCounts.map(tool => tool.name);
+  }, [availableToolsWithCounts]);
+
+  // Extract all available errors from system messages with counts
+  const availableErrorsWithCounts = useMemo(() => {
+    const errorCounts = new Map<string, number>();
+    
+    console.log('🔍 Extracting errors from', threads.length, 'threads');
+    
+    threads.forEach(thread => {
+      thread.messages.forEach(message => {
+        if (message.role === 'system') {
+          message.content.forEach(content => {
+            if (content.text || content.content) {
+              const text = content.text || content.content || '';
+              
+              // Look for various error patterns in system messages
+              const errorPatterns = [
+                /Agent execution error/gi,
+                /Error:/gi,
+                /Failed:/gi,
+                /Exception:/gi,
+                /Timeout/gi,
+                /Connection error/gi,
+                /Invalid/gi,
+                /Not found/gi,
+                /Unauthorized/gi,
+                /Forbidden/gi
+              ];
+              
+              errorPatterns.forEach(pattern => {
+                const matches = text.matchAll(pattern);
+                for (const match of matches) {
+                  const errorType = match[0];
+                  if (errorType && errorType.length > 2) {
+                    console.log('❌ Found error:', errorType);
+                    errorCounts.set(errorType, (errorCounts.get(errorType) || 0) + 1);
+                  }
+                }
+              });
+            }
+          });
+        }
+      });
+    });
+    
+    // Convert to array and sort by name
+    const errorsWithCounts = Array.from(errorCounts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    
+    console.log('❌ Available errors with counts:', errorsWithCounts);
+    return errorsWithCounts;
+  }, [threads]);
+
+  // For backwards compatibility, extract just the error names
+  const availableErrors = useMemo(() => {
+    return availableErrorsWithCounts.map(error => error.name);
+  }, [availableErrorsWithCounts]);
+
+  // Function to check if a thread has errors
+  const threadHasErrors = useCallback((thread: any) => {
+    return thread.messages.some((message: any) => {
+      if (message.role === 'system') {
+        return message.content.some((content: any) => {
+          if (content.text || content.content) {
+            const text = content.text || content.content || '';
+            // Check for any error patterns
+            const errorPatterns = [
+              /Agent execution error/gi,
+              /Error:/gi,
+              /Failed:/gi,
+              /Exception:/gi,
+              /Timeout/gi,
+              /Connection error/gi,
+              /Invalid/gi,
+              /Not found/gi,
+              /Unauthorized/gi,
+              /Forbidden/gi
+            ];
+            return errorPatterns.some(pattern => pattern.test(text));
+          }
+          return false;
+        });
+      }
+      return false;
+    });
+  }, []);
   
   // Message search functionality
   const [messageSearchEnabled, setMessageSearchEnabled] = useState(false);
@@ -541,6 +704,81 @@ export function ThreadsOverview({
         if (!hasLinkout) return false;
       }
 
+      // Tool filter
+      if (selectedTools.size > 0) {
+        const threadTools = new Set<string>();
+        
+        // Extract tools from this thread's system messages using same pattern as availableTools
+        thread.messages.forEach(message => {
+          if (message.role === 'system') {
+            message.content.forEach(content => {
+              if (content.text || content.content) {
+                const text = content.text || content.content || '';
+                
+                // Look specifically for "**Tool Name:**" pattern in system messages
+                const toolNamePattern = /\*\*Tool Name:\*\*\s*`([^`]+)`/gi;
+                const matches = text.matchAll(toolNamePattern);
+                
+                for (const match of matches) {
+                  const toolName = match[1];
+                  if (toolName && toolName.length > 1) {
+                    threadTools.add(toolName);
+                  }
+                }
+              }
+            });
+          }
+        });
+        
+        // Check if thread has any of the selected tools
+        const hasSelectedTool = Array.from(selectedTools).some(tool => threadTools.has(tool));
+        if (!hasSelectedTool) return false;
+      }
+
+      // Error filter
+      if (selectedErrors.size > 0) {
+        const threadErrors = new Set<string>();
+        
+        // Extract errors from this thread's system messages using same pattern as availableErrors
+        thread.messages.forEach(message => {
+          if (message.role === 'system') {
+            message.content.forEach(content => {
+              if (content.text || content.content) {
+                const text = content.text || content.content || '';
+                
+                // Look for error patterns
+                const errorPatterns = [
+                  /Agent execution error/gi,
+                  /Error:/gi,
+                  /Failed:/gi,
+                  /Exception:/gi,
+                  /Timeout/gi,
+                  /Connection error/gi,
+                  /Invalid/gi,
+                  /Not found/gi,
+                  /Unauthorized/gi,
+                  /Forbidden/gi
+                ];
+                
+                errorPatterns.forEach(pattern => {
+                  const matches = text.matchAll(pattern);
+                  for (const match of matches) {
+                    const errorType = match[0];
+                    if (errorType && errorType.length > 2) {
+                      threadErrors.add(errorType);
+                    }
+                  }
+                });
+              }
+            });
+          }
+        });
+        
+        // Check if thread has any of the selected errors
+        const hasSelectedError = Array.from(selectedErrors).some(error => threadErrors.has(error));
+        if (!hasSelectedError) return false;
+      }
+
       return true;
     }).sort((a, b) => {
       // Sort by createdAt timestamp with most recent first (descending order)
@@ -548,7 +786,7 @@ export function ThreadsOverview({
       const timeB = new Date(b.createdAt).getTime();
       return timeB - timeA; // Most recent first
     });
-  }, [threads, searchTerm, hasUiFilter, hasLinkoutFilter, messageSearchEnabled, messageSearchTerm, fetchedConversations, conversationsFetched]);
+  }, [threads, searchTerm, hasUiFilter, hasLinkoutFilter, selectedTools, selectedErrors, messageSearchEnabled, messageSearchTerm, fetchedConversations, conversationsFetched]);
 
   // Update thread order whenever filtered threads change to keep navigation in sync
   useEffect(() => {
@@ -569,7 +807,7 @@ export function ThreadsOverview({
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, hasUiFilter, hasLinkoutFilter]);
+  }, [searchTerm, hasUiFilter, hasLinkoutFilter, selectedTools, selectedErrors]);
 
   const analytics = useMemo(() => calculateThreadAnalytics(filteredThreads), [filteredThreads]);
 
@@ -1230,6 +1468,184 @@ export function ThreadsOverview({
                     />
                     <Label htmlFor="hasLinkout" className="text-sm">Has Linkouts</Label>
                   </div>
+                  
+                  {/* Tool Filter Dropdown */}
+                  {(() => {
+                    console.log('🎛️ Rendering tool filter, available tools:', availableTools.length, availableTools);
+                    // Always show for testing - remove this condition later
+                    return true; // availableTools.length > 0;
+                  })() && (
+                    <div className="relative" ref={toolDropdownRef}>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="h-8 border-dashed"
+                        onClick={() => {
+                          console.log('🎯 Tools button clicked, current state:', toolDropdownOpen);
+                          setToolDropdownOpen(!toolDropdownOpen);
+                        }}
+                      >
+                        <Filter className="mr-2 h-3 w-3" />
+                        Tools
+                        {selectedTools.size > 0 && (
+                          <Badge variant="secondary" className="ml-2 px-1 py-0 text-xs">
+                            {selectedTools.size}
+                          </Badge>
+                        )}
+                        <ChevronDown className="ml-2 h-3 w-3" />
+                      </Button>
+                      
+                      {toolDropdownOpen && (
+                        <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-md shadow-lg z-50 backdrop-blur-sm" style={{ backgroundColor: 'white' }}>
+                          <div className="p-2">
+                            <div className="flex items-center justify-between mb-2">
+                              <Label className="text-xs font-medium text-gray-600">Filter by Tools</Label>
+                              {selectedTools.size > 0 && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-5 px-1 text-xs"
+                                  onClick={() => setSelectedTools(new Set())}
+                                >
+                                  Clear
+                                </Button>
+                              )}
+                            </div>
+                            <div className="space-y-1 max-h-24 overflow-y-auto">
+                              {availableToolsWithCounts.length > 0 ? (
+                                availableToolsWithCounts.map((toolInfo) => (
+                                  <div key={toolInfo.name} className="flex items-center space-x-2 py-1">
+                                    <Checkbox
+                                      id={`tool-${toolInfo.name}`}
+                                      checked={selectedTools.has(toolInfo.name)}
+                                      onCheckedChange={(checked) => {
+                                        const newSelected = new Set(selectedTools);
+                                        if (checked) {
+                                          newSelected.add(toolInfo.name);
+                                        } else {
+                                          newSelected.delete(toolInfo.name);
+                                        }
+                                        setSelectedTools(newSelected);
+                                      }}
+                                      className="h-3 w-3"
+                                    />
+                                    <div className="flex-1 flex items-center justify-between min-w-0">
+                                      <Label 
+                                        htmlFor={`tool-${toolInfo.name}`} 
+                                        className="text-xs font-mono cursor-pointer truncate flex-1 mr-2"
+                                        title={toolInfo.name}
+                                      >
+                                        {toolInfo.name}
+                                      </Label>
+                                      <Badge variant="secondary" className="text-xs px-1 py-0 h-4 min-w-0 shrink-0">
+                                        {toolInfo.count}
+                                      </Badge>
+                                    </div>
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="text-xs text-muted-foreground text-center py-3">
+                                  <div>No tools found in system messages</div>
+                                  <div className="text-xs mt-1 opacity-75">
+                                    Tools will appear here after searching threads
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Error Filter Dropdown */}
+                  {(() => {
+                    console.log('❌ Rendering error filter, available errors:', availableErrorsWithCounts.length, availableErrorsWithCounts);
+                    // Always show for testing - remove this condition later
+                    return true; // availableErrorsWithCounts.length > 0;
+                  })() && (
+                    <div className="relative" ref={errorDropdownRef}>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="h-8 border-dashed"
+                        onClick={() => {
+                          console.log('❌ Errors button clicked, current state:', errorDropdownOpen);
+                          setErrorDropdownOpen(!errorDropdownOpen);
+                        }}
+                      >
+                        <AlertCircle className="mr-2 h-3 w-3" />
+                        Errors
+                        {selectedErrors.size > 0 && (
+                          <Badge variant="secondary" className="ml-2 px-1 py-0 text-xs">
+                            {selectedErrors.size}
+                          </Badge>
+                        )}
+                        <ChevronDown className="ml-2 h-3 w-3" />
+                      </Button>
+                      
+                      {errorDropdownOpen && (
+                        <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-md shadow-lg z-50 backdrop-blur-sm" style={{ backgroundColor: 'white' }}>
+                          <div className="p-2">
+                            <div className="flex items-center justify-between mb-2">
+                              <Label className="text-xs font-medium text-gray-600">Filter by Errors</Label>
+                              {selectedErrors.size > 0 && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-5 px-1 text-xs"
+                                  onClick={() => setSelectedErrors(new Set())}
+                                >
+                                  Clear
+                                </Button>
+                              )}
+                            </div>
+                            <div className="space-y-1 max-h-32 overflow-y-auto">
+                              {availableErrorsWithCounts.length > 0 ? (
+                                availableErrorsWithCounts.map((errorInfo) => (
+                                  <div key={errorInfo.name} className="flex items-center space-x-2 py-1">
+                                    <Checkbox
+                                      id={`error-${errorInfo.name}`}
+                                      checked={selectedErrors.has(errorInfo.name)}
+                                      onCheckedChange={(checked) => {
+                                        const newSelected = new Set(selectedErrors);
+                                        if (checked) {
+                                          newSelected.add(errorInfo.name);
+                                        } else {
+                                          newSelected.delete(errorInfo.name);
+                                        }
+                                        setSelectedErrors(newSelected);
+                                      }}
+                                      className="h-3 w-3"
+                                    />
+                                    <div className="flex-1 flex items-center justify-between min-w-0">
+                                      <Label 
+                                        htmlFor={`error-${errorInfo.name}`} 
+                                        className="text-xs font-mono cursor-pointer truncate flex-1 mr-2 text-red-600"
+                                        title={errorInfo.name}
+                                      >
+                                        {errorInfo.name}
+                                      </Label>
+                                      <Badge variant="destructive" className="text-xs px-1 py-0 h-4 min-w-0 shrink-0">
+                                        {errorInfo.count}
+                                      </Badge>
+                                    </div>
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="text-xs text-muted-foreground text-center py-3">
+                                  <div>No errors found in system messages</div>
+                                  <div className="text-xs mt-1 opacity-75">
+                                    Errors will appear here after searching threads
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1280,7 +1696,10 @@ export function ThreadsOverview({
                   const isAnyViewed = isThreadViewed || isConversationViewed;
                   
                   return (
-                    <TableRow key={thread.id} className={`cursor-pointer hover:bg-muted/50 ${isAnyViewed ? 'bg-gray-50' : ''} h-16`}>
+                    <TableRow 
+                      key={thread.id} 
+                      className={`cursor-pointer hover:bg-muted/50 ${isAnyViewed ? 'bg-gray-50' : ''} ${threadHasErrors(thread) ? 'bg-red-50 border-l-4 border-l-red-500' : ''} h-16`}
+                    >
                       <TableCell onClick={(e) => e.stopPropagation()} className="py-4">
                         <Checkbox
                           checked={selectedThreads.has(thread.id)}
