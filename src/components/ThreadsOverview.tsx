@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
@@ -6,7 +6,6 @@ import { Label } from './ui/label';
 import { Alert, AlertDescription } from './ui/alert';
 import { Badge } from './ui/badge';
 import { Checkbox } from './ui/checkbox';
-import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { 
   Table, 
   TableBody, 
@@ -188,6 +187,25 @@ export function ThreadsOverview({
   const [hasUiFilter, setHasUiFilter] = useState(false);
   const [hasLinkoutFilter, setHasLinkoutFilter] = useState(false);
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set());
+  const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
+  const toolDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (toolDropdownRef.current && !toolDropdownRef.current.contains(event.target as Node)) {
+        setToolDropdownOpen(false);
+      }
+    }
+
+    if (toolDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [toolDropdownOpen]);
   
   // Extract all available tools from system messages
   const availableTools = useMemo(() => {
@@ -1350,75 +1368,80 @@ export function ThreadsOverview({
                     // Always show for testing - remove this condition later
                     return true; // availableTools.length > 0;
                   })() && (
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          className="h-8 border-dashed"
-                        >
-                          <Filter className="mr-2 h-3 w-3" />
-                          Tools
-                          {selectedTools.size > 0 && (
-                            <Badge variant="secondary" className="ml-2 px-1 py-0 text-xs">
-                              {selectedTools.size}
-                            </Badge>
-                          )}
-                          <ChevronDown className="ml-2 h-3 w-3" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-64 p-0" align="start">
-                        <div className="p-3">
-                          <div className="flex items-center justify-between mb-3">
-                            <Label className="text-sm font-medium">Filter by Tools</Label>
-                            {selectedTools.size > 0 && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 px-2 text-xs"
-                                onClick={() => setSelectedTools(new Set())}
-                              >
-                                Clear
-                              </Button>
-                            )}
-                          </div>
-                          <div className="space-y-2 max-h-48 overflow-y-auto">
-                            {availableTools.length > 0 ? (
-                              availableTools.map((tool) => (
-                                <div key={tool} className="flex items-center space-x-2">
-                                  <Checkbox
-                                    id={`tool-${tool}`}
-                                    checked={selectedTools.has(tool)}
-                                    onCheckedChange={(checked) => {
-                                      const newSelected = new Set(selectedTools);
-                                      if (checked) {
-                                        newSelected.add(tool);
-                                      } else {
-                                        newSelected.delete(tool);
-                                      }
-                                      setSelectedTools(newSelected);
-                                    }}
-                                  />
-                                  <Label 
-                                    htmlFor={`tool-${tool}`} 
-                                    className="text-sm font-mono cursor-pointer"
-                                  >
-                                    {tool}
-                                  </Label>
+                    <div className="relative" ref={toolDropdownRef}>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="h-8 border-dashed"
+                        onClick={() => {
+                          console.log('🎯 Tools button clicked, current state:', toolDropdownOpen);
+                          setToolDropdownOpen(!toolDropdownOpen);
+                        }}
+                      >
+                        <Filter className="mr-2 h-3 w-3" />
+                        Tools
+                        {selectedTools.size > 0 && (
+                          <Badge variant="secondary" className="ml-2 px-1 py-0 text-xs">
+                            {selectedTools.size}
+                          </Badge>
+                        )}
+                        <ChevronDown className="ml-2 h-3 w-3" />
+                      </Button>
+                      
+                      {toolDropdownOpen && (
+                        <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-50">
+                          <div className="p-3">
+                            <div className="flex items-center justify-between mb-3">
+                              <Label className="text-sm font-medium">Filter by Tools</Label>
+                              {selectedTools.size > 0 && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 px-2 text-xs"
+                                  onClick={() => setSelectedTools(new Set())}
+                                >
+                                  Clear
+                                </Button>
+                              )}
+                            </div>
+                            <div className="space-y-2 max-h-48 overflow-y-auto">
+                              {availableTools.length > 0 ? (
+                                availableTools.map((tool) => (
+                                  <div key={tool} className="flex items-center space-x-2">
+                                    <Checkbox
+                                      id={`tool-${tool}`}
+                                      checked={selectedTools.has(tool)}
+                                      onCheckedChange={(checked) => {
+                                        const newSelected = new Set(selectedTools);
+                                        if (checked) {
+                                          newSelected.add(tool);
+                                        } else {
+                                          newSelected.delete(tool);
+                                        }
+                                        setSelectedTools(newSelected);
+                                      }}
+                                    />
+                                    <Label 
+                                      htmlFor={`tool-${tool}`} 
+                                      className="text-sm font-mono cursor-pointer"
+                                    >
+                                      {tool}
+                                    </Label>
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="text-sm text-muted-foreground text-center py-4">
+                                  <div>No tools found in system messages</div>
+                                  <div className="text-xs mt-2">
+                                    Tools will appear here after searching threads
+                                  </div>
                                 </div>
-                              ))
-                            ) : (
-                              <div className="text-sm text-muted-foreground text-center py-4">
-                                <div>No tools found in system messages</div>
-                                <div className="text-xs mt-2">
-                                  Tools will appear here after searching threads
-                                </div>
-                              </div>
-                            )}
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </PopoverContent>
-                    </Popover>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
