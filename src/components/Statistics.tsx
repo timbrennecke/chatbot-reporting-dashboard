@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -39,14 +39,29 @@ interface StatisticsProps {
 
 export function Statistics({ threads, uploadedConversations = [] }: StatisticsProps) {
   
-  // Time range state
+  // Time range state with localStorage persistence
   const [startDate, setStartDate] = useState<Date | null>(() => {
-    // Default to 30 days ago
+    try {
+      const saved = getEnvironmentSpecificItem('chatbot-dashboard-stats-start-date');
+      if (saved) return new Date(saved);
+    } catch (error) {
+      console.warn('Failed to load saved stats start date:', error);
+    }
+    // Default to 1 hour ago
     const date = new Date();
-    date.setDate(date.getDate() - 30);
+    date.setHours(date.getHours() - 1);
     return date;
   });
-  const [endDate, setEndDate] = useState<Date | null>(() => new Date());
+  const [endDate, setEndDate] = useState<Date | null>(() => {
+    try {
+      const saved = getEnvironmentSpecificItem('chatbot-dashboard-stats-end-date');
+      if (saved) return new Date(saved);
+    } catch (error) {
+      console.warn('Failed to load saved stats end date:', error);
+    }
+    // Default to current time
+    return new Date();
+  });
 
   // Fetching state
   const [fetchedConversations, setFetchedConversations] = useState<any[]>([]);
@@ -54,6 +69,27 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
   const [error, setError] = useState<string | null>(null);
   const [lastSearchKey, setLastSearchKey] = useState<string>('');
   const [loadingProgress, setLoadingProgress] = useState({ current: 0, total: 0, currentDate: '' });
+
+  // Save statistics state to localStorage when it changes
+  useEffect(() => {
+    try {
+      if (startDate) {
+        setEnvironmentSpecificItem('chatbot-dashboard-stats-start-date', startDate.toISOString());
+      }
+    } catch (error) {
+      console.warn('Failed to save stats start date:', error);
+    }
+  }, [startDate]);
+
+  useEffect(() => {
+    try {
+      if (endDate) {
+        setEnvironmentSpecificItem('chatbot-dashboard-stats-end-date', endDate.toISOString());
+      }
+    } catch (error) {
+      console.warn('Failed to save stats end date:', error);
+    }
+  }, [endDate]);
 
   // Fetch conversations for statistics
   const fetchConversationsForStats = async () => {
@@ -323,14 +359,14 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
     const totalUserMessages = conversationMetrics.reduce((sum, conv) => sum + (conv?.userMessages || 0), 0);
     const totalAssistantMessages = conversationMetrics.reduce((sum, conv) => sum + (conv?.assistantMessages || 0), 0);
     const avgMessagesPerConversation = conversationMetrics.length > 0 
-      ? Math.round((totalUserMessages + totalAssistantMessages) / conversationMetrics.length)
+      ? Math.round(((totalUserMessages + totalAssistantMessages) / conversationMetrics.length) * 100) / 100
       : 0;
     const avgDurationMinutes = conversationMetrics.length > 0
-      ? Math.round(conversationMetrics.reduce((sum, conv) => sum + (conv?.durationMinutes || 0), 0) / conversationMetrics.length)
+      ? Math.round((conversationMetrics.reduce((sum, conv) => sum + (conv?.durationMinutes || 0), 0) / conversationMetrics.length) * 100) / 100
       : 0;
     
     const avgTimeToFirstResponseSeconds = conversationMetrics.length > 0
-      ? Math.round(conversationMetrics.reduce((sum, conv) => sum + (conv?.timeToFirstResponseSeconds || 0), 0) / conversationMetrics.length)
+      ? Math.round((conversationMetrics.reduce((sum, conv) => sum + (conv?.timeToFirstResponseSeconds || 0), 0) / conversationMetrics.length) * 100) / 100
       : 0;
 
     // Calculate Kontaktquote (conversations with contact tools)
@@ -574,11 +610,11 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
     });
     
     const kontaktquote = fetchedConversations.length > 0 
-      ? Math.round((conversationsWithContactTools.length / fetchedConversations.length) * 100)
+      ? Math.round((conversationsWithContactTools.length / fetchedConversations.length) * 10000) / 100
       : 0;
       
     const travelAgentQuote = fetchedConversations.length > 0 
-      ? Math.round((conversationsWithTravelAgentTools.length / fetchedConversations.length) * 100)
+      ? Math.round((conversationsWithTravelAgentTools.length / fetchedConversations.length) * 10000) / 100
       : 0;
       
     // Only log detailed info if we have data
@@ -691,8 +727,8 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                     <Label htmlFor="start-date" className="text-xs font-medium text-gray-600">Start Date</Label>
                     <Input
                     id="start-date"
-                    type="date"
-                    value={startDate?.toISOString().split('T')[0] || ''}
+                    type="datetime-local"
+                    value={startDate?.toISOString().slice(0, 16) || ''}
                     onChange={(e) => setStartDate(e.target.value ? new Date(e.target.value) : null)}
                     className="text-sm h-8"
                     />
@@ -701,8 +737,8 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                     <Label htmlFor="end-date" className="text-xs font-medium text-gray-600">End Date</Label>
                     <Input
                     id="end-date"
-                    type="date"
-                    value={endDate?.toISOString().split('T')[0] || ''}
+                    type="datetime-local"
+                    value={endDate?.toISOString().slice(0, 16) || ''}
                     onChange={(e) => setEndDate(e.target.value ? new Date(e.target.value) : null)}
                     className="text-sm h-8"
                     />
@@ -837,7 +873,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
             </div>
             <div className="text-center">
               <p className="text-xl font-bold text-green-600">{stats.avgTimeToFirstResponseSeconds}s</p>
-              <p className="text-sm text-gray-600">Avg. Response Time</p>
+              <p className="text-sm text-gray-600">Avg. Response Time to First Message</p>
             </div>
             <div className="text-center">
               <p className="text-xl font-bold text-green-600">{stats.kontaktquote}%</p>

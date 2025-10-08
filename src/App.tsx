@@ -281,7 +281,7 @@ export default function App() {
         <div className="space-y-6">
           {activeTab === 'dashboard' && (
             <ThreadsOverview
-              key={environment}
+              key={`threads-${environment}`}
               uploadedThreads={uploadedThreads}
               uploadedConversations={uploadedData.conversations || []}
               onThreadSelect={(thread) => {

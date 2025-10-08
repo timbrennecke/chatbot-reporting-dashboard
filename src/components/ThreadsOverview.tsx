@@ -134,10 +134,43 @@ export function ThreadsOverview({
     };
   }, []);
   
-  // Filters
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
+  // Filters with localStorage persistence
+  const [startDate, setStartDate] = useState<string>(() => {
+    try {
+      const saved = getEnvironmentSpecificItem('threads-search-start-date');
+      if (saved) {
+        console.log('📋 Loaded saved start date:', saved);
+        return saved;
+      }
+    } catch (error) {
+      console.warn('Failed to load saved start date:', error);
+    }
+    // Default to 1 hour ago
+    const date = new Date();
+    date.setHours(date.getHours() - 1);
+    const defaultValue = date.toISOString().slice(0, 16);
+    console.log('📋 Using default start date:', defaultValue);
+    return defaultValue; // Format for datetime-local input
+  });
+  const [endDate, setEndDate] = useState<string>(() => {
+    try {
+      const saved = getEnvironmentSpecificItem('threads-search-end-date');
+      if (saved) return saved;
+    } catch (error) {
+      console.warn('Failed to load saved end date:', error);
+    }
+    // Default to current time
+    return new Date().toISOString().slice(0, 16); // Format for datetime-local input
+  });
+  const [searchTerm, setSearchTerm] = useState<string>(() => {
+    try {
+      const saved = getEnvironmentSpecificItem('threads-search-term');
+      return saved || '';
+    } catch (error) {
+      console.warn('Failed to load saved search term:', error);
+      return '';
+    }
+  });
 
   const [hasUiFilter, setHasUiFilter] = useState(false);
   const [hasLinkoutFilter, setHasLinkoutFilter] = useState(false);
@@ -399,7 +432,15 @@ export function ThreadsOverview({
     // Don't reset hasSearched here - let it persist until user performs new search
   };
 
-  const setDefaultTimeRange = () => setTimeRange(1); // Default: last 1 hour
+  const setDefaultTimeRange = () => {
+    // Only set defaults if current values are empty
+    if (!startDate || !endDate) {
+      console.log('📋 Setting default time range (1 hour)');
+      setTimeRange(1);
+    } else {
+      console.log('📋 Skipping default time range - values already set');
+    }
+  };
 
   const quickFilters = [
     { label: 'Last Hour', hours: 1 },
@@ -429,23 +470,7 @@ export function ThreadsOverview({
 
   const activeQuickFilter = getCurrentQuickFilter();
 
-  useEffect(() => {
-    // Try to load saved search parameters first
-    try {
-      const savedParams = getEnvironmentSpecificItem('chatbot-dashboard-search-params');
-      if (savedParams) {
-        const parsed = JSON.parse(savedParams);
-        setStartDate(parsed.startDate);
-        setEndDate(parsed.endDate);
-        return;
-      }
-    } catch (error) {
-      console.error('Failed to load saved search parameters:', error);
-    }
-    
-    // Set smart defaults based on current system time
-    setDefaultTimeRange();
-  }, []);
+  // Remove this useEffect - defaults are already set in useState initializers
 
   // Update threads when uploaded data changes
   useEffect(() => {
@@ -464,8 +489,33 @@ export function ThreadsOverview({
     onThreadsChange?.(threads);
   }, [threads, onThreadsChange]);
 
+  // Save search state to localStorage when it changes
+  useEffect(() => {
+    try {
+      if (startDate) {
+        console.log('💾 Saving start date:', startDate);
+        setEnvironmentSpecificItem('threads-search-start-date', startDate);
+      }
+    } catch (error) {
+      console.warn('Failed to save start date:', error);
+    }
+  }, [startDate]);
 
+  useEffect(() => {
+    try {
+      setEnvironmentSpecificItem('threads-search-end-date', endDate);
+    } catch (error) {
+      console.warn('Failed to save end date:', error);
+    }
+  }, [endDate]);
 
+  useEffect(() => {
+    try {
+      setEnvironmentSpecificItem('threads-search-term', searchTerm);
+    } catch (error) {
+      console.warn('Failed to save search term:', error);
+    }
+  }, [searchTerm]);
 
   const fetchThreads = async () => {
     if (!startDate || !endDate) {
@@ -734,8 +784,14 @@ export function ThreadsOverview({
         const searchLower = messageSearchTerm.toLowerCase();
         
         // Search through thread messages directly (threads now contain all messages)
+        // EXCLUDE system messages - only search user and assistant messages
         const hasMatchingMessage = thread.messages?.some((message: any) => {
           try {
+            // Skip system messages - only search user and assistant messages
+            if (message.role === 'system') {
+              return false;
+            }
+            
             // Search in message content
             if (message.content && Array.isArray(message.content)) {
               const matchFound = message.content.some((content: any) => {
@@ -1204,32 +1260,14 @@ export function ThreadsOverview({
                     <Input
                       placeholder="Search message content..."
                       value={messageSearchTerm}
-                      onChange={(e) => setMessageSearchTerm(e.target.value)}
+                      onChange={(e) => {
+                        setMessageSearchTerm(e.target.value);
+                        setMessageSearchEnabled(e.target.value.trim().length > 0);
+                      }}
                       className="flex-1"
                     />
-                    <Button
-                      onClick={() => {
-                        // Enable message search - no need to fetch conversations since threads contain all messages
-                        setMessageSearchEnabled(true);
-                      }}
-                      disabled={!messageSearchTerm.trim()}
-                      variant="outline"
-                    >
-                          <Search className="h-4 w-4 mr-2" />
-                          Search Messages
-                    </Button>
                   </div>
                   
-                  {/* Limit warning */}
-                  <Alert>
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription className="text-sm">
-                      <strong>Limit:</strong> Only the first 500 conversations will be searched to ensure reasonable response times. 
-                      {threads.length > 500 && (
-                        <span className="text-amber-600"> Found {threads.length} threads, searching first 500.</span>
-                      )}
-                    </AlertDescription>
-                  </Alert>
                   
                   {messageSearchEnabled && messageSearchTerm && (
                     <div className="text-sm text-muted-foreground">
@@ -1487,8 +1525,8 @@ export function ThreadsOverview({
                       </Button>
                       
                       {toolDropdownOpen && (
-                        <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-md shadow-lg z-50 backdrop-blur-sm" style={{ backgroundColor: 'white' }}>
-                          <div className="p-2">
+                        <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-md shadow-lg z-50 backdrop-blur-sm flex flex-col" style={{ backgroundColor: 'white', height: '320px', maxHeight: '320px' }}>
+                          <div className="p-2 flex flex-col h-full">
                             <div className="flex items-center justify-between mb-2">
                               <Label className="text-xs font-medium text-gray-600">Filter by Tools</Label>
                               {selectedTools.size > 0 && (
@@ -1502,7 +1540,7 @@ export function ThreadsOverview({
                                 </Button>
                               )}
                             </div>
-                            <div className="space-y-1 max-h-24 overflow-y-auto">
+                            <div className="space-y-1 flex-1 overflow-y-auto">
                               {availableToolsWithCounts.length > 0 ? (
                                 availableToolsWithCounts.map((toolInfo) => (
                                   <div key={toolInfo.name} className="flex items-center space-x-2 py-1">
@@ -1594,7 +1632,7 @@ export function ThreadsOverview({
                   <TableHead>UI Events</TableHead>
                   <TableHead>Messages</TableHead>
                   <TableHead>Duration</TableHead>
-                  <TableHead>Response Time</TableHead>
+                  <TableHead>Response Time to First</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
