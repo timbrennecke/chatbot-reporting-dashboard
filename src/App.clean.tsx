@@ -1,12 +1,11 @@
 import React, { useCallback } from 'react';
 import { Button } from './components/ui/button';
 
-import { AppHeader } from './components/layout/AppHeader';
-import { ConversationSearch } from './components/features/ConversationSearch';
+import { AppHeader } from './components/AppHeader';
+import { ConversationSearch } from './components/ConversationSearch';
 import { ThreadsOverview } from './components/ThreadsOverview';
 import { ConversationDetail } from './components/ConversationDetail';
 import { SavedChats } from './components/SavedChats';
-import { Statistics } from './components/Statistics';
 
 import { useAppState } from './hooks/useAppState';
 import { useConversationSearch } from './hooks/useConversationSearch';
@@ -257,7 +256,6 @@ export default function App() {
               { id: 'dashboard', label: 'Dashboard' },
               { id: 'conversation-search', label: 'Conversation Search' },
               { id: 'saved-chats', label: 'Saved Chats' },
-              { id: 'statistics', label: 'Statistics' },
             ].map((tab, index) => (
               <button
                 key={tab.id}
@@ -391,13 +389,6 @@ export default function App() {
               }}
             />
           )}
-
-          {activeTab === 'statistics' && (
-            <Statistics
-              threads={uploadedThreads}
-              uploadedConversations={uploadedData.conversations || []}
-            />
-          )}
         </div>
       </main>
 
@@ -428,43 +419,15 @@ export default function App() {
                 }
               }}
               onPreviousConversation={() => {
-                if (!selectedConversationId || threadOrder.length === 0) return;
-                const currentIndex = threadOrder.indexOf(selectedConversationId);
-                if (currentIndex > 0) {
-                  const previousConversationId = threadOrder[currentIndex - 1];
-                  setSelectedConversationId(previousConversationId);
-                  
-                  // Find and set the thread for the new conversation
-                  const associatedThread = currentThreads.find(thread => thread.conversationId === previousConversationId);
-                  if (associatedThread) {
-                    setSelectedThread(associatedThread);
-                  }
-                }
+                // Simplified navigation - implement as needed
+                console.log('Previous conversation navigation');
               }}
               onNextConversation={() => {
-                if (!selectedConversationId || threadOrder.length === 0) return;
-                const currentIndex = threadOrder.indexOf(selectedConversationId);
-                if (currentIndex >= 0 && currentIndex < threadOrder.length - 1) {
-                  const nextConversationId = threadOrder[currentIndex + 1];
-                  setSelectedConversationId(nextConversationId);
-                  
-                  // Find and set the thread for the new conversation
-                  const associatedThread = currentThreads.find(thread => thread.conversationId === nextConversationId);
-                  if (associatedThread) {
-                    setSelectedThread(associatedThread);
-                  }
-                }
+                // Simplified navigation - implement as needed
+                console.log('Next conversation navigation');
               }}
-              hasPreviousConversation={(() => {
-                if (!selectedConversationId || threadOrder.length === 0) return false;
-                const currentIndex = threadOrder.indexOf(selectedConversationId);
-                return currentIndex > 0;
-              })()}
-              hasNextConversation={(() => {
-                if (!selectedConversationId || threadOrder.length === 0) return false;
-                const currentIndex = threadOrder.indexOf(selectedConversationId);
-                return currentIndex >= 0 && currentIndex < threadOrder.length - 1;
-              })()}
+              hasPreviousConversation={false}
+              hasNextConversation={false}
               onConversationFetched={(conversation) => {
                 setFetchedConversationsMap(prev => {
                   const newMap = new Map(prev);

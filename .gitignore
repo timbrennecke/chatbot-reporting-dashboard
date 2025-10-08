@@ -52,3 +52,30 @@ coverage/
 # Temporary folders
 tmp/
 temp/
+
+# Build artifacts and distribution files
+*.zip
+*.tar.gz
+*.tar
+*.rar
+*.7z
+
+# macOS app bundles (keep source, ignore built)
+*.app/
+
+# Deployment and installer files
+deploy.*
+install.*
+easy-install.*
+fix-security.*
+*.command
+launcher*
+
+# IDE and editor files
+*.sublime-*
+*.code-workspace
+
+# Test files
+*-TEST.*
+*-test.*
+test-*

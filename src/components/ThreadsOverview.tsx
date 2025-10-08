@@ -23,15 +23,6 @@ import {
   PaginationPrevious 
 } from './ui/pagination';
 import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer 
-} from 'recharts';
-import { 
   Calendar, 
   Search, 
   Download, 
@@ -56,6 +47,7 @@ import {
   setEnvironmentSpecificItem 
 } from '../lib/api';
 import { parseThreadId, calculateThreadAnalytics, formatTimestamp, debounce } from '../lib/utils';
+import { LightweightCache } from '../lib/cache-lightweight';
 
 interface ThreadsOverviewProps {
   uploadedThreads?: Thread[];
@@ -81,60 +73,23 @@ export function ThreadsOverview({
   savedConversationIds = new Set()
 }: ThreadsOverviewProps) {
   const [threads, setThreads] = useState<Thread[]>(() => {
-    // If we have uploaded threads, use them and clear any saved search results
+    // If we have uploaded threads, use them
     if (uploadedThreads && uploadedThreads.length > 0) {
-      try {
-        setEnvironmentSpecificItem('chatbot-dashboard-search-results', '[]');
-        setEnvironmentSpecificItem('chatbot-dashboard-search-params', '{}');
-      } catch (error) {
-        console.error('Failed to clear saved search data:', error);
-      }
       return uploadedThreads;
     }
     
-    // Try to load environment-specific saved search results
-    try {
-      const savedThreads = getEnvironmentSpecificItem('chatbot-dashboard-search-results');
-      if (savedThreads) {
-        const parsed = JSON.parse(savedThreads);
-        return parsed;
-      }
-    } catch (error) {
-      console.error('Failed to load environment-specific saved search results:', error);
-    }
-    
+    // Start with empty array - lightweight cache will handle persistence
     return [];
   });
   const [loading, setLoading] = useState(false);
+  const [buttonClicked, setButtonClicked] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadingProgress, setLoadingProgress] = useState({ current: 0, total: 0, currentDate: '' });
   const [selectedThreads, setSelectedThreads] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkResults, setBulkResults] = useState<any>(null);
-  const [hasSearched, setHasSearched] = useState(() => {
-    // Check if we have environment-specific search results
-    try {
-      const savedThreads = getEnvironmentSpecificItem('chatbot-dashboard-search-results');
-      return savedThreads ? JSON.parse(savedThreads).length > 0 : false;
-    } catch (error) {
-      console.error('Failed to check environment-specific search results:', error);
-      return false;
-    }
-  });
-  const [lastSearchDates, setLastSearchDates] = useState<{startDate: string, endDate: string} | null>(() => {
-    // Load environment-specific search dates
-    try {
-      const savedSearchParams = getEnvironmentSpecificItem('chatbot-dashboard-search-params');
-      if (savedSearchParams) {
-        const parsed = JSON.parse(savedSearchParams);
-        if (parsed.startDate && parsed.endDate) {
-          return { startDate: parsed.startDate, endDate: parsed.endDate };
-        }
-      }
-    } catch (error) {
-      console.error('Failed to load environment-specific search dates:', error);
-    }
-    return null;
-  });
+  const [hasSearched, setHasSearched] = useState(false);
+  const [lastSearchDates, setLastSearchDates] = useState<{startDate: string, endDate: string} | null>(null);
   
   // Viewed threads tracking
   const [viewedThreads, setViewedThreads] = useState<Set<string>>(() => {
@@ -165,7 +120,7 @@ export function ThreadsOverview({
         const saved = getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
         const newViewedConversations = saved ? new Set(JSON.parse(saved)) : new Set();
         setViewedConversations(newViewedConversations);
-        console.log('🔄 Refreshed viewed conversations from environment-specific localStorage after navigation:', newViewedConversations.size);
+        // Refreshed viewed conversations from localStorage
       } catch (error) {
         console.error('Failed to refresh viewed conversations:', error);
       }
@@ -207,55 +162,6 @@ export function ThreadsOverview({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [toolDropdownOpen]);
-  
-  // Extract all available tools from system messages with counts
-  const availableToolsWithCounts = useMemo(() => {
-    const toolCounts = new Map<string, number>();
-    
-    console.log('🔍 Extracting tools from', threads.length, 'threads');
-    
-    threads.forEach(thread => {
-      thread.messages.forEach(message => {
-        if (message.role === 'system') {
-          message.content.forEach(content => {
-            if (content.text || content.content) {
-              const text = content.text || content.content || '';
-              
-              // Debug: Log system message content
-              if (text.length > 0) {
-                console.log('📝 System message:', text.substring(0, 200) + '...');
-              }
-              
-              // Look specifically for "**Tool Name:**" pattern in system messages
-              const toolNamePattern = /\*\*Tool Name:\*\*\s*`([^`]+)`/gi;
-              const matches = text.matchAll(toolNamePattern);
-              
-              for (const match of matches) {
-                const toolName = match[1];
-                if (toolName && toolName.length > 1) {
-                  console.log('🔧 Found tool from "**Tool Name:**" pattern:', toolName);
-                  toolCounts.set(toolName, (toolCounts.get(toolName) || 0) + 1);
-                }
-              }
-            }
-          });
-        }
-      });
-    });
-    
-    // Convert to array and sort by name
-    const toolsWithCounts = Array.from(toolCounts.entries())
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    
-    console.log('🛠️ Available tools with counts:', toolsWithCounts);
-    return toolsWithCounts;
-  }, [threads]);
-
-  // For backwards compatibility, extract just the tool names
-  const availableTools = useMemo(() => {
-    return availableToolsWithCounts.map(tool => tool.name);
-  }, [availableToolsWithCounts]);
 
 
   // Function to check if a thread has errors
@@ -295,18 +201,186 @@ export function ThreadsOverview({
   // Message search functionality
   const [messageSearchEnabled, setMessageSearchEnabled] = useState(false);
   const [messageSearchTerm, setMessageSearchTerm] = useState('');
-  const [fetchedConversations, setFetchedConversations] = useState<Map<string, any>>(new Map());
-  const [conversationsFetching, setConversationsFetching] = useState(false);
-  const [conversationsFetched, setConversationsFetched] = useState(false);
+  // Removed conversation fetching states since threads now contain all messages
   
+  // Extract all available tools from system messages with counts
+  const availableToolsWithCounts = useMemo(() => {
+    const toolCounts = new Map<string, number>();
+    
+    console.log('🔧 Extracting tools from threads:', {
+      threadsCount: threads.length,
+      sampleThread: threads[0] ? {
+        id: threads[0].id,
+        messagesCount: threads[0].messages?.length,
+        hasSystemMessages: threads[0].messages?.some(m => m.role === 'system'),
+        sampleMessageRoles: threads[0].messages?.slice(0, 5).map(m => m.role),
+        sampleMessageIds: threads[0].messages?.slice(0, 3).map(m => m.id),
+        isDummyMessages: threads[0].messages?.every(m => 
+          m.id === 'placeholder' || 
+          m.id.startsWith('ui-') || 
+          m.id.startsWith('linkout-') || 
+          m.id.startsWith('error-msg')
+        )
+      } : null
+    });
+    
+    // Extracting tools from threads
+    threads.forEach(thread => {
+      thread.messages.forEach(message => {
+        // Look for tools in system messages
+        if (message.role === 'system') {
+          message.content.forEach(content => {
+            if (content.text || content.content) {
+              const text = content.text || content.content || '';
+              
+              // Look specifically for "**Tool Name:**" pattern in system messages
+              const toolNamePattern = /\*\*Tool Name:\*\*\s*`([^`]+)`/gi;
+              const matches = text.matchAll(toolNamePattern);
+              
+              for (const match of matches) {
+                const toolName = match[1];
+                if (toolName && toolName.length > 1) {
+                  toolCounts.set(toolName, (toolCounts.get(toolName) || 0) + 1);
+                }
+              }
+            }
+          });
+        }
+        
+        // Also look for tools in assistant messages (tool usage)
+        if (message.role === 'assistant') {
+          message.content.forEach(content => {
+            // Look for tool usage patterns in assistant messages
+            if (content.tool_use) {
+              const toolName = content.tool_use.name;
+              if (toolName && toolName.length > 1) {
+                toolCounts.set(toolName, (toolCounts.get(toolName) || 0) + 1);
+              }
+            }
+            
+            // Also check text content for tool mentions
+            if (content.text || content.content) {
+              const text = content.text || content.content || '';
+              
+              // Look for tool usage patterns like "I'll use the X tool"
+              const toolUsagePatterns = [
+                /I'll use the (\w+) tool/gi,
+                /Using the (\w+) tool/gi,
+                /I'll call the (\w+) function/gi,
+                /Calling the (\w+) function/gi
+              ];
+              
+              toolUsagePatterns.forEach(pattern => {
+                const matches = text.matchAll(pattern);
+                for (const match of matches) {
+                  const toolName = match[1];
+                  if (toolName && toolName.length > 1) {
+                    toolCounts.set(toolName, (toolCounts.get(toolName) || 0) + 1);
+                  }
+                }
+              });
+            }
+          });
+        }
+      });
+    });
+
+    // Also check fetched conversations for tools (for when threads are cached with dummy messages)
+    // Tools are now extracted from thread data directly since threads contain all messages
+    if (threads && threads.length > 0) {
+      console.log('🔧 Checking threads for tools:', {
+        threadsCount: threads.length
+      });
+      
+      threads.forEach((thread: any) => {
+        if (thread?.messages) {
+          thread.messages.forEach((message: any) => {
+            // Check system messages
+            if (message.role === 'system' && message.content) {
+              message.content.forEach((content: any) => {
+                if (content.text || content.content) {
+                  const text = content.text || content.content || '';
+                  
+                  const toolNamePattern = /\*\*Tool Name:\*\*\s*`([^`]+)`/gi;
+                  const matches = text.matchAll(toolNamePattern);
+                  
+                  for (const match of matches) {
+                    const toolName = match[1];
+                    if (toolName && toolName.length > 1) {
+                      toolCounts.set(toolName, (toolCounts.get(toolName) || 0) + 1);
+                    }
+                  }
+                }
+              });
+            }
+            
+            // Check assistant messages for tool usage
+            if (message.role === 'assistant' && message.content) {
+              message.content.forEach((content: any) => {
+                if (content.tool_use) {
+                  const toolName = content.tool_use.name;
+                  if (toolName && toolName.length > 1) {
+                    toolCounts.set(toolName, (toolCounts.get(toolName) || 0) + 1);
+                  }
+                }
+                
+                if (content.text || content.content) {
+                  const text = content.text || content.content || '';
+                  
+                  const toolUsagePatterns = [
+                    /I'll use the (\w+) tool/gi,
+                    /Using the (\w+) tool/gi,
+                    /I'll call the (\w+) function/gi,
+                    /Calling the (\w+) function/gi
+                  ];
+                  
+                  toolUsagePatterns.forEach(pattern => {
+                    const matches = text.matchAll(pattern);
+                    for (const match of matches) {
+                      const toolName = match[1];
+                      if (toolName && toolName.length > 1) {
+                        toolCounts.set(toolName, (toolCounts.get(toolName) || 0) + 1);
+                      }
+                    }
+                  });
+                }
+              });
+            }
+          });
+        }
+      });
+    }
+    
+    // Convert to array and sort by name
+    const toolsWithCounts = Array.from(toolCounts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    
+    console.log('🔧 Available tools extracted:', {
+      toolsCount: toolsWithCounts.length,
+      tools: toolsWithCounts.map(t => `${t.name} (${t.count})`),
+      threadsCount: threads.length
+    });
+    
+    // Available tools extracted
+    return toolsWithCounts;
+  }, [threads]);
+
+  // For backwards compatibility, extract just the tool names
+  const availableTools = useMemo(() => {
+    return availableToolsWithCounts.map(tool => tool.name);
+  }, [availableToolsWithCounts]);
+
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
 
   // Quick time range filter functions
   const setTimeRange = (hours: number) => {
+    // Round to consistent 5-minute intervals for better cache hits
     const now = new Date();
-    const startTime = new Date(now.getTime() - hours * 60 * 60 * 1000);
+    const roundedNow = new Date(Math.floor(now.getTime() / (5 * 60 * 1000)) * (5 * 60 * 1000));
+    const startTime = new Date(roundedNow.getTime() - hours * 60 * 60 * 1000);
     
     // Format for datetime-local input (YYYY-MM-DDTHH:mm) using local timezone
     const formatDateTimeLocal = (date: Date) => {
@@ -319,7 +393,9 @@ export function ThreadsOverview({
     };
     
     setStartDate(formatDateTimeLocal(startTime));
-    setEndDate(formatDateTimeLocal(now));
+    setEndDate(formatDateTimeLocal(roundedNow));
+    
+    console.log(`⏰ Set time range: ${hours}h (${formatDateTimeLocal(startTime)} - ${formatDateTimeLocal(roundedNow)})`);
     // Don't reset hasSearched here - let it persist until user performs new search
   };
 
@@ -378,13 +454,8 @@ export function ThreadsOverview({
       setThreads(uploadedThreads);
       setError(null);
       
-      // Clear saved search results when using uploaded data
-      try {
-        setEnvironmentSpecificItem('chatbot-dashboard-search-results', '[]');
-        setEnvironmentSpecificItem('chatbot-dashboard-search-params', '{}');
-      } catch (error) {
-        console.error('Failed to clear saved search data:', error);
-      }
+      // Clear lightweight cache when using uploaded data
+      LightweightCache.clearAllCache();
     }
   }, [uploadedThreads]);
 
@@ -393,83 +464,8 @@ export function ThreadsOverview({
     onThreadsChange?.(threads);
   }, [threads, onThreadsChange]);
 
-  // Batch fetch conversations for message search
-  const fetchConversationsForThreads = async (threadsToFetch: Thread[]) => {
-    setConversationsFetching(true);
-    setError(null);
-    
-    try {
-      const apiKey = getEnvironmentSpecificItem('chatbot-dashboard-api-key');
-      if (!apiKey) {
-        throw new Error('API key not found. Please set it in the dashboard header.');
-      }
 
-      console.log('🔍 Fetching conversations for message search:', threadsToFetch.length, 'threads');
-      
-      // Batch fetch conversations with concurrent requests (limit to avoid overwhelming the API)
-      const batchSize = 5;
-      const newConversations = new Map(fetchedConversations);
-      
-      for (let i = 0; i < threadsToFetch.length; i += batchSize) {
-        const batch = threadsToFetch.slice(i, i + batchSize);
-        
-        const promises = batch.map(async (thread) => {
-          // Skip if already fetched
-          if (newConversations.has(thread.conversationId)) {
-            return null;
-          }
-          
-          try {
-            const apiBaseUrl = getApiBaseUrl();
-            const response = await fetch(`${apiBaseUrl}/conversation/${thread.conversationId}`, {
-              method: 'GET',
-              headers: {
-                'Authorization': `Bearer ${apiKey}`,
-              },
-            });
-            
-            if (!response.ok) {
-              console.warn(`Failed to fetch conversation ${thread.conversationId}: ${response.status}`);
-              return null;
-            }
-            
-            const conversation = await response.json();
-            return { conversationId: thread.conversationId, conversation };
-          } catch (error) {
-            console.warn(`Error fetching conversation ${thread.conversationId}:`, error);
-            return null;
-          }
-        });
-        
-        const results = await Promise.all(promises);
-        results.forEach(result => {
-          if (result) {
-            newConversations.set(result.conversationId, result.conversation);
-          }
-        });
-        
-        // Update state after each batch to show progress
-        setFetchedConversations(new Map(newConversations));
-        
-        // Small delay between batches to be nice to the API
-        if (i + batchSize < threadsToFetch.length) {
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-      }
-      
-      setConversationsFetched(true);
-      console.log('✅ Fetched', newConversations.size, 'conversations for message search');
-      
-      // Notify parent component about fetched conversations
-      onFetchedConversationsChange?.(newConversations);
-      
-    } catch (error: any) {
-      console.error('❌ Error fetching conversations:', error);
-      setError(`Failed to fetch conversations: ${error.message}`);
-    } finally {
-      setConversationsFetching(false);
-    }
-  };
+
 
   const fetchThreads = async () => {
     if (!startDate || !endDate) {
@@ -484,6 +480,10 @@ export function ThreadsOverview({
       return;
     }
 
+    // Always show button click feedback
+    setButtonClicked(true);
+    setTimeout(() => setButtonClicked(false), 200);
+
     setLoading(true);
     setError(null);
     setThreads([]); // Clear existing threads
@@ -494,45 +494,201 @@ export function ThreadsOverview({
       const startTimestamp = new Date(startDate).toISOString();
       const endTimestamp = new Date(endDate).toISOString();
 
-      // Make API call via proxy to avoid CORS issues
-      const apiBaseUrl = getApiBaseUrl();
-      const response = await fetch(`${apiBaseUrl}/thread`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey.trim()}`,
-        },
-        body: JSON.stringify({
-          startTimestamp,
-          endTimestamp,
-        }),
-      });
+      // 🎯 DISABLED: Lightweight cache (returns dummy messages without real content)
+      // const cachedSummaries = LightweightCache.findCachedThreadSummaries(startTimestamp, endTimestamp);
+      // if (cachedSummaries) {
+      //   const cachedThreads = LightweightCache.summariesToMinimalThreads(cachedSummaries);
+      //   setThreads(cachedThreads);
+      //   setHasSearched(true);
+      //   setLastSearchDates({ startDate, endDate });
+      //   
+      //   if (cachedThreads.length === 0) {
+      //     setError('No threads found for the selected time range.');
+      //   } else {
+      //     setError(null); // Clear any previous errors
+      //   }
+      //   
+      //   setLoading(false);
+      //   return;
+      // }
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      // 🔄 DISABLED: Partial cache hit (also returns dummy messages)
+      const partialAnalysis = LightweightCache.analyzePartialCacheHit(startTimestamp, endTimestamp);
+      if (false && partialAnalysis.canPartiallyServe) {  // DISABLED: Force cache miss
+        
+        // DISABLED: Show cached data immediately (dummy messages)
+        // const cachedThreads = LightweightCache.summariesToMinimalThreads(partialAnalysis.cachedData);
+        // setThreads(cachedThreads);
+        setError(null);
+        
+        // Fetch missing data in parallel
+        const fetchMissingData = async () => {
+          try {
+            const allNewThreads: any[] = [];
+            
+            
+            for (const missingRange of partialAnalysis.missingRanges) {
+              try {
+                console.log(`🌐 Fetching missing range: ${new Date(missingRange.start).toLocaleString()} - ${new Date(missingRange.end).toLocaleString()}`);
+                
+                const apiBaseUrl = getApiBaseUrl();
+                const response = await fetch(`${apiBaseUrl}/thread`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey.trim()}`,
+                  },
+                  body: JSON.stringify({
+                    startTimestamp: missingRange.start,
+                    endTimestamp: missingRange.end,
+                  }),
+                });
+
+                if (response.ok) {
+                  const data = await response.json();
+                  const newThreads = data.threads?.map((item: any) => item.thread) || [];
+                  allNewThreads.push(...newThreads);
+                  console.log(`✅ Fetched ${newThreads.length} threads for missing range`);
+                } else {
+                  const errorText = await response.text();
+                  console.error(`❌ Failed to fetch missing range: ${response.status} - ${errorText}`);
+                  setError(`Failed to fetch additional data: ${response.status}`);
+                }
+              } catch (rangeError) {
+                console.error('❌ Error fetching missing range:', rangeError);
+                setError(`Error fetching additional data: ${rangeError instanceof Error ? rangeError.message : 'Unknown error'}`);
+              }
+            }
+            
+            console.log(`📊 Total new threads fetched: ${allNewThreads.length}`);
+            
+            // Always merge, even if no new threads (to update UI state)
+            const mergedSummaries = LightweightCache.mergeCachedAndNewData(partialAnalysis.cachedData, allNewThreads);
+            const mergedThreads = LightweightCache.summariesToMinimalThreads(mergedSummaries);
+            
+            // Update UI with complete data
+            setThreads(mergedThreads);
+            
+            // Cache the complete merged result
+            if (allNewThreads.length > 0) {
+              LightweightCache.cacheThreads(startTimestamp, endTimestamp, mergedThreads);
+            }
+            
+            setHasSearched(true);
+            setLastSearchDates({ startDate, endDate });
+            
+          } catch (error) {
+            console.error('❌ Error in fetchMissingData:', error);
+            setError(`Error during smart cache merge: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          } finally {
+            setLoading(false);
+          }
+        };
+        
+        fetchMissingData().catch(error => {
+          console.error('❌ Unhandled error in fetchMissingData:', error);
+          setError(`Unexpected error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          setLoading(false);
+        });
+        return;
       }
 
-      const data = await response.json();
+      // Cache miss: Fetching from API with daily chunking to avoid timeouts
 
-      // Extract threads from the response structure
-      const fetchedThreads = data.threads?.map((item: any) => item.thread) || [];
-      setThreads(fetchedThreads);
+      const apiBaseUrl = getApiBaseUrl();
+      
+      // Calculate time difference - always use daily chunking for reliability
+      const timeDiff = new Date(endTimestamp).getTime() - new Date(startTimestamp).getTime();
+      const daysDiff = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+      
+      let allThreads: any[] = [];
+      
+      // Always use daily chunking to avoid timeouts
+      console.log(`📊 Processing ${daysDiff} days with daily chunking to avoid timeouts...`);
+      
+      const chunks: Array<{start: Date, end: Date, dateStr: string}> = [];
+      
+      // Create daily chunks
+      let currentDate = new Date(startTimestamp);
+      const endDateObj = new Date(endTimestamp);
+      while (currentDate <= endDateObj) {
+        let nextDate = new Date(currentDate);
+        nextDate.setDate(nextDate.getDate() + 1);
+        
+        // Don't go past the end date
+        if (nextDate > endDateObj) {
+          nextDate = new Date(endDateObj);
+        }
+        
+        chunks.push({
+          start: new Date(currentDate),
+          end: new Date(nextDate),
+          dateStr: currentDate.toLocaleDateString()
+        });
+        
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+      
+      console.log(`📦 Processing ${chunks.length} daily chunks`);
+      setLoadingProgress({ current: 0, total: chunks.length, currentDate: '' });
+      
+      // Process chunks with progress tracking
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        setLoadingProgress({ current: i + 1, total: chunks.length, currentDate: chunk.dateStr });
+        
+        console.log(`📅 Day ${i + 1}/${chunks.length}: ${chunk.dateStr}`);
+        
+        try {
+          const response = await fetch(`${apiBaseUrl}/thread`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey.trim()}`,
+            },
+            body: JSON.stringify({
+              startTimestamp: chunk.start.toISOString(),
+              endTimestamp: chunk.end.toISOString(),
+            }),
+          });
+
+          if (!response.ok) {
+            console.warn(`⚠️ Day ${i + 1} (${chunk.dateStr}) failed: HTTP ${response.status}`);
+            continue; // Skip failed days but continue with others
+          }
+
+          const chunkData = await response.json();
+          const chunkThreads = chunkData.threads?.map((item: any) => item.thread) || [];
+          
+          allThreads.push(...chunkThreads);
+          console.log(`✅ Day ${i + 1}/${chunks.length} (${chunk.dateStr}): +${chunkThreads.length} threads (total: ${allThreads.length})`);
+          
+          // Small delay to be nice to the server
+          if (i < chunks.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+          
+        } catch (chunkError) {
+          console.warn(`⚠️ Day ${i + 1} (${chunk.dateStr}) error:`, chunkError);
+          // Continue with other days
+        }
+      }
+      
+      console.log(`🎉 Daily processing complete: ${allThreads.length} total threads from ${chunks.length} days`);
+      setLoadingProgress({ current: 0, total: 0, currentDate: '' });
+      
+      // 💾 DISABLED: Cache the results (to ensure fresh data with full messages)
+      // LightweightCache.cacheThreads(startTimestamp, endTimestamp, allThreads);
+      
+      setThreads(allThreads);
+      setCurrentPage(1); // Reset pagination when new data is loaded
       setHasSearched(true); // Mark that a search has been completed
       setLastSearchDates({ startDate, endDate }); // Store the actual search dates
       
-      // Save search results and parameters to environment-specific localStorage for persistence
-      try {
-        setEnvironmentSpecificItem('chatbot-dashboard-search-results', JSON.stringify(fetchedThreads));
-        setEnvironmentSpecificItem('chatbot-dashboard-search-params', JSON.stringify({
-          startDate,
-          endDate
-        }));
-      } catch (error) {
-        console.error('Failed to save environment-specific search data:', error);
-      }
+      // Note: Removed old localStorage backup to prevent quota issues
+      // The lightweight cache handles all caching now
       
-      if (fetchedThreads.length === 0) {
+      if (allThreads.length === 0) {
         setError('No threads found for the selected time range.');
       }
     } catch (err) {
@@ -573,47 +729,21 @@ export function ThreadsOverview({
         }
       }
 
-      // Message content search filter
+      // Message content search filter - now using thread messages directly
       if (messageSearchEnabled && messageSearchTerm) {
-        const conversation = fetchedConversations.get(thread.conversationId);
-        if (!conversation) {
-          // If conversations haven't been fetched yet, don't filter out
-          return !conversationsFetched;
-        }
-        
         const searchLower = messageSearchTerm.toLowerCase();
         
-        // Debug: Log the first few messages to understand structure (only for first thread processed)
-        if (conversation.messages?.length > 0 && threads.length > 0 && thread.conversationId === threads[0].conversationId) {
-          console.log('🔍 Message Search Debug for first conversation:', {
-            conversationId: thread.conversationId,
-            totalMessages: conversation.messages.length,
-            messageRoles: conversation.messages.map((m: any) => m.role),
-            searchTerm: searchLower,
-            sampleMessage: {
-              role: conversation.messages[0].role,
-              contentStructure: conversation.messages[0].content?.map((c: any) => ({
-                kind: c.kind,
-                hasText: !!c.text,
-                hasContent: !!c.content,
-                textPreview: c.text?.substring(0, 50) || c.content?.substring(0, 50)
-              }))
-            }
-          });
-        }
-        
-        const hasMatchingMessage = conversation.messages?.some((message: any) => {
+        // Search through thread messages directly (threads now contain all messages)
+        const hasMatchingMessage = thread.messages?.some((message: any) => {
           try {
             // Search in message content
             if (message.content && Array.isArray(message.content)) {
               const matchFound = message.content.some((content: any) => {
                 try {
                   if (content.text && typeof content.text === 'string' && content.text.toLowerCase().includes(searchLower)) {
-                    console.log('✅ Match found:', message.role, '-', content.text.substring(0, 80));
                     return true;
                   }
                   if (content.content && typeof content.content === 'string' && content.content.toLowerCase().includes(searchLower)) {
-                    console.log('✅ Match found:', message.role, '-', content.content.substring(0, 80));
                     return true;
                   }
                 } catch (e) {
@@ -691,14 +821,14 @@ export function ThreadsOverview({
       const timeB = new Date(b.createdAt).getTime();
       return timeB - timeA; // Most recent first
     });
-  }, [threads, searchTerm, hasUiFilter, hasLinkoutFilter, selectedTools, showErrorsOnly, messageSearchEnabled, messageSearchTerm, fetchedConversations, conversationsFetched, threadHasErrors]);
+  }, [threads, searchTerm, hasUiFilter, hasLinkoutFilter, selectedTools, showErrorsOnly, messageSearchEnabled, messageSearchTerm, threadHasErrors]);
 
   // Update thread order whenever filtered threads change to keep navigation in sync
   useEffect(() => {
     if (filteredThreads.length > 0 && onThreadOrderChange) {
-      const threadOrder = filteredThreads.map(thread => thread.conversationId);
-      console.log('📋 Auto-updating thread order due to filter change:', threadOrder.length, 'threads');
-      onThreadOrderChange(threadOrder);
+      // Use unique conversation IDs for navigation (some conversations may have multiple threads)
+      const uniqueConversationIds = Array.from(new Set(filteredThreads.map(thread => thread.conversationId)));
+      onThreadOrderChange(uniqueConversationIds);
     }
   }, [filteredThreads, onThreadOrderChange]);
 
@@ -718,16 +848,9 @@ export function ThreadsOverview({
 
   // Calculate conversation analytics
   const conversationAnalytics = useMemo(() => {
-    console.log('\n🔍 DATA CHECK:');
-    console.log('Uploaded conversations:', uploadedConversations.length);
-    console.log('Filtered threads:', filteredThreads.length);
-    
     if (!uploadedConversations.length) {
-      console.log('❌ No conversation data - conversation analytics will be null');
       return null;
     }
-    
-    console.log('✅ Using conversation data for analytics');
 
     let totalMessages = 0;
     let totalUiEvents = 0;
@@ -736,39 +859,22 @@ export function ThreadsOverview({
     let totalExcludedMessages = 0;
     
     uploadedConversations.forEach((conversation, convIndex) => {
-      console.log(`\n=== CONVERSATION ${convIndex} ===`);
-      console.log('Conversation ID:', conversation.id);
-      console.log('Total messages in conversation:', conversation.messages?.length || 0);
-      
       const allNonSystemMessages = conversation.messages?.filter((message: any) => message.role !== 'system') || [];
-      console.log('Non-system messages:', allNonSystemMessages.length);
       
       // Count only non-system messages that don't contain UI components
       const nonSystemMessages = conversation.messages?.filter((message: any) => {
         if (message.role === 'system') return false;
         
-        // Debug each message
-        console.log(`Message ${message.id} (${message.role}):`);
-        console.log('  Content array length:', message.content?.length || 0);
-        message.content?.forEach((content: any, i: number) => {
-          console.log(`  Content[${i}]: kind="${content.kind}"`);
-        });
-        
         // Exclude messages that contain UI components
         const hasUiComponent = message.content?.some((content: any) => content.kind === 'ui');
-        console.log(`  Has UI component: ${hasUiComponent}`);
         
         if (hasUiComponent) {
           totalExcludedMessages++;
-          console.log('  -> EXCLUDED from count');
-        } else {
-          console.log('  -> INCLUDED in count');
         }
         
         return !hasUiComponent;
       }) || [];
       
-      console.log(`Messages after filtering: ${nonSystemMessages.length}`);
       totalMessages += nonSystemMessages.length;
       
       conversation.messages?.forEach((message: any) => {
@@ -781,7 +887,7 @@ export function ThreadsOverview({
 
     const avgMessagesPerConversation = totalConversations > 0 ? totalMessages / totalConversations : 0;
 
-    console.log(`Conversation Analytics: ${totalMessages} messages (${totalExcludedMessages} excluded due to UI), ${totalUiEvents} UI events`);
+    // Conversation analytics calculated
     
     return {
       totalConversations,
@@ -793,38 +899,11 @@ export function ThreadsOverview({
     };
   }, [uploadedConversations]);
 
-  // Conversations per day data
-  const conversationsPerDay = useMemo(() => {
-    const conversationIds = new Set<string>();
-    const dailyCounts: Record<string, Set<string>> = {};
-    
-    threads.forEach(thread => {
-      if (!conversationIds.has(thread.conversationId)) {
-        conversationIds.add(thread.conversationId);
-        const date = new Date(thread.createdAt).toISOString().split('T')[0];
-        if (!dailyCounts[date]) {
-          dailyCounts[date] = new Set();
-        }
-        dailyCounts[date].add(thread.conversationId);
-      }
-    });
-
-    return Object.entries(dailyCounts)
-      .map(([date, conversations]) => ({
-        date,
-        conversations: conversations.size,
-        formattedDate: new Date(date).toLocaleDateString('en-US', { 
-          month: 'short', 
-          day: 'numeric' 
-        })
-      }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-  }, [threads]);
 
   const handleBulkAttributes = async () => {
     if (selectedThreads.size === 0) return;
 
-    console.log('🔍 ThreadsOverview.handleBulkAttributes called');
+    // Processing bulk attributes
     setBulkLoading(true);
     setError(null);
 
@@ -833,7 +912,7 @@ export function ThreadsOverview({
         threads: Array.from(selectedThreads as Set<string>).map(threadId => ({ threadId })),
       };
 
-      console.log('🌐 ThreadsOverview making API call to getBulkAttributes');
+      // Making API call to getBulkAttributes
       const response = await api.getBulkAttributes(request);
       setBulkResults(response);
     } catch (err) {
@@ -884,7 +963,7 @@ export function ThreadsOverview({
     // Persist to localStorage
     try {
       setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(newViewedConversations)));
-      console.log('📋 Marked conversation as viewed:', conversationId);
+      // Marked conversation as viewed
     } catch (error) {
       console.error('Failed to save viewed conversations:', error);
     }
@@ -895,46 +974,34 @@ export function ThreadsOverview({
 
   // Handle conversation viewing
   const handleConversationView = (conversationId: string, position?: number) => {
-    console.log('👆 handleConversationView called with:', conversationId, 'at position:', position);
-    console.log('👆 filteredThreads length:', filteredThreads.length);
-    console.log('👆 onThreadOrderChange available?', !!onThreadOrderChange);
+    // Handle conversation view
     
     // Mark conversation as viewed
     markConversationAsViewed(conversationId);
     
-    // Find the thread associated with this conversation to pass system messages
+    // Find the thread associated with this conversation
     const associatedThread = filteredThreads.find(thread => thread.conversationId === conversationId);
     if (associatedThread && onThreadSelect) {
-      // If we have the thread data, pass it so system messages are available
-      onThreadSelect(associatedThread);
+      // Since the threads endpoint now contains all messages, use the thread data directly
+      console.log('✅ Using thread data directly:', {
+          id: associatedThread.id,
+          conversationId: associatedThread.conversationId,
+          messagesCount: associatedThread.messages?.length,
+        hasSystemMessages: associatedThread.messages?.some(m => m.role === 'system'),
+        systemMessagesCount: associatedThread.messages?.filter(m => m.role === 'system').length
+      });
+      
+      // Calling onThreadSelect with thread data
+            onThreadSelect(associatedThread);
     }
     
     // Notify parent about the thread order for navigation FIRST
-    const threadOrder = filteredThreads.map(thread => thread.conversationId);
-    console.log('📋 Thread order for navigation:', threadOrder.length, 'total threads');
-    console.log('📋 First 5 thread IDs:', threadOrder.slice(0, 5));
-    console.log('📋 Clicked conversation in thread order?', threadOrder.includes(conversationId));
-    onThreadOrderChange?.(threadOrder);
+    // Use unique conversation IDs for navigation (some conversations may have multiple threads)
+    const uniqueConversationIds = Array.from(new Set(filteredThreads.map(thread => thread.conversationId)));
+    onThreadOrderChange?.(uniqueConversationIds);
     
-    // Fetch more conversations for better navigation experience
+    // Since threads now contain all messages, we no longer need to fetch conversation data
     const currentIndex = position !== undefined ? position : filteredThreads.findIndex(thread => thread.conversationId === conversationId);
-    if (currentIndex !== -1) {
-      const conversationsToFetch = [];
-      
-      // Fetch a wider range around the current conversation (5 before, current, 5 after)
-      const rangeSize = 5;
-      const startIndex = Math.max(0, currentIndex - rangeSize);
-      const endIndex = Math.min(filteredThreads.length - 1, currentIndex + rangeSize);
-      
-      for (let i = startIndex; i <= endIndex; i++) {
-        conversationsToFetch.push(filteredThreads[i]);
-      }
-      
-      console.log(`📚 Fetching ${conversationsToFetch.length} conversations around index ${currentIndex} (range: ${startIndex}-${endIndex})`);
-      
-      // Fetch these conversations in the background
-      fetchConversationsForThreads(conversationsToFetch);
-    }
     
     // Call the original onConversationSelect callback with position
     onConversationSelect?.(conversationId, currentIndex !== -1 ? currentIndex : undefined);
@@ -1078,12 +1145,14 @@ export function ThreadsOverview({
                   id="searchButton"
                   onClick={fetchThreads} 
                   disabled={loading || !startDate || !endDate}
-                  className="flex-1"
+                  className={`flex-1 transition-transform duration-100 ${
+                    buttonClicked ? 'scale-95' : 'scale-100'
+                  }`}
                 >
                   {loading ? (
                     <>
                       <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                      Searching...
+                      {loadingProgress.total > 0 ? `Day ${loadingProgress.current}/${loadingProgress.total}` : 'Searching...'}
                     </>
                   ) : (
                     <>
@@ -1098,16 +1167,13 @@ export function ThreadsOverview({
                   onClick={() => {
                     setThreads([]);
                     setError(null);
-                    setFetchedConversations(new Map());
-                    setConversationsFetched(false);
+                    // Clear any cached data
+                    // setFetchedConversations(new Map());
+                    // setConversationsFetched(false);
                     setMessageSearchEnabled(false);
                     setMessageSearchTerm('');
-                    try {
-                      setEnvironmentSpecificItem('chatbot-dashboard-search-results', '[]');
-                      setEnvironmentSpecificItem('chatbot-dashboard-search-params', '{}');
-                    } catch (error) {
-                      console.error('Failed to clear saved search data:', error);
-                    }
+                    // Clear lightweight cache
+                    LightweightCache.clearAllCache();
                   }}
                   className="flex-shrink-0"
                 >
@@ -1142,21 +1208,15 @@ export function ThreadsOverview({
                       className="flex-1"
                     />
                     <Button
-                      onClick={() => fetchConversationsForThreads(threads.slice(0, 500))}
-                      disabled={conversationsFetching || !messageSearchTerm.trim()}
+                      onClick={() => {
+                        // Enable message search - no need to fetch conversations since threads contain all messages
+                        setMessageSearchEnabled(true);
+                      }}
+                      disabled={!messageSearchTerm.trim()}
                       variant="outline"
                     >
-                      {conversationsFetching ? (
-                        <>
-                          <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                          Fetching...
-                        </>
-                      ) : (
-                        <>
                           <Search className="h-4 w-4 mr-2" />
                           Search Messages
-                        </>
-                      )}
                     </Button>
                   </div>
                   
@@ -1171,16 +1231,15 @@ export function ThreadsOverview({
                     </AlertDescription>
                   </Alert>
                   
-                  {conversationsFetching && (
+                  {messageSearchEnabled && messageSearchTerm && (
                     <div className="text-sm text-muted-foreground">
-                      Fetching conversations for message search... ({fetchedConversations.size}/{Math.min(threads.length, 500)})
+                      Searching through {filteredThreads.length} thread messages for "{messageSearchTerm}"
                     </div>
                   )}
                   
-                  {conversationsFetched && messageSearchTerm && (
+                  {messageSearchEnabled && messageSearchTerm && filteredThreads.length > 0 && (
                     <div className="text-sm text-green-600 font-medium">
                       ✓ Found {filteredThreads.length} threads containing "{messageSearchTerm}" 
-                      (searched {fetchedConversations.size} conversations)
                     </div>
                   )}
                 </div>
@@ -1325,6 +1384,40 @@ export function ThreadsOverview({
         </Card>
       )}
 
+      {/* Loading Progress Indicator */}
+      {loading && loadingProgress.total > 0 && (
+        <Card className="mb-4">
+          <CardContent className="pt-6">
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-medium">Processing Daily Chunks</h3>
+                <span className="text-sm text-muted-foreground">
+                  {Math.round((loadingProgress.current / loadingProgress.total) * 100)}%
+                </span>
+              </div>
+              
+              {loadingProgress.currentDate && (
+                <p className="text-sm text-muted-foreground">
+                  📅 Current: {loadingProgress.currentDate} (Day {loadingProgress.current} of {loadingProgress.total})
+                </p>
+              )}
+              
+              {/* Progress Bar */}
+              <div className="w-full bg-gray-200 rounded-full h-3">
+                <div 
+                  className="bg-blue-600 h-3 rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${(loadingProgress.current / loadingProgress.total) * 100}%` }}
+                ></div>
+              </div>
+              
+              <p className="text-xs text-muted-foreground">
+                Processing data in daily chunks to avoid timeouts...
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Threads Table (only show when threads are available) */}
       {threads.length > 0 && (
         <Card className="mb-8">
@@ -1375,20 +1468,13 @@ export function ThreadsOverview({
                   </div>
                   
                   {/* Tool Filter Dropdown */}
-                  {(() => {
-                    console.log('🎛️ Rendering tool filter, available tools:', availableTools.length, availableTools);
-                    // Always show for testing - remove this condition later
-                    return true; // availableTools.length > 0;
-                  })() && (
+                  {availableTools.length > 0 && (
                     <div className="relative" ref={toolDropdownRef}>
                       <Button 
                         variant="outline" 
                         size="sm" 
                         className="h-8 border-dashed"
-                        onClick={() => {
-                          console.log('🎯 Tools button clicked, current state:', toolDropdownOpen);
-                          setToolDropdownOpen(!toolDropdownOpen);
-                        }}
+                        onClick={() => setToolDropdownOpen(!toolDropdownOpen)}
                       >
                         <Filter className="mr-2 h-3 w-3" />
                         Tools
@@ -1506,7 +1592,9 @@ export function ThreadsOverview({
                   <TableHead>Conversation ID</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead>UI Events</TableHead>
-                  <TableHead>Linkouts</TableHead>
+                  <TableHead>Messages</TableHead>
+                  <TableHead>Duration</TableHead>
+                  <TableHead>Response Time</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1518,10 +1606,42 @@ export function ThreadsOverview({
                     (acc, msg) => acc + msg.content.filter(c => c.kind === 'ui').length, 
                     0
                   );
-                  const linkoutCount = thread.messages.reduce(
-                    (acc, msg) => acc + msg.content.filter(c => c.kind === 'linkout').length, 
-                    0
-                  );
+                  const messageCount = thread.messages.filter(
+                    msg => msg.role === 'user' || msg.role === 'assistant'
+                  ).length;
+
+                  // Calculate conversation duration (first to last message)
+                  const allTimestamps = thread.messages
+                    .map((m: any) => new Date(m.created_at || m.createdAt || m.sentAt))
+                    .filter(date => !isNaN(date.getTime()))
+                    .sort((a, b) => a.getTime() - b.getTime());
+                  
+                  const conversationDuration = allTimestamps.length > 1 
+                    ? allTimestamps[allTimestamps.length - 1].getTime() - allTimestamps[0].getTime()
+                    : 0;
+                  const durationMinutes = Math.round(conversationDuration / (1000 * 60));
+
+                  // Calculate time to first assistant response
+                  const userMessages = thread.messages.filter((m: any) => m.role === 'user');
+                  const assistantMessages = thread.messages.filter((m: any) => m.role === 'assistant');
+                  
+                  let timeToFirstResponse = 0;
+                  if (userMessages.length > 0 && assistantMessages.length > 0) {
+                    const firstUserMessage = userMessages
+                      .map(m => ({ ...m, timestamp: new Date(m.created_at || m.createdAt || m.sentAt) }))
+                      .filter(m => !isNaN(m.timestamp.getTime()))
+                      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())[0];
+                    
+                    const firstAssistantMessage = assistantMessages
+                      .map(m => ({ ...m, timestamp: new Date(m.created_at || m.createdAt || m.sentAt) }))
+                      .filter(m => !isNaN(m.timestamp.getTime()))
+                      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())[0];
+                    
+                    if (firstUserMessage && firstAssistantMessage && firstAssistantMessage.timestamp > firstUserMessage.timestamp) {
+                      timeToFirstResponse = firstAssistantMessage.timestamp.getTime() - firstUserMessage.timestamp.getTime();
+                    }
+                  }
+                  const responseTimeSeconds = Math.round(timeToFirstResponse / 1000);
 
                   // Check if this conversation ID exists in uploaded conversations
                   const hasConversationData = uploadedConversations.some(c => c.id === thread.conversationId);
@@ -1589,8 +1709,22 @@ export function ThreadsOverview({
                         )}
                       </TableCell>
                       <TableCell onClick={() => handleConversationView(thread.conversationId, actualIndex)} className="py-4">
-                        {linkoutCount > 0 ? (
-                          <Badge variant="outline">{linkoutCount}</Badge>
+                        {messageCount > 0 ? (
+                          <Badge variant="outline">{messageCount}</Badge>
+                        ) : (
+                          '-'
+                        )}
+                      </TableCell>
+                      <TableCell onClick={() => handleConversationView(thread.conversationId, actualIndex)} className="py-4">
+                        {durationMinutes > 0 ? (
+                          <Badge variant="outline">{durationMinutes}m</Badge>
+                        ) : (
+                          '-'
+                        )}
+                      </TableCell>
+                      <TableCell onClick={() => handleConversationView(thread.conversationId, actualIndex)} className="py-4">
+                        {responseTimeSeconds > 0 ? (
+                          <Badge variant="outline">{responseTimeSeconds}s</Badge>
                         ) : (
                           '-'
                         )}
@@ -1659,31 +1793,6 @@ export function ThreadsOverview({
         </Card>
       )}
 
-      {/* Conversations per Day Chart */}
-      {conversationsPerDay.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Conversations per Day</CardTitle>
-            <CardDescription>
-              Daily conversation volume based on thread creation dates
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={conversationsPerDay}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="formattedDate" />
-                <YAxis />
-                <Tooltip 
-                  labelFormatter={(label) => `Date: ${label}`}
-                  formatter={(value) => [`${value} conversations`, 'Conversations']}
-                />
-                <Bar dataKey="conversations" fill="#3b82f6" />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }
