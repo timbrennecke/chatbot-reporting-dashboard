@@ -36,9 +36,16 @@ export function useEnvironmentManager() {
                           (parsedData.attributesResponses?.length || 0) > 0 || 
                           (parsedData.bulkAttributesResponses?.length || 0) > 0;
         setGlobalOfflineMode(hasAnyData);
+        
+        console.log('💾 Loaded environment-specific data:', {
+          conversations: parsedData.conversations?.length || 0,
+          threads: parsedData.threadsResponse?.threads?.length || 0,
+          hasOfflineMode: hasAnyData
+        });
       } else {
         setUploadedData({});
         setGlobalOfflineMode(false);
+        console.log('💾 No saved data found for environment:', newEnvironment);
       }
     } catch (error) {
       console.error('Failed to load environment-specific data:', error);
@@ -57,7 +64,7 @@ export function useEnvironmentManager() {
       setSavedChats(new Set());
     }
     
-    // Reset current selection state
+    // Reset current selection state but preserve data
     resetAppState();
     
     console.log('✅ Switched to', newEnvironment, 'environment with preserved data');

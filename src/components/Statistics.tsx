@@ -26,11 +26,10 @@ import {
   CalendarIcon,
   Filter,
   RefreshCw,
-  Clock,
   Download
 } from 'lucide-react';
 import { Thread } from '../lib/types';
-import { getApiBaseUrl, getEnvironmentSpecificItem } from '../lib/api';
+import { getApiBaseUrl, getEnvironmentSpecificItem, setEnvironmentSpecificItem } from '../lib/api';
 
 interface StatisticsProps {
   threads: Thread[];
@@ -39,28 +38,41 @@ interface StatisticsProps {
 
 export function Statistics({ threads, uploadedConversations = [] }: StatisticsProps) {
   
-  // Time range state with localStorage persistence
+  // Time range state with localStorage persistence - using full days
   const [startDate, setStartDate] = useState<Date | null>(() => {
     try {
       const saved = getEnvironmentSpecificItem('chatbot-dashboard-stats-start-date');
-      if (saved) return new Date(saved);
+      if (saved) {
+        const date = new Date(saved);
+        // Set to start of day
+        date.setHours(0, 0, 0, 0);
+        return date;
+      }
     } catch (error) {
       console.warn('Failed to load saved stats start date:', error);
     }
-    // Default to 1 hour ago
+    // Default to yesterday (full day)
     const date = new Date();
-    date.setHours(date.getHours() - 1);
+    date.setDate(date.getDate() - 1);
+    date.setHours(0, 0, 0, 0);
     return date;
   });
   const [endDate, setEndDate] = useState<Date | null>(() => {
     try {
       const saved = getEnvironmentSpecificItem('chatbot-dashboard-stats-end-date');
-      if (saved) return new Date(saved);
+      if (saved) {
+        const date = new Date(saved);
+        // Set to end of day
+        date.setHours(23, 59, 59, 999);
+        return date;
+      }
     } catch (error) {
       console.warn('Failed to load saved stats end date:', error);
     }
-    // Default to current time
-    return new Date();
+    // Default to today (end of current day)
+    const date = new Date();
+    date.setHours(23, 59, 59, 999);
+    return date;
   });
 
   // Fetching state
@@ -727,9 +739,20 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                     <Label htmlFor="start-date" className="text-xs font-medium text-gray-600">Start Date</Label>
                     <Input
                     id="start-date"
-                    type="datetime-local"
-                    value={startDate?.toISOString().slice(0, 16) || ''}
-                    onChange={(e) => setStartDate(e.target.value ? new Date(e.target.value) : null)}
+                    type="date"
+                    key={`start-${startDate?.getTime()}`}
+                    value={startDate ? 
+                      `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}` 
+                      : ''}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        const date = new Date(e.target.value + 'T00:00:00');
+                        console.log('Start date input changed to:', date);
+                        setStartDate(date);
+                      } else {
+                        setStartDate(null);
+                      }
+                    }}
                     className="text-sm h-8"
                     />
                 </div>
@@ -737,9 +760,20 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                     <Label htmlFor="end-date" className="text-xs font-medium text-gray-600">End Date</Label>
                     <Input
                     id="end-date"
-                    type="datetime-local"
-                    value={endDate?.toISOString().slice(0, 16) || ''}
-                    onChange={(e) => setEndDate(e.target.value ? new Date(e.target.value) : null)}
+                    type="date"
+                    key={`end-${endDate?.getTime()}`}
+                    value={endDate ? 
+                      `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}` 
+                      : ''}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        const date = new Date(e.target.value + 'T23:59:59');
+                        console.log('End date input changed to:', date);
+                        setEndDate(date);
+                      } else {
+                        setEndDate(null);
+                      }
+                    }}
                     className="text-sm h-8"
                     />
                 </div>
@@ -747,6 +781,59 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                 
                 {/* Buttons row */}
                 <div className="flex flex-wrap gap-2 items-center">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const now = new Date();
+                  console.log('Today button clicked. Current date:', now);
+                  
+                  // Create start of today
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  console.log('Start of today:', today);
+                  
+                  // Current time
+                  const currentTime = new Date();
+                  console.log('Current time:', currentTime);
+                  
+                  // Debug the date formatting
+                  const todayFormatted = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+                  const currentFormatted = `${currentTime.getFullYear()}-${String(currentTime.getMonth() + 1).padStart(2, '0')}-${String(currentTime.getDate()).padStart(2, '0')}`;
+                  console.log('Today formatted for input:', todayFormatted);
+                  console.log('Current formatted for input:', currentFormatted);
+                  
+                  setStartDate(today);
+                  setEndDate(currentTime);
+                }}
+                className="text-xs h-8"
+              >
+                Today
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const now = new Date();
+                  console.log('Last 24 Hours button clicked. Current date:', now);
+                  
+                  // Create start of yesterday
+                  const yesterday = new Date();
+                  yesterday.setDate(yesterday.getDate() - 1);
+                  yesterday.setHours(0, 0, 0, 0);
+                  console.log('Start of yesterday:', yesterday);
+                  
+                  // Current time
+                  const currentTime = new Date();
+                  console.log('Current time:', currentTime);
+                  
+                  setStartDate(yesterday);
+                  setEndDate(currentTime);
+                }}
+                className="text-xs h-8"
+              >
+                Last 24 Hours
+              </Button>
               <Button
                 variant="outline"
                 size="sm"

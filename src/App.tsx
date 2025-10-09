@@ -428,42 +428,140 @@ export default function App() {
                 }
               }}
               onPreviousConversation={() => {
-                if (!selectedConversationId || threadOrder.length === 0) return;
-                const currentIndex = threadOrder.indexOf(selectedConversationId);
-                if (currentIndex > 0) {
-                  const previousConversationId = threadOrder[currentIndex - 1];
-                  setSelectedConversationId(previousConversationId);
-                  
-                  // Find and set the thread for the new conversation
-                  const associatedThread = currentThreads.find(thread => thread.conversationId === previousConversationId);
-                  if (associatedThread) {
-                    setSelectedThread(associatedThread);
+                if (!selectedConversationId) return;
+                
+                if (navigationContext === 'saved-chats') {
+                  // Use saved chats navigation
+                  const savedChatsOrder = savedChatsOrderRef.current;
+                  if (savedChatsOrder.length === 0) return;
+                  const currentIndex = savedChatsOrder.indexOf(selectedConversationId);
+                  if (currentIndex > 0) {
+                    const previousConversationId = savedChatsOrder[currentIndex - 1];
+                    setSelectedConversationId(previousConversationId);
+                    
+                    // Mark the new conversation as viewed
+                    try {
+                      const existingViewed = getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
+                      const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
+                      viewedSet.add(previousConversationId);
+                      setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
+                    } catch (error) {
+                      console.error('Failed to save viewed conversation:', error);
+                    }
+                    
+                    // Find and set the thread for the new conversation
+                    const associatedThread = currentThreads.find(thread => thread.conversationId === previousConversationId);
+                    if (associatedThread) {
+                      setSelectedThread(associatedThread);
+                    }
+                  }
+                } else {
+                  // Use threads navigation
+                  if (threadOrder.length === 0) return;
+                  const currentIndex = threadOrder.indexOf(selectedConversationId);
+                  if (currentIndex > 0) {
+                    const previousConversationId = threadOrder[currentIndex - 1];
+                    setSelectedConversationId(previousConversationId);
+                    
+                    // Mark the new conversation as viewed
+                    try {
+                      const existingViewed = getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
+                      const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
+                      viewedSet.add(previousConversationId);
+                      setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
+                    } catch (error) {
+                      console.error('Failed to save viewed conversation:', error);
+                    }
+                    
+                    // Find and set the thread for the new conversation
+                    const associatedThread = currentThreads.find(thread => thread.conversationId === previousConversationId);
+                    if (associatedThread) {
+                      setSelectedThread(associatedThread);
+                    }
                   }
                 }
               }}
               onNextConversation={() => {
-                if (!selectedConversationId || threadOrder.length === 0) return;
-                const currentIndex = threadOrder.indexOf(selectedConversationId);
-                if (currentIndex >= 0 && currentIndex < threadOrder.length - 1) {
-                  const nextConversationId = threadOrder[currentIndex + 1];
-                  setSelectedConversationId(nextConversationId);
-                  
-                  // Find and set the thread for the new conversation
-                  const associatedThread = currentThreads.find(thread => thread.conversationId === nextConversationId);
-                  if (associatedThread) {
-                    setSelectedThread(associatedThread);
+                if (!selectedConversationId) return;
+                
+                if (navigationContext === 'saved-chats') {
+                  // Use saved chats navigation
+                  const savedChatsOrder = savedChatsOrderRef.current;
+                  if (savedChatsOrder.length === 0) return;
+                  const currentIndex = savedChatsOrder.indexOf(selectedConversationId);
+                  if (currentIndex >= 0 && currentIndex < savedChatsOrder.length - 1) {
+                    const nextConversationId = savedChatsOrder[currentIndex + 1];
+                    setSelectedConversationId(nextConversationId);
+                    
+                    // Mark the new conversation as viewed
+                    try {
+                      const existingViewed = getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
+                      const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
+                      viewedSet.add(nextConversationId);
+                      setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
+                    } catch (error) {
+                      console.error('Failed to save viewed conversation:', error);
+                    }
+                    
+                    // Find and set the thread for the new conversation
+                    const associatedThread = currentThreads.find(thread => thread.conversationId === nextConversationId);
+                    if (associatedThread) {
+                      setSelectedThread(associatedThread);
+                    }
+                  }
+                } else {
+                  // Use threads navigation
+                  if (threadOrder.length === 0) return;
+                  const currentIndex = threadOrder.indexOf(selectedConversationId);
+                  if (currentIndex >= 0 && currentIndex < threadOrder.length - 1) {
+                    const nextConversationId = threadOrder[currentIndex + 1];
+                    setSelectedConversationId(nextConversationId);
+                    
+                    // Mark the new conversation as viewed
+                    try {
+                      const existingViewed = getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
+                      const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
+                      viewedSet.add(nextConversationId);
+                      setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
+                    } catch (error) {
+                      console.error('Failed to save viewed conversation:', error);
+                    }
+                    
+                    // Find and set the thread for the new conversation
+                    const associatedThread = currentThreads.find(thread => thread.conversationId === nextConversationId);
+                    if (associatedThread) {
+                      setSelectedThread(associatedThread);
+                    }
                   }
                 }
               }}
               hasPreviousConversation={(() => {
-                if (!selectedConversationId || threadOrder.length === 0) return false;
-                const currentIndex = threadOrder.indexOf(selectedConversationId);
-                return currentIndex > 0;
+                if (!selectedConversationId) return false;
+                
+                if (navigationContext === 'saved-chats') {
+                  const savedChatsOrder = savedChatsOrderRef.current;
+                  if (savedChatsOrder.length === 0) return false;
+                  const currentIndex = savedChatsOrder.indexOf(selectedConversationId);
+                  return currentIndex > 0;
+                } else {
+                  if (threadOrder.length === 0) return false;
+                  const currentIndex = threadOrder.indexOf(selectedConversationId);
+                  return currentIndex > 0;
+                }
               })()}
               hasNextConversation={(() => {
-                if (!selectedConversationId || threadOrder.length === 0) return false;
-                const currentIndex = threadOrder.indexOf(selectedConversationId);
-                return currentIndex >= 0 && currentIndex < threadOrder.length - 1;
+                if (!selectedConversationId) return false;
+                
+                if (navigationContext === 'saved-chats') {
+                  const savedChatsOrder = savedChatsOrderRef.current;
+                  if (savedChatsOrder.length === 0) return false;
+                  const currentIndex = savedChatsOrder.indexOf(selectedConversationId);
+                  return currentIndex >= 0 && currentIndex < savedChatsOrder.length - 1;
+                } else {
+                  if (threadOrder.length === 0) return false;
+                  const currentIndex = threadOrder.indexOf(selectedConversationId);
+                  return currentIndex >= 0 && currentIndex < threadOrder.length - 1;
+                }
               })()}
               onConversationFetched={(conversation) => {
                 setFetchedConversationsMap(prev => {

@@ -11,7 +11,6 @@ import {
   SelectValue 
 } from './ui/select';
 import { Key, Eye, EyeOff, Trash2, Power, Database } from 'lucide-react';
-import { LightweightCache } from '../lib/cache-lightweight';
 
 interface AppHeaderProps {
   environment: string;
@@ -38,22 +37,10 @@ export function AppHeader({
   onClearData,
   onServerShutdown,
 }: AppHeaderProps) {
-  const [cacheStats, setCacheStats] = React.useState(LightweightCache.getCacheStats());
-
+  // No more cache functionality
   const handleClearCache = () => {
-    LightweightCache.clearAllCache();
-    setCacheStats(LightweightCache.getCacheStats());
+    console.log('Cache system removed');
   };
-
-  // Update cache stats only when needed, not on a timer
-  const updateCacheStats = React.useCallback(() => {
-    setCacheStats(LightweightCache.getCacheStats());
-  }, []);
-
-  // Update stats when component mounts and when cache is cleared
-  React.useEffect(() => {
-    updateCacheStats();
-  }, [updateCacheStats]);
 
   return (
     <header className="border-b bg-card">

@@ -47,7 +47,6 @@ import {
   setEnvironmentSpecificItem 
 } from '../lib/api';
 import { parseThreadId, calculateThreadAnalytics, formatTimestamp, debounce } from '../lib/utils';
-import { LightweightCache } from '../lib/cache-lightweight';
 
 interface ThreadsOverviewProps {
   uploadedThreads?: Thread[];
@@ -78,7 +77,7 @@ export function ThreadsOverview({
       return uploadedThreads;
     }
     
-    // Start with empty array - lightweight cache will handle persistence
+    // Start with empty array - no more caching
     return [];
   });
   const [loading, setLoading] = useState(false);
@@ -159,7 +158,7 @@ export function ThreadsOverview({
     } catch (error) {
       console.warn('Failed to load saved end date:', error);
     }
-    // Default to current time
+    // Default to current system time
     return new Date().toISOString().slice(0, 16); // Format for datetime-local input
   });
   const [searchTerm, setSearchTerm] = useState<string>(() => {
@@ -474,19 +473,41 @@ export function ThreadsOverview({
 
   // Update threads when uploaded data changes
   useEffect(() => {
+    console.log('🔄 Uploaded threads changed:', {
+      uploadedThreadsCount: uploadedThreads?.length || 0,
+      hasUploadedThreads: !!uploadedThreads?.length
+    });
+    
     // Only act if we have actual uploaded threads (not empty array)
     if (uploadedThreads && uploadedThreads.length > 0) {
+      console.log('📤 Setting uploaded threads as active threads');
       setThreads(uploadedThreads);
       setError(null);
-      
-      // Clear lightweight cache when using uploaded data
-      LightweightCache.clearAllCache();
+      setHasSearched(true); // Mark as searched since we have data
     }
-  }, [uploadedThreads]);
+  }, [uploadedThreads?.length]); // Only depend on length, not the array reference
 
-  // Notify parent component when threads change (for navigation with system messages)
+  // Set hasSearched state when threads are loaded (including from cache) - but avoid loops
   useEffect(() => {
-    onThreadsChange?.(threads);
+    if (threads.length > 0 && !uploadedThreads?.length && !hasSearched) {
+      setHasSearched(true);
+      console.log('📋 Threads loaded, marking as searched:', threads.length, 'threads');
+    }
+  }, [threads.length, uploadedThreads?.length, hasSearched]); // Use length instead of full arrays
+
+  // Remove cache loading - no more caching
+
+  // Notify parent component when threads change (for navigation with system messages) - but avoid loops
+  const threadsRef = useRef<Thread[]>([]);
+  useEffect(() => {
+    // Only notify if threads actually changed (not just re-rendered)
+    if (threads.length !== threadsRef.current.length || threads !== threadsRef.current) {
+      threadsRef.current = threads;
+      if (onThreadsChange) {
+        console.log('🔄 Notifying parent of threads change:', threads.length, 'threads');
+        onThreadsChange(threads);
+      }
+    }
   }, [threads, onThreadsChange]);
 
   // Save search state to localStorage when it changes
@@ -544,107 +565,9 @@ export function ThreadsOverview({
       const startTimestamp = new Date(startDate).toISOString();
       const endTimestamp = new Date(endDate).toISOString();
 
-      // 🎯 DISABLED: Lightweight cache (returns dummy messages without real content)
-      // const cachedSummaries = LightweightCache.findCachedThreadSummaries(startTimestamp, endTimestamp);
-      // if (cachedSummaries) {
-      //   const cachedThreads = LightweightCache.summariesToMinimalThreads(cachedSummaries);
-      //   setThreads(cachedThreads);
-      //   setHasSearched(true);
-      //   setLastSearchDates({ startDate, endDate });
-      //   
-      //   if (cachedThreads.length === 0) {
-      //     setError('No threads found for the selected time range.');
-      //   } else {
-      //     setError(null); // Clear any previous errors
-      //   }
-      //   
-      //   setLoading(false);
-      //   return;
-      // }
-
-      // 🔄 DISABLED: Partial cache hit (also returns dummy messages)
-      const partialAnalysis = LightweightCache.analyzePartialCacheHit(startTimestamp, endTimestamp);
-      if (false && partialAnalysis.canPartiallyServe) {  // DISABLED: Force cache miss
-        
-        // DISABLED: Show cached data immediately (dummy messages)
-        // const cachedThreads = LightweightCache.summariesToMinimalThreads(partialAnalysis.cachedData);
-        // setThreads(cachedThreads);
-        setError(null);
-        
-        // Fetch missing data in parallel
-        const fetchMissingData = async () => {
-          try {
-            const allNewThreads: any[] = [];
-            
-            
-            for (const missingRange of partialAnalysis.missingRanges) {
-              try {
-                console.log(`🌐 Fetching missing range: ${new Date(missingRange.start).toLocaleString()} - ${new Date(missingRange.end).toLocaleString()}`);
-                
-                const apiBaseUrl = getApiBaseUrl();
-                const response = await fetch(`${apiBaseUrl}/thread`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${apiKey.trim()}`,
-                  },
-                  body: JSON.stringify({
-                    startTimestamp: missingRange.start,
-                    endTimestamp: missingRange.end,
-                  }),
-                });
-
-                if (response.ok) {
-                  const data = await response.json();
-                  const newThreads = data.threads?.map((item: any) => item.thread) || [];
-                  allNewThreads.push(...newThreads);
-                  console.log(`✅ Fetched ${newThreads.length} threads for missing range`);
-                } else {
-                  const errorText = await response.text();
-                  console.error(`❌ Failed to fetch missing range: ${response.status} - ${errorText}`);
-                  setError(`Failed to fetch additional data: ${response.status}`);
-                }
-              } catch (rangeError) {
-                console.error('❌ Error fetching missing range:', rangeError);
-                setError(`Error fetching additional data: ${rangeError instanceof Error ? rangeError.message : 'Unknown error'}`);
-              }
-            }
-            
-            console.log(`📊 Total new threads fetched: ${allNewThreads.length}`);
-            
-            // Always merge, even if no new threads (to update UI state)
-            const mergedSummaries = LightweightCache.mergeCachedAndNewData(partialAnalysis.cachedData, allNewThreads);
-            const mergedThreads = LightweightCache.summariesToMinimalThreads(mergedSummaries);
-            
-            // Update UI with complete data
-            setThreads(mergedThreads);
-            
-            // Cache the complete merged result
-            if (allNewThreads.length > 0) {
-              LightweightCache.cacheThreads(startTimestamp, endTimestamp, mergedThreads);
-            }
-            
-            setHasSearched(true);
-            setLastSearchDates({ startDate, endDate });
-            
-          } catch (error) {
-            console.error('❌ Error in fetchMissingData:', error);
-            setError(`Error during smart cache merge: ${error instanceof Error ? error.message : 'Unknown error'}`);
-          } finally {
-            setLoading(false);
-          }
-        };
-        
-        fetchMissingData().catch(error => {
-          console.error('❌ Unhandled error in fetchMissingData:', error);
-          setError(`Unexpected error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-          setLoading(false);
-        });
-        return;
-      }
-
-      // Cache miss: Fetching from API with daily chunking to avoid timeouts
-
+      // Proceed with full API fetch - no more cache checking
+      console.log('🌐 Fetching from API...');
+      
       const apiBaseUrl = getApiBaseUrl();
       
       // Calculate time difference - always use daily chunking for reliability
@@ -727,8 +650,7 @@ export function ThreadsOverview({
       console.log(`🎉 Daily processing complete: ${allThreads.length} total threads from ${chunks.length} days`);
       setLoadingProgress({ current: 0, total: 0, currentDate: '' });
       
-      // 💾 DISABLED: Cache the results (to ensure fresh data with full messages)
-      // LightweightCache.cacheThreads(startTimestamp, endTimestamp, allThreads);
+      // No more caching - just set the threads directly
       
       setThreads(allThreads);
       setCurrentPage(1); // Reset pagination when new data is loaded
@@ -1228,8 +1150,7 @@ export function ThreadsOverview({
                     // setConversationsFetched(false);
                     setMessageSearchEnabled(false);
                     setMessageSearchTerm('');
-                    // Clear lightweight cache
-                    LightweightCache.clearAllCache();
+                    // No more cache clearing needed
                   }}
                   className="flex-shrink-0"
                 >
@@ -1262,7 +1183,7 @@ export function ThreadsOverview({
                       value={messageSearchTerm}
                       onChange={(e) => {
                         setMessageSearchTerm(e.target.value);
-                        setMessageSearchEnabled(e.target.value.trim().length > 0);
+                        // Don't disable messageSearchEnabled when text is empty - keep the input open
                       }}
                       className="flex-1"
                     />
@@ -1658,6 +1579,7 @@ export function ThreadsOverview({
                     ? allTimestamps[allTimestamps.length - 1].getTime() - allTimestamps[0].getTime()
                     : 0;
                   const durationMinutes = Math.round(conversationDuration / (1000 * 60));
+                  const durationSeconds = Math.round(conversationDuration / 1000);
 
                   // Calculate time to first assistant response
                   const userMessages = thread.messages.filter((m: any) => m.role === 'user');
@@ -1754,8 +1676,10 @@ export function ThreadsOverview({
                         )}
                       </TableCell>
                       <TableCell onClick={() => handleConversationView(thread.conversationId, actualIndex)} className="py-4">
-                        {durationMinutes > 0 ? (
-                          <Badge variant="outline">{durationMinutes}m</Badge>
+                        {conversationDuration > 0 ? (
+                          <Badge variant="outline">
+                            {durationMinutes > 0 ? `${durationMinutes}m` : `${durationSeconds}s`}
+                          </Badge>
                         ) : (
                           '-'
                         )}

@@ -32,7 +32,6 @@ import {
 } from 'lucide-react';
 import { Conversation, Thread, Message, MessageContent } from '../lib/types';
 import { getApiBaseUrl, getEnvironmentSpecificItem } from '../lib/api';
-import { LightweightCache } from '../lib/cache-lightweight';
 import { formatTimestamp, parseThreadId } from '../lib/utils';
 
 interface ConversationDetailProps {
@@ -405,12 +404,26 @@ export function ConversationDetail({
   // Clear fetched conversation when conversation ID changes (for navigation)
   useEffect(() => {
     const newId = conversationId || conversation?.id || selectedThread?.conversationId || '';
-    if (newId && newId !== paginationConversationId && fetchedConversation) {
-      console.log('🔄 Conversation ID changed, clearing fetched data and refetching:', newId);
-      setFetchedConversation(null);
+    if (newId && newId !== paginationConversationId) {
+      console.log('🔄 Conversation ID changed, updating pagination ID:', paginationConversationId, '->', newId);
       setPaginationConversationId(newId);
+      if (fetchedConversation && newId !== (fetchedConversation.id || '')) {
+        console.log('🔄 Clearing fetched data for new conversation');
+        setFetchedConversation(null);
+      }
     }
   }, [conversationId, conversation?.id, selectedThread?.conversationId, paginationConversationId, fetchedConversation]);
+
+  // Mark conversation as viewed when conversation ID changes or component mounts
+  useEffect(() => {
+    const currentConversationId = conversationId || conversation?.id || selectedThread?.conversationId || paginationConversationId;
+    if (currentConversationId) {
+      // Dispatch a custom event to mark this conversation as viewed
+      const event = new CustomEvent('conversationViewed', { detail: { conversationId: currentConversationId } });
+      window.dispatchEvent(event);
+      console.log('👁️ Marked conversation as viewed:', currentConversationId);
+    }
+  }, [conversationId, conversation?.id, selectedThread?.conversationId, paginationConversationId]);
 
 
   const analytics = useMemo((): ConversationAnalytics | null => {
@@ -463,21 +476,8 @@ export function ConversationDetail({
     try {
       const conversationId = paginationConversationId.trim();
       
-      // 🎯 Check cache first
-      const cachedConversation = LightweightCache.getCachedConversation(conversationId);
-      if (cachedConversation) {
-        console.log('⚡ Cache hit: Using cached conversation');
-        setFetchedConversation(cachedConversation);
-        setFetchResponse(JSON.stringify(cachedConversation, null, 2));
-        
-        // Notify parent component about the fetched conversation
-        onConversationFetched?.(cachedConversation);
-        
-        setFetchLoading(false);
-        return;
-      }
-
-      console.log('🌐 Cache miss: Fetching conversation from API');
+      // No more cache checking - fetch directly from API
+      console.log('🌐 Fetching conversation from API');
       console.log('🔍 API Call Debug:', {
         conversationId,
         paginationConversationId,
@@ -501,8 +501,7 @@ export function ConversationDetail({
       
       const data = JSON.parse(responseText);
       
-      // 💾 Cache the conversation
-      LightweightCache.cacheConversation(data);
+      // No more caching - just use the data directly
       
       setFetchedConversation(data);
       
@@ -814,7 +813,8 @@ export function ConversationDetail({
                       
                       const duration = timestamps[timestamps.length - 1].getTime() - timestamps[0].getTime();
                       const minutes = Math.round(duration / (1000 * 60));
-                      return minutes > 0 ? `${minutes}m` : '<1m';
+                      const seconds = Math.round(duration / 1000);
+                      return minutes > 0 ? `${minutes}m` : seconds > 0 ? `${seconds}s` : '<1s';
                     })()}
                   </p>
                 </div>
