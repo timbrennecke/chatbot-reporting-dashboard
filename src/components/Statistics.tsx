@@ -14,7 +14,8 @@ import {
   LineChart,
   Line,
   Area,
-  AreaChart
+  AreaChart,
+  LabelList
 } from 'recharts';
 import { 
   TrendingUp,
@@ -81,6 +82,21 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
   const [error, setError] = useState<string | null>(null);
   const [lastSearchKey, setLastSearchKey] = useState<string>('');
   const [loadingProgress, setLoadingProgress] = useState({ current: 0, total: 0, currentDate: '' });
+  const [showToolDetails, setShowToolDetails] = useState(false);
+
+  // Prevent background scrolling when modal is open
+  useEffect(() => {
+    if (showToolDetails) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [showToolDetails]);
 
   // Save statistics state to localStorage when it changes
   useEffect(() => {
@@ -455,7 +471,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
               contentItemsChecked++;
               
               // FIRST: Use the WORKING logic from ThreadsOverview
-              if (message.role === 'system') {
+              if (message.role === 'system' || message.role === 'status') {
                 if (content.text || content.content) {
                   const text = content.text || content.content || '';
                   
@@ -568,8 +584,8 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
           if (!message.content) return false;
           
           return message.content.some((content: any) => {
-            // Check system messages for tool definitions (most reliable)
-            if (message.role === 'system' && (content.text || content.content)) {
+            // Check system/status messages for tool definitions (most reliable)
+            if ((message.role === 'system' || message.role === 'status') && (content.text || content.content)) {
               const text = content.text || content.content || '';
               if (text.includes(`\`${contactToolName}\``)) {
                 contactToolsFound.add(contactToolName);
@@ -600,8 +616,8 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
           if (!message.content) return false;
           
           return message.content.some((content: any) => {
-            // Check system messages for tool definitions (most reliable)
-            if (message.role === 'system' && (content.text || content.content)) {
+            // Check system/status messages for tool definitions (most reliable)
+            if ((message.role === 'system' || message.role === 'status') && (content.text || content.content)) {
               const text = content.text || content.content || '';
               if (text.includes(`\`${travelAgentToolName}\``)) {
                 travelAgentToolsFound.add(travelAgentToolName);
@@ -709,6 +725,299 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       conversationsWithTravelAgentTools: conversationsWithTravelAgentTools.length
     };
   }, [filteredThreads, allConversations, conversationsPerDay, conversationMetrics, fetchedConversations.length]);
+
+  // Calculate tool statistics with timing analysis
+  const toolStats = useMemo(() => {
+    console.log('🔧 Tool analysis STARTING - checking data sources:', {
+      allConversationsLength: allConversations.length,
+      fetchedConversationsLength: fetchedConversations.length,
+      uploadedConversationsLength: uploadedConversations.length,
+      threadsLength: threads.length,
+      sampleAllConversation: allConversations[0],
+      sampleFetchedConversation: fetchedConversations[0],
+      sampleUploadedConversation: uploadedConversations[0],
+      sampleThread: threads[0]
+    });
+
+    const toolAnalysis: { [toolName: string]: { count: number; responseTimes: number[] } } = {};
+    let totalToolCalls = 0;
+
+    // If no conversations, return empty stats
+    if (allConversations.length === 0) {
+      console.log('🔧 No conversations found for tool analysis');
+      return {
+        totalToolCalls: 0,
+        uniqueTools: 0,
+        avgResponseTime: 0,
+        mostUsedTool: '',
+        toolDetails: []
+      };
+    }
+
+    console.log('🔧 Tool analysis starting with data:', {
+      conversationsCount: allConversations.length,
+      sampleConversation: allConversations[0]
+    });
+
+    // Analyze each conversation for tool usage and timing
+    allConversations.forEach((conversation, convIndex) => {
+      const messages = conversation.messages || [];
+      
+        for (let i = 0; i < messages.length; i++) {
+          const message = messages[i];
+          
+          // Look for tool calls in system/status messages
+          if ((message.role === 'system' || message.role === 'status') && message.content) {
+            // Debug: Log status/system message content
+            if (convIndex < 3 && message.role === 'status') {
+              console.log(`🔧 Status message ${i} content:`, message.content);
+            }
+            
+          message.content.forEach((content: any, contentIndex: number) => {
+            // Check if it's a tool_call object
+            if (content.kind === 'tool_call' && content.tool_name) {
+              const toolName = content.tool_name;
+              console.log(`🔧 Found tool call (object): ${toolName}`);
+              totalToolCalls++;
+              
+              if (!toolAnalysis[toolName]) {
+                toolAnalysis[toolName] = { count: 0, responseTimes: [] };
+              }
+              toolAnalysis[toolName].count++;
+              
+              // Calculate response time
+              const toolCallTime = new Date(message.created_at || message.createdAt || message.sentAt).getTime();
+              
+              for (let j = i + 1; j < messages.length; j++) {
+                const nextMessage = messages[j];
+                if (nextMessage.role === 'assistant') {
+                  const responseTime = new Date(nextMessage.created_at || nextMessage.createdAt || nextMessage.sentAt).getTime();
+                  const timeDiff = (responseTime - toolCallTime) / 1000;
+                  
+                  if (timeDiff > 0 && timeDiff < 300) {
+                    toolAnalysis[toolName].responseTimes.push(timeDiff);
+                    console.log(`🔧 Tool ${toolName} response time: ${timeDiff}s`);
+                  }
+                  break;
+                }
+              }
+            }
+            // Check if it's text content that contains tool call information
+            else if (content.kind === 'text' && content.content) {
+              const textContent = content.content;
+              
+              // Debug: Log more detailed content to understand the format
+              if (convIndex < 5 && contentIndex === 0) {
+                console.log(`🔧 Sample text content (conversation ${convIndex}):`, textContent);
+                console.log(`🔧 Looking for patterns:`, {
+                  hasToolName: textContent.includes('**Tool Name:**'),
+                  hasToolCallId: textContent.includes('**Tool Call ID:**'),
+                  hasFunction: textContent.includes('function'),
+                  hasTool: textContent.includes('tool'),
+                  contentLength: textContent.length,
+                  firstLines: textContent.split('\n').slice(0, 5)
+                });
+              }
+              
+              // Use the same pattern as ThreadsOverview: "**Tool Name:**" pattern
+              const toolNamePattern = /\*\*Tool Name:\*\*\s*`([^`]+)`/gi;
+              const matches = textContent.matchAll(toolNamePattern);
+              
+              let foundToolName = false;
+              for (const match of matches) {
+                const toolName = match[1];
+                if (toolName && toolName.length > 1) {
+                  console.log(`🔧 Found tool: ${toolName} (from Tool Name pattern)`);
+                  totalToolCalls++;
+                  foundToolName = true;
+                  
+                  if (!toolAnalysis[toolName]) {
+                    toolAnalysis[toolName] = { count: 0, responseTimes: [] };
+                  }
+                  toolAnalysis[toolName].count++;
+                  
+                  // Calculate response time
+                  const toolCallTime = new Date(message.created_at || message.createdAt || message.sentAt).getTime();
+                  
+                  for (let j = i + 1; j < messages.length; j++) {
+                    const nextMessage = messages[j];
+                    if (nextMessage.role === 'assistant') {
+                      const responseTime = new Date(nextMessage.created_at || nextMessage.createdAt || nextMessage.sentAt).getTime();
+                      const timeDiff = (responseTime - toolCallTime) / 1000;
+                      
+                      if (timeDiff > 0) {
+                        toolAnalysis[toolName].responseTimes.push(timeDiff);
+                        console.log(`🔧 Tool ${toolName} response time: ${timeDiff}s`);
+                      }
+                      break;
+                    }
+                  }
+                }
+              }
+              
+              // Try alternative patterns if Tool Name pattern didn't work
+              if (!foundToolName) {
+                // Pattern 1: Look for tool_use objects mentioned in text
+                const toolUsePattern = /"name":\s*"([^"]+)"/gi;
+                const toolUseMatches = textContent.matchAll(toolUsePattern);
+                
+                for (const match of toolUseMatches) {
+                  const toolName = match[1];
+                  if (toolName && toolName.length > 1) {
+                    console.log(`🔧 Found tool: ${toolName} (from tool_use name pattern)`);
+                    totalToolCalls++;
+                    foundToolName = true;
+                    
+                    if (!toolAnalysis[toolName]) {
+                      toolAnalysis[toolName] = { count: 0, responseTimes: [] };
+                    }
+                    toolAnalysis[toolName].count++;
+                    
+                    // Calculate response time
+                    const toolCallTime = new Date(message.created_at || message.createdAt || message.sentAt).getTime();
+                    
+                    for (let j = i + 1; j < messages.length; j++) {
+                      const nextMessage = messages[j];
+                      if (nextMessage.role === 'assistant') {
+                        const responseTime = new Date(nextMessage.created_at || nextMessage.createdAt || nextMessage.sentAt).getTime();
+                        const timeDiff = (responseTime - toolCallTime) / 1000;
+                        
+                        if (timeDiff > 0 && timeDiff < 300) {
+                          toolAnalysis[toolName].responseTimes.push(timeDiff);
+                          console.log(`🔧 Tool ${toolName} response time: ${timeDiff}s`);
+                        }
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+              
+              // Fallback: If no Tool Name pattern found, look for Tool Call ID as backup
+              if (!foundToolName && textContent.includes('**Tool Call ID:**')) {
+                const toolCallIdMatches = textContent.match(/\*\*Tool Call ID:\*\*\s*`([^`]+)`/g);
+                if (toolCallIdMatches) {
+                  toolCallIdMatches.forEach((match, index) => {
+                    const toolName = `Generic Tool Call ${totalToolCalls + 1}`;
+                    console.log(`🔧 Found generic tool call: ${toolName}`);
+                    totalToolCalls++;
+                    
+                    if (!toolAnalysis[toolName]) {
+                      toolAnalysis[toolName] = { count: 0, responseTimes: [] };
+                    }
+                    toolAnalysis[toolName].count++;
+                    
+                    // Calculate response time
+                    const toolCallTime = new Date(message.created_at || message.createdAt || message.sentAt).getTime();
+                    
+                    for (let j = i + 1; j < messages.length; j++) {
+                      const nextMessage = messages[j];
+                      if (nextMessage.role === 'assistant') {
+                        const responseTime = new Date(nextMessage.created_at || nextMessage.createdAt || nextMessage.sentAt).getTime();
+                        const timeDiff = (responseTime - toolCallTime) / 1000;
+                        
+                        if (timeDiff > 0 && timeDiff < 300) {
+                          toolAnalysis[toolName].responseTimes.push(timeDiff);
+                          console.log(`🔧 Tool ${toolName} response time: ${timeDiff}s`);
+                        }
+                        break;
+                      }
+                    }
+                  });
+                }
+              }
+            }
+          });
+        }
+      }
+    });
+
+    console.log('🔧 Tool analysis complete:', {
+      totalToolCalls,
+      uniqueToolsFound: Object.keys(toolAnalysis).length,
+      toolsFound: Object.keys(toolAnalysis),
+      detailedAnalysis: toolAnalysis,
+      sampleToolDetails: Object.entries(toolAnalysis).slice(0, 3).map(([name, data]) => ({
+        name,
+        count: data.count,
+        responseTimes: data.responseTimes.length,
+        avgTime: data.responseTimes.length > 0 
+          ? Math.round(data.responseTimes.reduce((sum, time) => sum + time, 0) / data.responseTimes.length)
+          : 0
+      }))
+    });
+
+    // Calculate averages and variability metrics
+    const toolDetails = Object.entries(toolAnalysis).map(([toolName, data]) => {
+      const times = data.responseTimes;
+      const count = data.count;
+      
+      if (times.length === 0) {
+        return {
+          name: toolName,
+          count,
+          avgResponseTime: 0,
+          responseTimes: times,
+          stdDev: 0,
+          coefficientOfVariation: 0,
+          range: 0,
+          minTime: 0,
+          maxTime: 0
+        };
+      }
+      
+      // Calculate average
+      const avg = times.reduce((sum, time) => sum + time, 0) / times.length;
+      
+      // Calculate standard deviation
+      const variance = times.reduce((sum, time) => sum + Math.pow(time - avg, 2), 0) / times.length;
+      const stdDev = Math.sqrt(variance);
+      
+      // Calculate coefficient of variation (CV) - std dev as % of mean
+      const coefficientOfVariation = avg > 0 ? (stdDev / avg) * 100 : 0;
+      
+      // Calculate range and min/max
+      const minTime = Math.min(...times);
+      const maxTime = Math.max(...times);
+      const range = maxTime - minTime;
+      
+      // Calculate significance of variability based on sample size
+      // More samples = more significant/reliable the range is
+      const getVariabilitySignificance = (sampleCount: number, range: number) => {
+        if (sampleCount < 3) return { level: 'insufficient', icon: '❓', color: '#9ca3af' };
+        if (sampleCount < 5) return { level: 'low', icon: '⚠️', color: '#f59e0b' };
+        if (sampleCount < 10) return { level: 'moderate', icon: '⚡', color: '#3b82f6' };
+        return { level: 'high', icon: '✅', color: '#10b981' };
+      };
+      
+      const significance = getVariabilitySignificance(times.length, range);
+      
+      return {
+        name: toolName,
+        count,
+        avgResponseTime: Math.round(avg),
+        responseTimes: times,
+        stdDev: Math.round(stdDev * 10) / 10, // Round to 1 decimal
+        coefficientOfVariation: Math.round(coefficientOfVariation), // Round to whole %
+        range: Math.round(range * 10) / 10, // Round to 1 decimal
+        minTime: Math.round(minTime * 10) / 10,
+        maxTime: Math.round(maxTime * 10) / 10,
+        significance: significance
+      };
+    }).sort((a, b) => b.count - a.count);
+
+    const overallAvgResponseTime = toolDetails.length > 0
+      ? Math.round(toolDetails.reduce((sum, tool) => sum + (tool.avgResponseTime * tool.count), 0) / totalToolCalls)
+      : 0;
+
+    return {
+      totalToolCalls,
+      uniqueTools: Object.keys(toolAnalysis).length,
+      avgResponseTime: overallAvgResponseTime,
+      mostUsedTool: toolDetails.length > 0 ? toolDetails[0].name : '',
+      toolDetails
+    };
+  }, [allConversations]);
 
   return (
     <div className="space-y-6">
@@ -976,6 +1285,375 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
         </div>
       )}
 
+      {/* Tool Details Section */}
+      {stats.fetchedConversationsCount > 0 && (
+        <Card className="shadow-lg border-2 border-green-100">
+          <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50 border-b">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-green-100 rounded-lg">
+                  <Activity className="h-6 w-6 text-green-600" />
+                </div>
+                <div>
+                  <CardTitle className="text-xl text-gray-900">🔧 Tool Analysis</CardTitle>
+                  <CardDescription className="text-gray-600">
+                    Individual tool usage and response times
+                  </CardDescription>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  console.log('🔧 BUTTON CLICKED - Debug info:', {
+                    allConversationsLength: allConversations.length,
+                    fetchedConversationsLength: fetchedConversations.length,
+                    uploadedConversationsLength: uploadedConversations.length,
+                    threadsLength: threads.length,
+                    toolStatsExists: !!toolStats,
+                    toolStatsValue: toolStats,
+                    sampleConversation: allConversations[0],
+                    sampleMessages: allConversations[0]?.messages?.slice(0, 3)
+                  });
+                  
+                  // Check what tools ThreadsOverview would find for comparison
+                  console.log('🔧 Comparing with ThreadsOverview tool detection...');
+                  const threadsOverviewTools = new Set();
+                  allConversations.forEach(conv => {
+                    conv.messages?.forEach(msg => {
+                      if ((msg.role === 'system' || msg.role === 'status') && msg.content) {
+                        msg.content.forEach(content => {
+                          if (content.text || content.content) {
+                            const text = content.text || content.content || '';
+                            const toolNamePattern = /\*\*Tool Name:\*\*\s*`([^`]+)`/gi;
+                            const matches = text.matchAll(toolNamePattern);
+                            for (const match of matches) {
+                              threadsOverviewTools.add(match[1]);
+                            }
+                          }
+                        });
+                      }
+                    });
+                  });
+                  console.log('🔧 ThreadsOverview would find these tools:', Array.from(threadsOverviewTools));
+                  
+                  // Force recalculation by logging sample data
+                  if (allConversations.length > 0) {
+                    console.log('🔧 Sample conversation for debugging:', allConversations[0]);
+                    if (allConversations[0]?.messages) {
+                      console.log('🔧 Sample messages:', allConversations[0].messages.slice(0, 5));
+                      allConversations[0].messages.slice(0, 5).forEach((msg, i) => {
+                        console.log(`🔧 Message ${i} (${msg.role}):`, msg);
+                        if (msg.content) {
+                          console.log(`🔧 Message ${i} content:`, msg.content);
+                          // Log each content item individually
+                          msg.content.forEach((contentItem, j) => {
+                            console.log(`🔧 Message ${i} content[${j}]:`, contentItem);
+                            if (contentItem.kind) {
+                              console.log(`🔧 Message ${i} content[${j}] kind:`, contentItem.kind);
+                            }
+                            if (contentItem.content || contentItem.text) {
+                              console.log(`🔧 Message ${i} content[${j}] text:`, contentItem.content || contentItem.text);
+                            }
+                          });
+                        }
+                      });
+                    }
+                  }
+                  
+                  setShowToolDetails(true);
+                }}
+                style={{
+                  backgroundColor: '#059669',
+                  color: 'white',
+                  border: '1px solid #059669',
+                  borderRadius: '6px',
+                  padding: '8px 16px',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)'
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.backgroundColor = '#047857';
+                  e.currentTarget.style.borderColor = '#047857';
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.backgroundColor = '#059669';
+                  e.currentTarget.style.borderColor = '#059669';
+                }}
+              >
+                📊 View Tool Details
+              </button>
+            </div>
+          </CardHeader>
+          <CardContent className="p-6 bg-white">
+            <div className="text-center py-4">
+              <div className="mb-4">
+                <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-50 rounded-lg border border-green-200">
+                  <Activity className="h-5 w-5 text-green-600" />
+                  <span className="text-lg font-semibold text-green-700">
+                    {toolStats.toolDetails.length > 0 
+                      ? `${toolStats.toolDetails.length} tools detected`
+                      : 'Analyzing tool usage...'
+                    }
+                  </span>
+                </div>
+              </div>
+              <p className="text-gray-600 max-w-md mx-auto">
+                Click "View Tool Details" to see individual tool usage patterns, response times, and detailed analytics for each tool used in your conversations.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Tool Details Modal - Simple Overlay */}
+      {showToolDetails && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            zIndex: 99999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px'
+          }}
+          onClick={() => setShowToolDetails(false)}
+        >
+          <div 
+            style={{
+              backgroundColor: 'white',
+              borderRadius: '8px',
+              width: '100%',
+              maxWidth: '800px',
+              maxHeight: '80vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{
+              padding: '16px',
+              borderBottom: '1px solid #e5e7eb',
+              backgroundColor: '#f0fdf4',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderTopLeftRadius: '8px',
+              borderTopRightRadius: '8px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '18px' }}>🔧</span>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '600', color: '#111827' }}>
+                  Tool Analysis Results
+                </h3>
+                <span style={{ fontSize: '14px', color: '#6b7280' }}>
+                  ({toolStats.toolDetails.length} tools)
+                </span>
+              </div>
+              <button
+                onClick={() => setShowToolDetails(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '20px',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  color: '#6b7280'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            
+            {/* Summary */}
+            <div style={{
+              padding: '16px',
+              backgroundColor: '#f9fafb',
+              borderBottom: '1px solid #e5e7eb'
+            }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#059669' }}>
+                    {toolStats.totalToolCalls}
+                  </div>
+                  <div style={{ fontSize: '14px', color: '#6b7280' }}>Total Calls</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#7c3aed' }}>
+                    {toolStats.avgResponseTime}s
+                  </div>
+                  <div style={{ fontSize: '14px', color: '#6b7280' }}>Avg Response Time</div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Scrollable Table */}
+            <div style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: '16px'
+            }}>
+              {toolStats.toolDetails.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+                  <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔧</div>
+                  <h3 style={{ margin: '0 0 8px 0', color: '#111827' }}>No Tools Found</h3>
+                  <p style={{ margin: 0 }}>No tool calls were detected in the analyzed conversations.</p>
+                </div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
+                      <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: '14px', fontWeight: '600', color: '#111827' }}>
+                        #
+                      </th>
+                      <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: '14px', fontWeight: '600', color: '#111827' }}>
+                        Tool Name
+                      </th>
+                      <th style={{ textAlign: 'center', padding: '8px 12px', fontSize: '14px', fontWeight: '600', color: '#111827' }}>
+                        Count
+                      </th>
+                      <th style={{ textAlign: 'center', padding: '8px 12px', fontSize: '14px', fontWeight: '600', color: '#111827' }}>
+                        Avg Time
+                      </th>
+                      <th style={{ textAlign: 'center', padding: '8px 12px', fontSize: '14px', fontWeight: '600', color: '#111827' }}>
+                        Variability
+                      </th>
+                      <th style={{ textAlign: 'center', padding: '8px 12px', fontSize: '14px', fontWeight: '600', color: '#111827' }}>
+                        Samples
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {toolStats.toolDetails.map((tool, index) => (
+                      <tr 
+                        key={tool.name} 
+                        style={{ 
+                          borderBottom: '1px solid #f3f4f6',
+                          backgroundColor: index % 2 === 0 ? '#ffffff' : '#f9fafb'
+                        }}
+                      >
+                        <td style={{ padding: '8px 12px' }}>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '20px',
+                            height: '20px',
+                            fontSize: '12px',
+                            backgroundColor: '#dcfce7',
+                            color: '#166534',
+                            borderRadius: '50%',
+                            fontWeight: '600'
+                          }}>
+                            {index + 1}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px 12px' }}>
+                          <span style={{ fontWeight: '500', color: '#111827', fontSize: '14px' }}>
+                            {tool.name}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '2px 8px',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            backgroundColor: '#dcfce7',
+                            color: '#166534',
+                            borderRadius: '4px'
+                          }}>
+                            {tool.count}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '2px 8px',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            backgroundColor: '#dbeafe',
+                            color: '#1e40af',
+                            borderRadius: '4px'
+                          }}>
+                            {tool.avgResponseTime > 0 ? `${tool.avgResponseTime}s` : 'N/A'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                          <div style={{ fontSize: '12px' }}>
+                            {tool.responseTimes.length > 1 ? (
+                              <>
+                                <div style={{
+                                  display: 'inline-block',
+                                  padding: '2px 8px',
+                                  fontSize: '12px',
+                                  fontWeight: '600',
+                                  backgroundColor: '#f3f4f6',
+                                  color: '#374151',
+                                  borderRadius: '4px',
+                                  marginBottom: '2px'
+                                }}>
+                                  {tool.minTime}s - {tool.maxTime}s
+                                </div>
+                                <div style={{ 
+                                  fontSize: '10px', 
+                                  color: tool.significance.color, 
+                                  marginTop: '2px',
+                                  fontWeight: '600'
+                                }}>
+                                  {tool.significance.icon} {tool.significance.level === 'insufficient' ? 'Too few' :
+                                     tool.significance.level === 'low' ? 'Low conf' :
+                                     tool.significance.level === 'moderate' ? 'Med conf' :
+                                     'High conf'}
+                                </div>
+                              </>
+                            ) : (
+                              <div style={{
+                                display: 'inline-block',
+                                padding: '2px 8px',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                backgroundColor: '#f9fafb',
+                                color: '#6b7280',
+                                borderRadius: '4px'
+                              }}>
+                                Single sample
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                          <div style={{ fontSize: '14px' }}>
+                            <div style={{ fontWeight: '500', color: '#374151' }}>
+                              {tool.responseTimes.length}
+                            </div>
+                            {tool.responseTimes.length > 0 && (
+                              <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                                {Math.min(...tool.responseTimes).toFixed(1)}s - {Math.max(...tool.responseTimes).toFixed(1)}s
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Debug Info - Show data status */}
       {isLoading && (
         <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
@@ -1043,8 +1721,8 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
             </div>
           </CardHeader>
           <CardContent className="p-6">
-            <ResponsiveContainer width="100%" height={400}>
-              <AreaChart data={conversationsPerDay} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+            <ResponsiveContainer width="100%" height={500}>
+              <AreaChart data={conversationsPerDay} margin={{ top: 40, right: 30, left: 40, bottom: 5 }}>
                 <defs>
                   <linearGradient id="conversationGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
@@ -1064,13 +1742,13 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                   tickLine={false}
                   axisLine={false}
                   domain={[0, (dataMax: number) => {
-                    // Calculate a logical maximum in steps of 50
-                    const step = 50;
+                    // Calculate a logical maximum in steps of 250
+                    const step = 250;
                     return Math.max(step, Math.ceil(dataMax / step) * step);
                   }]}
                   ticks={(() => {
-                    const maxValue = Math.max(...conversationsPerDay.map(d => d.conversations), 50);
-                    const step = 50;
+                    const maxValue = Math.max(...conversationsPerDay.map(d => d.conversations), 250);
+                    const step = 250;
                     const max = Math.ceil(maxValue / step) * step;
                     const ticks = [];
                     for (let i = 0; i <= max; i += step) {
@@ -1110,7 +1788,16 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                     stroke: '#ffffff',
                     strokeWidth: 2
                   }}
-                />
+                >
+                  <LabelList 
+                    dataKey="conversations" 
+                    position="top" 
+                    fontSize={12}
+                    fill="#374151"
+                    offset={15}
+                    fontWeight="600"
+                  />
+                </Area>
               </AreaChart>
             </ResponsiveContainer>
           </CardContent>
@@ -1129,6 +1816,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
           </CardContent>
         </Card>
       )}
+
     </div>
   );
 }

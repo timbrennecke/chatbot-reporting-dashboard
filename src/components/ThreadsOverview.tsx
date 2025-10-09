@@ -199,7 +199,7 @@ export function ThreadsOverview({
   // Function to check if a thread has errors
   const threadHasErrors = useCallback((thread: any) => {
     return thread.messages.some((message: any) => {
-      if (message.role === 'system') {
+      if (message.role === 'system' || message.role === 'status') {
         return message.content.some((content: any) => {
           if (content.text || content.content) {
             const text = content.text || content.content || '';
@@ -259,8 +259,8 @@ export function ThreadsOverview({
     // Extracting tools from threads
     threads.forEach(thread => {
       thread.messages.forEach(message => {
-        // Look for tools in system messages
-        if (message.role === 'system') {
+        // Look for tools in system/status messages
+        if (message.role === 'system' || message.role === 'status') {
           message.content.forEach(content => {
             if (content.text || content.content) {
               const text = content.text || content.content || '';
@@ -327,8 +327,8 @@ export function ThreadsOverview({
       threads.forEach((thread: any) => {
         if (thread?.messages) {
           thread.messages.forEach((message: any) => {
-            // Check system messages
-            if (message.role === 'system' && message.content) {
+            // Check system/status messages
+            if ((message.role === 'system' || message.role === 'status') && message.content) {
               message.content.forEach((content: any) => {
                 if (content.text || content.content) {
                   const text = content.text || content.content || '';
@@ -709,8 +709,8 @@ export function ThreadsOverview({
         // EXCLUDE system messages - only search user and assistant messages
         const hasMatchingMessage = thread.messages?.some((message: any) => {
           try {
-            // Skip system messages - only search user and assistant messages
-            if (message.role === 'system') {
+            // Skip system/status messages - only search user and assistant messages
+            if (message.role === 'system' || message.role === 'status') {
               return false;
             }
             
@@ -760,9 +760,9 @@ export function ThreadsOverview({
       if (selectedTools.size > 0) {
         const threadTools = new Set<string>();
         
-        // Extract tools from this thread's system messages using same pattern as availableTools
+        // Extract tools from this thread's system/status messages using same pattern as availableTools
         thread.messages.forEach(message => {
-          if (message.role === 'system') {
+          if (message.role === 'system' || message.role === 'status') {
             message.content.forEach(content => {
               if (content.text || content.content) {
                 const text = content.text || content.content || '';

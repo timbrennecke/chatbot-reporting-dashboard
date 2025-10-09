@@ -110,9 +110,9 @@ function cleanText(text: string): string {
   return cleaned;
 }
 
-// Function to check if a system message contains errors
+// Function to check if a system/status message contains errors
 function systemMessageHasErrors(message: any): boolean {
-  if (message.role !== 'system') return false;
+  if (message.role !== 'system' && message.role !== 'status') return false;
   
   return message.content.some((content: any) => {
     if (content.text || content.content) {
@@ -299,6 +299,9 @@ export function ConversationDetail({
   
   
   const [showSystemMessages, setShowSystemMessages] = useState(false);
+  
+  // Debug: Log the state (removed to prevent infinite logs)
+  // console.log('🔍 ConversationDetail showSystemMessages state:', showSystemMessages);
   const [paginationConversationId, setPaginationConversationId] = useState(() => {
     const id = conversationId || conversation?.id || selectedThread?.conversationId || '';
     return id;
@@ -875,17 +878,22 @@ export function ConversationDetail({
                     });
                     setShowSystemMessages(newValue);
                   }}
-                  className="flex items-center gap-2"
+                  className={`flex items-center gap-2 ${showSystemMessages ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-300 text-gray-700'}`}
+                  style={{
+                    backgroundColor: showSystemMessages ? '#dbeafe' : '#ffffff',
+                    borderColor: showSystemMessages ? '#93c5fd' : '#d1d5db',
+                    color: showSystemMessages ? '#1d4ed8' : '#374151'
+                  }}
                 >
                   {showSystemMessages ? (
                     <>
                       <EyeOff className="h-4 w-4" />
-                      Hide System
+                      Hide Status
                     </>
                   ) : (
                     <>
                       <Eye className="h-4 w-4" />
-                      Show System
+                      Show Status
                     </>
                   )}
                 </Button>
@@ -897,14 +905,25 @@ export function ConversationDetail({
                         // Use activeConversation messages directly
                         const allMessages = activeConversation?.messages || [];
                         
-        // Debug: Check message data
+                        // Debug: Check message data
+                        // Debug: Check message data (only log once per conversation)
+                        if (allMessages.length > 0 && !window.debugLoggedFor) {
+                          console.log('🔍 Thread section - Processing messages:', {
+                            totalMessages: allMessages.length,
+                            messageRoles: allMessages.map(m => m.role),
+                            systemMessageCount: allMessages.filter(m => m.role === 'system').length,
+                            statusMessageCount: allMessages.filter(m => m.role === 'status').length,
+                            showSystemMessages
+                          });
+                          window.debugLoggedFor = true;
+                        }
                         
                         const filteredMessages = allMessages
                           .filter(message => {
                             // Always show user and assistant messages
                             if (message.role === 'user' || message.role === 'assistant') return true;
-                            // Show system messages based on toggle
-                            if (message.role === 'system') {
+                            // Show system/status messages based on toggle (your data uses 'status' not 'system')
+                            if (message.role === 'system' || message.role === 'status') {
                               return showSystemMessages;
                             }
                             return true;
@@ -941,7 +960,7 @@ export function ConversationDetail({
                       {message.role !== 'user' && (
                         <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center shadow-sm border ${
                           message.role === 'assistant' ? 'bg-slate-100 border-slate-200' :
-                          message.role === 'system' ? 'bg-amber-50 border-amber-200' : 'bg-slate-100 border-slate-200'
+                          (message.role === 'system' || message.role === 'status') ? 'bg-amber-50 border-amber-200' : 'bg-slate-100 border-slate-200'
                         }`}>
                           {message.role === 'assistant' ? (
                             <Bot className="h-5 w-5 text-slate-600" />
@@ -998,11 +1017,14 @@ export function ConversationDetail({
                               : 'bg-slate-50 text-slate-800 border-slate-200'
                           }`}
                           style={{
+                            backgroundColor: message.role === 'user' ? '#eff6ff' : 
+                                           (message.role === 'system' || message.role === 'status') ? '#fefce8' : 
+                                           message.role === 'assistant' ? '#f0fdf4' : '#f8fafc',
                             borderRadius: '1rem',
                             padding: '1.5rem',
                             border: '1px solid',
-                            borderColor: message.role === 'user' ? '#bfdbfe' : message.role === 'system' ? '#fde68a' : message.role === 'assistant' ? '#bbf7d0' : '#e2e8f0',
-                            ...(message.role === 'system' && {
+                            borderColor: message.role === 'user' ? '#bfdbfe' : (message.role === 'system' || message.role === 'status') ? '#fde68a' : message.role === 'assistant' ? '#bbf7d0' : '#e2e8f0',
+                            ...((message.role === 'system' || message.role === 'status') && {
                               maxHeight: '320px',
                               overflowY: 'auto',
                               overflowX: 'hidden',
@@ -1278,17 +1300,22 @@ export function ConversationDetail({
                     });
                     setShowSystemMessages(newValue);
                   }}
-                  className="flex items-center gap-2"
+                  className={`flex items-center gap-2 ${showSystemMessages ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-300 text-gray-700'}`}
+                  style={{
+                    backgroundColor: showSystemMessages ? '#dbeafe' : '#ffffff',
+                    borderColor: showSystemMessages ? '#93c5fd' : '#d1d5db',
+                    color: showSystemMessages ? '#1d4ed8' : '#374151'
+                  }}
                 >
                   {showSystemMessages ? (
                     <>
                       <EyeOff className="h-4 w-4" />
-                      Hide System
+                      Hide Status
                     </>
                   ) : (
                     <>
                       <Eye className="h-4 w-4" />
-                      Show System
+                      Show Status
                     </>
                   )}
                 </Button>
@@ -1304,15 +1331,10 @@ export function ConversationDetail({
                     .filter(message => {
                       // Always show user and assistant messages
                       if (message.role === 'user' || message.role === 'assistant') return true;
-                      // Show system messages based on toggle
-                      if (message.role === 'system') {
-                        console.log('🔍 System message filter:', {
-                          messageId: message.id,
-                          showSystemMessages,
-                          willShow: showSystemMessages
-                        });
-                        return showSystemMessages;
-                      }
+                            // Show system/status messages based on toggle
+                            if (message.role === 'system' || message.role === 'status') {
+                              return showSystemMessages;
+                            }
                       return true;
                     });
                   
@@ -1327,7 +1349,7 @@ export function ConversationDetail({
                       {message.role !== 'user' && (
                         <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center shadow-sm border ${
                           message.role === 'assistant' ? 'bg-slate-100 border-slate-200' :
-                          message.role === 'system' ? 'bg-amber-50 border-amber-200' : 'bg-slate-100 border-slate-200'
+                          (message.role === 'system' || message.role === 'status') ? 'bg-amber-50 border-amber-200' : 'bg-slate-100 border-slate-200'
                         }`}>
                           {message.role === 'assistant' ? (
                             <Bot className="h-5 w-5 text-slate-600" />
@@ -1384,11 +1406,14 @@ export function ConversationDetail({
                               : 'bg-slate-50 text-slate-800 border-slate-200'
                           }`}
                           style={{
+                            backgroundColor: message.role === 'user' ? '#eff6ff' : 
+                                           (message.role === 'system' || message.role === 'status') ? '#fefce8' : 
+                                           message.role === 'assistant' ? '#f0fdf4' : '#f8fafc',
                             borderRadius: '1rem',
                             padding: '1.5rem',
                             border: '1px solid',
-                            borderColor: message.role === 'user' ? '#bfdbfe' : message.role === 'system' ? '#fde68a' : message.role === 'assistant' ? '#bbf7d0' : '#e2e8f0',
-                            ...(message.role === 'system' && {
+                            borderColor: message.role === 'user' ? '#bfdbfe' : (message.role === 'system' || message.role === 'status') ? '#fde68a' : message.role === 'assistant' ? '#bbf7d0' : '#e2e8f0',
+                            ...((message.role === 'system' || message.role === 'status') && {
                               maxHeight: '320px',
                               overflowY: 'auto',
                               overflowX: 'hidden',
@@ -1808,13 +1833,8 @@ export function ConversationDetail({
                         ?.filter(message => {
                           // Always show user and assistant messages
                           if (message.role === 'user' || message.role === 'assistant') return true;
-                          // Show system messages based on toggle
-                          if (message.role === 'system') {
-                            console.log('🔍 System message filter (fetched):', {
-                              messageId: message.id,
-                              showSystemMessages,
-                              willShow: showSystemMessages
-                            });
+                          // Show system/status messages based on toggle
+                          if (message.role === 'system' || message.role === 'status') {
                             return showSystemMessages;
                           }
                           return true;
@@ -1833,7 +1853,7 @@ export function ConversationDetail({
                           {message.role !== 'user' && (
                             <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center shadow-sm border ${
                               message.role === 'assistant' ? 'bg-slate-100 border-slate-200' :
-                              message.role === 'system' ? 'bg-amber-50 border-amber-200' : 'bg-slate-100 border-slate-200'
+                              (message.role === 'system' || message.role === 'status') ? 'bg-amber-50 border-amber-200' : 'bg-slate-100 border-slate-200'
                             }`}>
                               {message.role === 'assistant' ? (
                                 <Bot className="h-5 w-5 text-slate-600" />
@@ -1885,7 +1905,7 @@ export function ConversationDetail({
                                   ? 'bg-blue-50 text-slate-800 ml-auto border-blue-200' 
                                   : message.role === 'assistant'
                                   ? 'bg-slate-50 text-slate-800 border-green-200 shadow-sm'
-                                  : message.role === 'system'
+                                  : (message.role === 'system' || message.role === 'status')
                                   ? systemMessageHasErrors(message)
                                     ? 'bg-red-200 text-red-950 border-red-400'
                                     : 'bg-amber-50 text-amber-900 border-amber-200'
@@ -1897,20 +1917,20 @@ export function ConversationDetail({
                                 border: '1px solid',
                                 borderColor: message.role === 'user' 
                                   ? '#bfdbfe' 
-                                  : message.role === 'system' 
+                                  : (message.role === 'system' || message.role === 'status')
                                   ? systemMessageHasErrors(message) 
                                     ? '#f87171' 
                                     : '#fde68a'
                                   : message.role === 'assistant' 
                                   ? '#bbf7d0' 
                                   : '#e2e8f0',
-                                ...(message.role === 'system' && {
+                                ...((message.role === 'system' || message.role === 'status') && {
                                   maxHeight: '320px',
                                   overflowY: 'auto',
                                   overflowX: 'hidden',
                                   wordWrap: 'break-word',
                                   wordBreak: 'break-word',
-                                  backgroundColor: systemMessageHasErrors(message) ? '#fecaca' : '#fffbeb'
+                                  backgroundColor: systemMessageHasErrors(message) ? '#fecaca' : '#fefce8'
                                 })
                               }}
                             >
