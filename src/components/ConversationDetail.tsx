@@ -322,6 +322,12 @@ export function ConversationDetail({
   const [showNotesPanel, setShowNotesPanel] = useState(false);
   const [notes, setNotes] = useState(initialNotes);
 
+  // Context state
+  const [contextData, setContextData] = useState<any>(null);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextError, setContextError] = useState<string>('');
+  const [showContextPopup, setShowContextPopup] = useState(false);
+
   // Handle notes changes
   const handleNotesChange = (newNotes: string) => {
     setNotes(newNotes);
@@ -358,6 +364,45 @@ export function ConversationDetail({
       setTimeout(() => setCopiedId(null), 2000); // Reset after 2 seconds
     } catch (err) {
       console.error('Failed to copy text: ', err);
+    }
+  };
+
+  // Fetch context data function
+  const fetchContextData = async (threadId: string) => {
+    if (!threadId || !apiKey.trim()) {
+      setContextError('Thread ID and API key are required');
+      return;
+    }
+
+    setContextLoading(true);
+    setContextError('');
+
+    try {
+      const baseUrl = getApiBaseUrl();
+      
+      const response = await fetch(`${baseUrl}/attributes/bulk`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey.trim()}`,
+        },
+        body: JSON.stringify({
+          threads: [{ threadId }]
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      setContextData(data);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+      setContextError(`Failed to fetch context: ${errorMessage}`);
+      console.error('Context fetch error:', err);
+    } finally {
+      setContextLoading(false);
     }
   };
 
@@ -427,6 +472,15 @@ export function ConversationDetail({
       console.log('👁️ Marked conversation as viewed:', currentConversationId);
     }
   }, [conversationId, conversation?.id, selectedThread?.conversationId, paginationConversationId]);
+
+  // Auto-fetch context data when thread changes
+  useEffect(() => {
+    const threadId = selectedThread?.id;
+    if (threadId && apiKey.trim()) {
+      console.log('🔄 Auto-fetching context data for thread:', threadId);
+      fetchContextData(threadId);
+    }
+  }, [selectedThread?.id, apiKey]);
 
 
   const analytics = useMemo((): ConversationAnalytics | null => {
@@ -863,40 +917,61 @@ export function ConversationDetail({
                     Chronological view of conversation messages with system messages from thread data
                   </CardDescription>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const newValue = !showSystemMessages;
-                    console.log('🔍 Show System Button Clicked (Thread):', {
-                      currentValue: showSystemMessages,
-                      newValue,
-                      hasSelectedThread: !!selectedThread,
-                      selectedThreadId: selectedThread?.id,
-                      threadMessagesCount: selectedThread?.messages?.length || 0,
-                      systemMessagesInThread: selectedThread?.messages?.filter(msg => msg.role === 'system').length || 0
-                    });
-                    setShowSystemMessages(newValue);
-                  }}
-                  className={`flex items-center gap-2 ${showSystemMessages ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-300 text-gray-700'}`}
-                  style={{
-                    backgroundColor: showSystemMessages ? '#dbeafe' : '#ffffff',
-                    borderColor: showSystemMessages ? '#93c5fd' : '#d1d5db',
-                    color: showSystemMessages ? '#1d4ed8' : '#374151'
-                  }}
-                >
-                  {showSystemMessages ? (
-                    <>
-                      <EyeOff className="h-4 w-4" />
-                      Hide Status
-                    </>
-                  ) : (
-                    <>
-                      <Eye className="h-4 w-4" />
-                      Show Status
-                    </>
-                  )}
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const newValue = !showSystemMessages;
+                      console.log('🔍 Show System Button Clicked (Thread):', {
+                        currentValue: showSystemMessages,
+                        newValue,
+                        hasSelectedThread: !!selectedThread,
+                        selectedThreadId: selectedThread?.id,
+                        threadMessagesCount: selectedThread?.messages?.length || 0,
+                        systemMessagesInThread: selectedThread?.messages?.filter(msg => msg.role === 'system').length || 0
+                      });
+                      setShowSystemMessages(newValue);
+                    }}
+                    className={`flex items-center gap-2 ${showSystemMessages ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-300 text-gray-700'}`}
+                    style={{
+                      backgroundColor: showSystemMessages ? '#dbeafe' : '#ffffff',
+                      borderColor: showSystemMessages ? '#93c5fd' : '#d1d5db',
+                      color: showSystemMessages ? '#1d4ed8' : '#374151'
+                    }}
+                  >
+                    {showSystemMessages ? (
+                      <>
+                        <EyeOff className="h-4 w-4" />
+                        Hide System
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="h-4 w-4" />
+                        Show System
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowContextPopup(true)}
+                    disabled={!selectedThread?.id || contextLoading}
+                    className="flex items-center gap-2"
+                  >
+                    {contextLoading ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Loading...
+                      </>
+                    ) : (
+                      <>
+                        <FileText className="h-4 w-4" />
+                        Show Context
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="bg-gradient-to-b from-slate-100/90 to-slate-200/60 rounded-lg">
@@ -1285,40 +1360,61 @@ export function ConversationDetail({
                     Chronological view of conversation messages
                   </CardDescription>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const newValue = !showSystemMessages;
-                    console.log('🔍 Show System Button Clicked:', {
-                      currentValue: showSystemMessages,
-                      newValue,
-                      hasSelectedThread: !!selectedThread,
-                      selectedThreadId: selectedThread?.id,
-                      threadMessagesCount: selectedThread?.messages?.length || 0,
-                      systemMessagesInThread: selectedThread?.messages?.filter(msg => msg.role === 'system').length || 0
-                    });
-                    setShowSystemMessages(newValue);
-                  }}
-                  className={`flex items-center gap-2 ${showSystemMessages ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-300 text-gray-700'}`}
-                  style={{
-                    backgroundColor: showSystemMessages ? '#dbeafe' : '#ffffff',
-                    borderColor: showSystemMessages ? '#93c5fd' : '#d1d5db',
-                    color: showSystemMessages ? '#1d4ed8' : '#374151'
-                  }}
-                >
-                  {showSystemMessages ? (
-                    <>
-                      <EyeOff className="h-4 w-4" />
-                      Hide Status
-                    </>
-                  ) : (
-                    <>
-                      <Eye className="h-4 w-4" />
-                      Show Status
-                    </>
-                  )}
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const newValue = !showSystemMessages;
+                      console.log('🔍 Show System Button Clicked:', {
+                        currentValue: showSystemMessages,
+                        newValue,
+                        hasSelectedThread: !!selectedThread,
+                        selectedThreadId: selectedThread?.id,
+                        threadMessagesCount: selectedThread?.messages?.length || 0,
+                        systemMessagesInThread: selectedThread?.messages?.filter(msg => msg.role === 'system').length || 0
+                      });
+                      setShowSystemMessages(newValue);
+                    }}
+                    className={`flex items-center gap-2 ${showSystemMessages ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-300 text-gray-700'}`}
+                    style={{
+                      backgroundColor: showSystemMessages ? '#dbeafe' : '#ffffff',
+                      borderColor: showSystemMessages ? '#93c5fd' : '#d1d5db',
+                      color: showSystemMessages ? '#1d4ed8' : '#374151'
+                    }}
+                  >
+                    {showSystemMessages ? (
+                      <>
+                        <EyeOff className="h-4 w-4" />
+                        Hide System
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="h-4 w-4" />
+                        Show System
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowContextPopup(true)}
+                    disabled={!selectedThread?.id || contextLoading}
+                    className="flex items-center gap-2"
+                  >
+                    {contextLoading ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Loading...
+                      </>
+                    ) : (
+                      <>
+                        <FileText className="h-4 w-4" />
+                        Show Context
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="bg-gradient-to-b from-slate-100/90 to-slate-200/60 rounded-lg">
@@ -1792,35 +1888,56 @@ export function ConversationDetail({
                         Chronological view of conversation messages with system messages from thread data
                       </CardDescription>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        const newValue = !showSystemMessages;
-                        console.log('🔍 Show System Button Clicked (Fetched):', {
-                          currentValue: showSystemMessages,
-                          newValue,
-                          hasSelectedThread: !!selectedThread,
-                          selectedThreadId: selectedThread?.id,
-                          threadMessagesCount: selectedThread?.messages?.length || 0,
-                          systemMessagesInThread: selectedThread?.messages?.filter(msg => msg.role === 'system').length || 0
-                        });
-                        setShowSystemMessages(newValue);
-                      }}
-                      className="flex items-center gap-2"
-                    >
-                      {showSystemMessages ? (
-                        <>
-                          <EyeOff className="h-4 w-4" />
-                          Hide System
-                        </>
-                      ) : (
-                        <>
-                          <Eye className="h-4 w-4" />
-                          Show System
-                        </>
-                      )}
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const newValue = !showSystemMessages;
+                          console.log('🔍 Show System Button Clicked (Fetched):', {
+                            currentValue: showSystemMessages,
+                            newValue,
+                            hasSelectedThread: !!selectedThread,
+                            selectedThreadId: selectedThread?.id,
+                            threadMessagesCount: selectedThread?.messages?.length || 0,
+                            systemMessagesInThread: selectedThread?.messages?.filter(msg => msg.role === 'system').length || 0
+                          });
+                          setShowSystemMessages(newValue);
+                        }}
+                        className="flex items-center gap-2"
+                      >
+                        {showSystemMessages ? (
+                          <>
+                            <EyeOff className="h-4 w-4" />
+                            Hide System
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="h-4 w-4" />
+                            Show System
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowContextPopup(true)}
+                        disabled={!selectedThread?.id || contextLoading}
+                        className="flex items-center gap-2"
+                      >
+                        {contextLoading ? (
+                          <>
+                            <RefreshCw className="h-4 w-4 animate-spin" />
+                            Loading...
+                          </>
+                        ) : (
+                          <>
+                            <FileText className="h-4 w-4" />
+                            Show Context
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="bg-gradient-to-b from-slate-100/90 to-slate-200/60 rounded-lg">
@@ -2085,6 +2202,141 @@ export function ConversationDetail({
               )}
             </div>
           )}
+
+      {/* Context Popup Overlay */}
+      {showContextPopup && (
+        <div 
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+          style={{ 
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            backdropFilter: 'blur(2px)'
+          }}
+          onClick={() => setShowContextPopup(false)}
+        >
+          <div 
+            className="bg-white rounded-lg shadow-2xl flex flex-col"
+            style={{ 
+              backgroundColor: '#ffffff',
+              border: '1px solid #d1d5db',
+              width: '600px',
+              height: '500px',
+              maxWidth: '90vw',
+              maxHeight: '90vh'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div 
+              className="flex justify-between items-center p-4 border-b flex-shrink-0"
+              style={{ 
+                backgroundColor: '#f9fafb',
+                borderBottom: '1px solid #e5e7eb'
+              }}
+            >
+              <h2 className="text-lg font-semibold" style={{ color: '#111827' }}>
+                Context Data
+              </h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowContextPopup(false)}
+                className="h-8 w-8 p-0"
+                style={{ 
+                  backgroundColor: 'transparent',
+                  color: '#6b7280'
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            
+            {/* Content */}
+            <div 
+              className="flex-1 p-4 overflow-hidden flex flex-col"
+              style={{ backgroundColor: '#ffffff' }}
+            >
+              {contextError ? (
+                <div 
+                  className="p-4 rounded-lg border"
+                  style={{ 
+                    backgroundColor: '#fef2f2',
+                    borderColor: '#fecaca',
+                    color: '#991b1b'
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4" />
+                    <span>{contextError}</span>
+                  </div>
+                </div>
+              ) : contextData ? (
+                <>
+                  <div className="flex justify-between items-center mb-3 flex-shrink-0">
+                    <h3 className="text-base font-medium" style={{ color: '#111827' }}>
+                      JSON Response
+                    </h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => copyToClipboard(JSON.stringify(contextData, null, 2), 'context-data')}
+                      className="flex items-center gap-2"
+                      style={{ 
+                        backgroundColor: '#ffffff',
+                        borderColor: '#d1d5db',
+                        color: '#374151'
+                      }}
+                    >
+                      {copiedId === 'context-data' ? (
+                        <>
+                          <Check className="h-4 w-4" style={{ color: '#059669' }} />
+                          <span style={{ color: '#059669' }}>Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-4 w-4" />
+                          Copy JSON
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                  <div 
+                    className="flex-1 rounded-lg border overflow-hidden"
+                    style={{ 
+                      backgroundColor: '#f9fafb',
+                      borderColor: '#e5e7eb',
+                      minHeight: 0
+                    }}
+                  >
+                    <div 
+                      className="h-full overflow-auto p-3"
+                      style={{ 
+                        backgroundColor: '#ffffff',
+                        maxHeight: '100%'
+                      }}
+                    >
+                      <pre 
+                        className="text-xs font-mono whitespace-pre-wrap break-words"
+                        style={{ 
+                          color: '#374151',
+                          margin: 0,
+                          fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace',
+                          lineHeight: '1.4'
+                        }}
+                      >
+                        {JSON.stringify(contextData, null, 2)}
+                      </pre>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center justify-center h-32">
+                  <p style={{ color: '#6b7280' }}>No context data available</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

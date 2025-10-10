@@ -1531,8 +1531,8 @@ export function ThreadsOverview({
             </div>
           </CardHeader>
           <CardContent>
-            <div className="rounded-md border">
-              <Table>
+            <div className="rounded-md border overflow-x-auto">
+              <Table className="w-full table-fixed">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-12">
@@ -1547,13 +1547,14 @@ export function ThreadsOverview({
                       }}
                     />
                   </TableHead>
-                  <TableHead>Thread ID</TableHead>
-                  <TableHead>Conversation ID</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>UI Events</TableHead>
-                  <TableHead>Messages</TableHead>
-                  <TableHead>Duration</TableHead>
-                  <TableHead>Response Time to First</TableHead>
+                  <TableHead style={{ width: '200px' }}>First User Message</TableHead>
+                  <TableHead style={{ width: '120px' }}>Thread ID</TableHead>
+                  <TableHead style={{ width: '150px' }}>Conversation ID</TableHead>
+                  <TableHead style={{ width: '120px' }}>Created</TableHead>
+                  <TableHead style={{ width: '80px' }}>UI Events</TableHead>
+                  <TableHead style={{ width: '80px' }}>Messages</TableHead>
+                  <TableHead style={{ width: '80px' }}>Duration</TableHead>
+                  <TableHead style={{ width: '100px' }}>Response Time</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1603,6 +1604,21 @@ export function ThreadsOverview({
                   }
                   const responseTimeSeconds = Math.round(timeToFirstResponse / 1000);
 
+                  // Extract first user message content
+                  const firstUserMessage = thread.messages
+                    .filter((m: any) => m.role === 'user')
+                    .sort((a: any, b: any) => {
+                      const timeA = new Date(a.created_at || a.createdAt || a.sentAt).getTime();
+                      const timeB = new Date(b.created_at || b.createdAt || b.sentAt).getTime();
+                      return timeA - timeB;
+                    })[0];
+
+                  const firstUserMessageText = firstUserMessage?.content
+                    ?.map((content: any) => content.text || content.content || '')
+                    .join(' ')
+                    .trim()
+                    .substring(0, 100) + (firstUserMessage?.content?.some((c: any) => (c.text || c.content || '').length > 100) ? '...' : '') || '';
+
                   // Check if this conversation ID exists in uploaded conversations
                   const hasConversationData = uploadedConversations.some(c => c.id === thread.conversationId);
 
@@ -1613,7 +1629,7 @@ export function ThreadsOverview({
                   return (
                     <TableRow 
                       key={thread.id} 
-                      className={`cursor-pointer hover:bg-muted/50 ${isAnyViewed ? 'bg-gray-50' : ''} ${threadHasErrors(thread) ? 'bg-red-50 border-l-4 border-l-red-500' : ''} h-16`}
+                      className={`cursor-pointer hover:bg-muted/50 ${isAnyViewed ? 'bg-gray-50' : ''} ${threadHasErrors(thread) ? 'bg-red-50 border-l-4 border-l-red-500' : ''} min-h-16`}
                     >
                       <TableCell onClick={(e) => e.stopPropagation()} className="py-4">
                         <Checkbox
@@ -1621,10 +1637,32 @@ export function ThreadsOverview({
                           onCheckedChange={() => toggleThreadSelection(thread.id)}
                         />
                       </TableCell>
+                      <TableCell 
+                        onClick={() => handleConversationView(thread.conversationId, actualIndex)}
+                        className="cursor-pointer py-2"
+                        title={firstUserMessageText || 'No user message found'}
+                        style={{ width: '200px', maxWidth: '200px', minWidth: '200px' }}
+                      >
+                        <div 
+                          className={`text-xs leading-tight ${!isAnyViewed ? 'font-bold text-foreground' : 'text-gray-600'}`}
+                          style={{ 
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                            wordBreak: 'break-word',
+                            lineHeight: '1.3',
+                            maxHeight: '2.6em',
+                            height: '2.6em'
+                          }}
+                        >
+                          {firstUserMessageText || '-'}
+                        </div>
+                      </TableCell>
                       <TableCell onClick={() => handleConversationView(thread.conversationId, actualIndex)} className="py-4">
                         <div className="flex items-center gap-2">
                           <div>
-                            <div className={`${!isAnyViewed ? 'font-bold' : ''} text-foreground`}>{parsed.id}</div>
+                            <div className="text-foreground">{parsed.id}</div>
                           </div>
                           <div className="flex items-center gap-1">
                             {isAnyViewed && (

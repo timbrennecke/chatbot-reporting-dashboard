@@ -947,7 +947,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       }))
     });
 
-    // Calculate averages and variability metrics
+    // Calculate averages and variability metrics with proper statistical analysis
     const toolDetails = Object.entries(toolAnalysis).map(([toolName, data]) => {
       const times = data.responseTimes;
       const count = data.count;
@@ -962,47 +962,164 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
           coefficientOfVariation: 0,
           range: 0,
           minTime: 0,
-          maxTime: 0
+          maxTime: 0,
+          confidenceInterval: null,
+          outliers: [],
+          significance: { level: 'no-data', icon: '❓', color: '#9ca3af', confidence: 0, interpretation: 'No timing data available' }
         };
       }
       
+      const n = times.length;
+      
       // Calculate average
-      const avg = times.reduce((sum, time) => sum + time, 0) / times.length;
+      const avg = times.reduce((sum, time) => sum + time, 0) / n;
       
-      // Calculate standard deviation
-      const variance = times.reduce((sum, time) => sum + Math.pow(time - avg, 2), 0) / times.length;
-      const stdDev = Math.sqrt(variance);
+      // Use sample standard deviation (n-1) for better statistical accuracy
+      const sampleVariance = n > 1 
+        ? times.reduce((sum, time) => sum + Math.pow(time - avg, 2), 0) / (n - 1)
+        : times.reduce((sum, time) => sum + Math.pow(time - avg, 2), 0) / n;
+      const stdDev = Math.sqrt(sampleVariance);
       
-      // Calculate coefficient of variation (CV) - std dev as % of mean
+      // Calculate coefficient of variation (CV) - the key metric for relative variability
       const coefficientOfVariation = avg > 0 ? (stdDev / avg) * 100 : 0;
+      
+      // Calculate 95% confidence interval for the mean
+      const getTValue = (df) => {
+        // Simplified t-distribution critical values for 95% confidence
+        const tTable = {
+          1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571,
+          6: 2.447, 7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228,
+          15: 2.131, 20: 2.086, 25: 2.060, 30: 2.042
+        };
+        if (df <= 30) return tTable[df] || tTable[Math.floor(df)] || 2.042;
+        return 1.96; // For large samples
+      };
+      
+      const tValue = getTValue(n - 1);
+      const marginOfError = n > 1 ? tValue * (stdDev / Math.sqrt(n)) : 0;
+      const confidenceInterval = n > 1 ? {
+        lower: avg - marginOfError,
+        upper: avg + marginOfError,
+        margin: marginOfError
+      } : null;
+      
+      // Detect outliers using IQR method
+      const getPercentile = (sortedArray, percentile) => {
+        const index = (percentile / 100) * (sortedArray.length - 1);
+        const lower = Math.floor(index);
+        const upper = Math.ceil(index);
+        const weight = index - lower;
+        if (upper >= sortedArray.length) return sortedArray[sortedArray.length - 1];
+        return sortedArray[lower] * (1 - weight) + sortedArray[upper] * weight;
+      };
+      
+      const sortedTimes = [...times].sort((a, b) => a - b);
+      const q1 = getPercentile(sortedTimes, 25);
+      const q3 = getPercentile(sortedTimes, 75);
+      const iqr = q3 - q1;
+      const lowerBound = q1 - 1.5 * iqr;
+      const upperBound = q3 + 1.5 * iqr;
+      const outliers = times.filter(time => time < lowerBound || time > upperBound);
       
       // Calculate range and min/max
       const minTime = Math.min(...times);
       const maxTime = Math.max(...times);
       const range = maxTime - minTime;
       
-      // Calculate significance of variability based on sample size
-      // More samples = more significant/reliable the range is
-      const getVariabilitySignificance = (sampleCount: number, range: number) => {
-        if (sampleCount < 3) return { level: 'insufficient', icon: '❓', color: '#9ca3af' };
-        if (sampleCount < 5) return { level: 'low', icon: '⚠️', color: '#f59e0b' };
-        if (sampleCount < 10) return { level: 'moderate', icon: '⚡', color: '#3b82f6' };
-        return { level: 'high', icon: '✅', color: '#10b981' };
+      // Statistically correct significance assessment based on CV and sample size
+      const getStatisticalSignificance = (sampleCount, cv) => {
+        if (sampleCount < 3) {
+          return { 
+            level: 'insufficient', 
+            icon: '❓', 
+            color: '#9ca3af', 
+            confidence: 0,
+            interpretation: 'Too few samples for reliable analysis',
+            cvCategory: 'unknown'
+          };
+        }
+        
+        // Categorize variability based on coefficient of variation
+        let cvCategory, baseConfidence, variabilityLevel;
+        
+        if (cv < 10) {
+          cvCategory = 'very-low';
+          variabilityLevel = 'Very Consistent';
+          baseConfidence = 0.90;
+        } else if (cv < 25) {
+          cvCategory = 'low';
+          variabilityLevel = 'Consistent';
+          baseConfidence = 0.85;
+        } else if (cv < 50) {
+          cvCategory = 'moderate';
+          variabilityLevel = 'Somewhat Variable';
+          baseConfidence = 0.75;
+        } else if (cv < 100) {
+          cvCategory = 'high';
+          variabilityLevel = 'Highly Variable';
+          baseConfidence = 0.65;
+        } else {
+          cvCategory = 'very-high';
+          variabilityLevel = 'Extremely Variable';
+          baseConfidence = 0.55;
+        }
+        
+        // Adjust confidence based on sample size
+        let confidence = baseConfidence;
+        if (sampleCount >= 30) confidence = Math.min(confidence + 0.15, 0.99);
+        else if (sampleCount >= 20) confidence = Math.min(confidence + 0.10, 0.95);
+        else if (sampleCount >= 10) confidence = Math.min(confidence + 0.05, 0.90);
+        else if (sampleCount < 5) confidence = Math.max(confidence - 0.15, 0.40);
+        
+        const icons = {
+          'very-low': '✅',
+          'low': '✅', 
+          'moderate': '⚡',
+          'high': '⚠️',
+          'very-high': '🔴'
+        };
+        
+        const colors = {
+          'very-low': '#10b981',
+          'low': '#10b981',
+          'moderate': '#3b82f6', 
+          'high': '#f59e0b',
+          'very-high': '#ef4444'
+        };
+        
+        return {
+          level: cvCategory,
+          cvCategory,
+          variabilityLevel,
+          cv: Math.round(cv * 10) / 10,
+          confidence: Math.round(confidence * 100),
+          icon: icons[cvCategory],
+          color: colors[cvCategory],
+          interpretation: `${variabilityLevel} (CV=${cv.toFixed(1)}%)`
+        };
       };
       
-      const significance = getVariabilitySignificance(times.length, range);
+      const significance = getStatisticalSignificance(times.length, coefficientOfVariation);
       
       return {
         name: toolName,
         count,
-        avgResponseTime: Math.round(avg),
+        avgResponseTime: Math.round(avg * 100) / 100,
         responseTimes: times,
-        stdDev: Math.round(stdDev * 10) / 10, // Round to 1 decimal
-        coefficientOfVariation: Math.round(coefficientOfVariation), // Round to whole %
-        range: Math.round(range * 10) / 10, // Round to 1 decimal
-        minTime: Math.round(minTime * 10) / 10,
-        maxTime: Math.round(maxTime * 10) / 10,
-        significance: significance
+        stdDev: Math.round(stdDev * 100) / 100,
+        coefficientOfVariation: Math.round(coefficientOfVariation * 10) / 10,
+        range: Math.round(range * 100) / 100,
+        minTime: Math.round(minTime * 100) / 100,
+        maxTime: Math.round(maxTime * 100) / 100,
+        confidenceInterval,
+        outliers,
+        significance,
+        quartiles: n >= 4 ? {
+          q1: Math.round(q1 * 100) / 100,
+          median: Math.round(getPercentile(sortedTimes, 50) * 100) / 100,
+          q3: Math.round(q3 * 100) / 100,
+          iqr: Math.round(iqr * 100) / 100
+        } : null
       };
     }).sort((a, b) => b.count - a.count);
 
@@ -1481,7 +1598,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
               backgroundColor: '#f9fafb',
               borderBottom: '1px solid #e5e7eb'
             }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#059669' }}>
                     {toolStats.totalToolCalls}
@@ -1493,6 +1610,34 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                     {toolStats.avgResponseTime}s
                   </div>
                   <div style={{ fontSize: '14px', color: '#6b7280' }}>Avg Response Time</div>
+                </div>
+              </div>
+              
+              {/* Statistical Explanations */}
+              <div style={{
+                backgroundColor: '#ffffff',
+                border: '1px solid #e5e7eb',
+                borderRadius: '8px',
+                padding: '12px',
+                fontSize: '12px',
+                color: '#374151'
+              }}>
+                <div style={{ fontWeight: '600', marginBottom: '8px', color: '#111827', fontSize: '13px' }}>
+                  📊 Statistical Metrics Explained
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <div style={{ fontWeight: '600', color: '#1e40af' }}>Avg Time ± Margin:</div>
+                    <div>Average response time with 95% confidence interval. The ± shows uncertainty range.</div>
+                    <div style={{ fontWeight: '600', color: '#7c3aed', marginTop: '6px' }}>CV (Coefficient of Variation):</div>
+                    <div>Measures relative variability. &lt;10% = Very Consistent, &lt;25% = Consistent, &lt;50% = Variable, ≥50% = Highly Variable</div>
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: '600', color: '#059669' }}>Samples:</div>
+                    <div>Number of timing measurements. More samples = more reliable statistics.</div>
+                    <div style={{ fontWeight: '600', color: '#dc2626', marginTop: '6px' }}>Outliers:</div>
+                    <div>Unusually slow/fast calls detected using statistical methods. May indicate performance issues.</div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1523,13 +1668,13 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                         Count
                       </th>
                       <th style={{ textAlign: 'center', padding: '8px 12px', fontSize: '14px', fontWeight: '600', color: '#111827' }}>
-                        Avg Time
+                        Avg Time (95% CI)
                       </th>
                       <th style={{ textAlign: 'center', padding: '8px 12px', fontSize: '14px', fontWeight: '600', color: '#111827' }}>
-                        Variability
+                        Variability (CV)
                       </th>
                       <th style={{ textAlign: 'center', padding: '8px 12px', fontSize: '14px', fontWeight: '600', color: '#111827' }}>
-                        Samples
+                        Samples & Confidence
                       </th>
                     </tr>
                   </thead>
@@ -1577,69 +1722,110 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                           </span>
                         </td>
                         <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                          <span style={{
-                            display: 'inline-block',
-                            padding: '2px 8px',
-                            fontSize: '12px',
-                            fontWeight: '600',
-                            backgroundColor: '#dbeafe',
-                            color: '#1e40af',
-                            borderRadius: '4px'
-                          }}>
-                            {tool.avgResponseTime > 0 ? `${tool.avgResponseTime}s` : 'N/A'}
-                          </span>
-                        </td>
-                        <td style={{ padding: '8px 12px', textAlign: 'center' }}>
                           <div style={{ fontSize: '12px' }}>
-                            {tool.responseTimes.length > 1 ? (
-                              <>
+                            {tool.confidenceInterval ? (
+                              <div>
                                 <div style={{
                                   display: 'inline-block',
                                   padding: '2px 8px',
                                   fontSize: '12px',
                                   fontWeight: '600',
-                                  backgroundColor: '#f3f4f6',
-                                  color: '#374151',
+                                  backgroundColor: '#dbeafe',
+                                  color: '#1e40af',
                                   borderRadius: '4px',
                                   marginBottom: '2px'
                                 }}>
-                                  {tool.minTime}s - {tool.maxTime}s
+                                  {tool.avgResponseTime}s ± {tool.confidenceInterval.margin.toFixed(2)}s
                                 </div>
                                 <div style={{ 
                                   fontSize: '10px', 
-                                  color: tool.significance.color, 
-                                  marginTop: '2px',
-                                  fontWeight: '600'
+                                  color: '#6b7280',
+                                  marginTop: '2px'
                                 }}>
-                                  {tool.significance.icon} {tool.significance.level === 'insufficient' ? 'Too few' :
-                                     tool.significance.level === 'low' ? 'Low conf' :
-                                     tool.significance.level === 'moderate' ? 'Med conf' :
-                                     'High conf'}
+                                  95% CI
                                 </div>
-                              </>
+                              </div>
                             ) : (
                               <div style={{
                                 display: 'inline-block',
                                 padding: '2px 8px',
                                 fontSize: '12px',
                                 fontWeight: '600',
-                                backgroundColor: '#f9fafb',
-                                color: '#6b7280',
+                                backgroundColor: '#dbeafe',
+                                color: '#1e40af',
                                 borderRadius: '4px'
                               }}>
-                                Single sample
+                                {tool.avgResponseTime > 0 ? `${tool.avgResponseTime}s` : 'N/A'}
                               </div>
                             )}
                           </div>
                         </td>
                         <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                          <div style={{ fontSize: '14px' }}>
-                            <div style={{ fontWeight: '500', color: '#374151' }}>
-                              {tool.responseTimes.length}
+                          <div style={{ fontSize: '12px' }}>
+                            <div style={{
+                              display: 'inline-block',
+                              padding: '2px 8px',
+                              fontSize: '12px',
+                              fontWeight: '600',
+                              backgroundColor: tool.significance.color + '20',
+                              color: tool.significance.color,
+                              borderRadius: '4px',
+                              marginBottom: '2px',
+                              border: `1px solid ${tool.significance.color}40`
+                            }}>
+                              {tool.significance.icon} CV = {tool.coefficientOfVariation}%
                             </div>
-                            {tool.responseTimes.length > 0 && (
-                              <div style={{ fontSize: '12px', color: '#6b7280' }}>
-                                {Math.min(...tool.responseTimes).toFixed(1)}s - {Math.max(...tool.responseTimes).toFixed(1)}s
+                            <div style={{ 
+                              fontSize: '10px', 
+                              color: tool.significance.color, 
+                              marginTop: '2px',
+                              fontWeight: '600'
+                            }}>
+                              {tool.significance.variabilityLevel || tool.significance.interpretation}
+                            </div>
+                            {tool.outliers && tool.outliers.length > 0 && (
+                              <div style={{ 
+                                fontSize: '10px', 
+                                color: '#ef4444',
+                                marginTop: '1px',
+                                fontWeight: '600'
+                              }}>
+                                ⚠️ {tool.outliers.length} outlier{tool.outliers.length > 1 ? 's' : ''}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                          <div style={{ fontSize: '12px' }}>
+                            <div style={{
+                              display: 'inline-block',
+                              padding: '2px 8px',
+                              fontSize: '12px',
+                              fontWeight: '600',
+                              backgroundColor: '#f3f4f6',
+                              color: '#374151',
+                              borderRadius: '4px',
+                              marginBottom: '2px'
+                            }}>
+                              n = {tool.responseTimes.length}
+                            </div>
+                            {tool.significance.confidence > 0 && (
+                              <div style={{ 
+                                fontSize: '10px', 
+                                color: tool.significance.color,
+                                marginTop: '2px',
+                                fontWeight: '600'
+                              }}>
+                                {tool.significance.confidence}% confidence
+                              </div>
+                            )}
+                            {tool.responseTimes.length > 1 && (
+                              <div style={{ 
+                                fontSize: '10px', 
+                                color: '#6b7280',
+                                marginTop: '1px'
+                              }}>
+                                Range: {tool.minTime}s - {tool.maxTime}s
                               </div>
                             )}
                           </div>
