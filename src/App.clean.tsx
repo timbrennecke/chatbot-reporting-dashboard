@@ -1,12 +1,11 @@
 import React, { useCallback } from 'react';
 import { Button } from './components/ui/button';
 
-import { AppHeader } from './components/layout/AppHeader';
-import { ConversationSearch } from './components/features/ConversationSearch';
+import { AppHeader } from './components/AppHeader';
+import { ConversationSearch } from './components/ConversationSearch';
 import { ThreadsOverview } from './components/ThreadsOverview';
 import { ConversationDetail } from './components/ConversationDetail';
 import { SavedChats } from './components/SavedChats';
-import { Statistics } from './components/Statistics';
 
 import { useAppState } from './hooks/useAppState';
 import { useConversationSearch } from './hooks/useConversationSearch';
@@ -257,7 +256,6 @@ export default function App() {
               { id: 'dashboard', label: 'Dashboard' },
               { id: 'conversation-search', label: 'Conversation Search' },
               { id: 'saved-chats', label: 'Saved Chats' },
-              { id: 'statistics', label: 'Statistics' },
             ].map((tab, index) => (
               <button
                 key={tab.id}
@@ -281,7 +279,7 @@ export default function App() {
         <div className="space-y-6">
           {activeTab === 'dashboard' && (
             <ThreadsOverview
-              key={`threads-${environment}`}
+              key={environment}
               uploadedThreads={uploadedThreads}
               uploadedConversations={uploadedData.conversations || []}
               onThreadSelect={(thread) => {
@@ -391,13 +389,6 @@ export default function App() {
               }}
             />
           )}
-
-          {activeTab === 'statistics' && (
-            <Statistics
-              threads={uploadedThreads}
-              uploadedConversations={uploadedData.conversations || []}
-            />
-          )}
         </div>
       </main>
 
@@ -428,141 +419,15 @@ export default function App() {
                 }
               }}
               onPreviousConversation={() => {
-                if (!selectedConversationId) return;
-                
-                if (navigationContext === 'saved-chats') {
-                  // Use saved chats navigation
-                  const savedChatsOrder = savedChatsOrderRef.current;
-                  if (savedChatsOrder.length === 0) return;
-                  const currentIndex = savedChatsOrder.indexOf(selectedConversationId);
-                  if (currentIndex > 0) {
-                    const previousConversationId = savedChatsOrder[currentIndex - 1];
-                    setSelectedConversationId(previousConversationId);
-                    
-                    // Mark the new conversation as viewed
-                    try {
-                      const existingViewed = getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
-                      const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
-                      viewedSet.add(previousConversationId);
-                      setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
-                    } catch (error) {
-                      console.error('Failed to save viewed conversation:', error);
-                    }
-                    
-                    // Find and set the thread for the new conversation
-                    const associatedThread = currentThreads.find(thread => thread.conversationId === previousConversationId);
-                    if (associatedThread) {
-                      setSelectedThread(associatedThread);
-                    }
-                  }
-                } else {
-                  // Use threads navigation
-                  if (threadOrder.length === 0) return;
-                  const currentIndex = threadOrder.indexOf(selectedConversationId);
-                  if (currentIndex > 0) {
-                    const previousConversationId = threadOrder[currentIndex - 1];
-                    setSelectedConversationId(previousConversationId);
-                    
-                    // Mark the new conversation as viewed
-                    try {
-                      const existingViewed = getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
-                      const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
-                      viewedSet.add(previousConversationId);
-                      setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
-                    } catch (error) {
-                      console.error('Failed to save viewed conversation:', error);
-                    }
-                    
-                    // Find and set the thread for the new conversation
-                    const associatedThread = currentThreads.find(thread => thread.conversationId === previousConversationId);
-                    if (associatedThread) {
-                      setSelectedThread(associatedThread);
-                    }
-                  }
-                }
+                // Simplified navigation - implement as needed
+                console.log('Previous conversation navigation');
               }}
               onNextConversation={() => {
-                if (!selectedConversationId) return;
-                
-                if (navigationContext === 'saved-chats') {
-                  // Use saved chats navigation
-                  const savedChatsOrder = savedChatsOrderRef.current;
-                  if (savedChatsOrder.length === 0) return;
-                  const currentIndex = savedChatsOrder.indexOf(selectedConversationId);
-                  if (currentIndex >= 0 && currentIndex < savedChatsOrder.length - 1) {
-                    const nextConversationId = savedChatsOrder[currentIndex + 1];
-                    setSelectedConversationId(nextConversationId);
-                    
-                    // Mark the new conversation as viewed
-                    try {
-                      const existingViewed = getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
-                      const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
-                      viewedSet.add(nextConversationId);
-                      setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
-                    } catch (error) {
-                      console.error('Failed to save viewed conversation:', error);
-                    }
-                    
-                    // Find and set the thread for the new conversation
-                    const associatedThread = currentThreads.find(thread => thread.conversationId === nextConversationId);
-                    if (associatedThread) {
-                      setSelectedThread(associatedThread);
-                    }
-                  }
-                } else {
-                  // Use threads navigation
-                  if (threadOrder.length === 0) return;
-                  const currentIndex = threadOrder.indexOf(selectedConversationId);
-                  if (currentIndex >= 0 && currentIndex < threadOrder.length - 1) {
-                    const nextConversationId = threadOrder[currentIndex + 1];
-                    setSelectedConversationId(nextConversationId);
-                    
-                    // Mark the new conversation as viewed
-                    try {
-                      const existingViewed = getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
-                      const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
-                      viewedSet.add(nextConversationId);
-                      setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
-                    } catch (error) {
-                      console.error('Failed to save viewed conversation:', error);
-                    }
-                    
-                    // Find and set the thread for the new conversation
-                    const associatedThread = currentThreads.find(thread => thread.conversationId === nextConversationId);
-                    if (associatedThread) {
-                      setSelectedThread(associatedThread);
-                    }
-                  }
-                }
+                // Simplified navigation - implement as needed
+                console.log('Next conversation navigation');
               }}
-              hasPreviousConversation={(() => {
-                if (!selectedConversationId) return false;
-                
-                if (navigationContext === 'saved-chats') {
-                  const savedChatsOrder = savedChatsOrderRef.current;
-                  if (savedChatsOrder.length === 0) return false;
-                  const currentIndex = savedChatsOrder.indexOf(selectedConversationId);
-                  return currentIndex > 0;
-                } else {
-                  if (threadOrder.length === 0) return false;
-                  const currentIndex = threadOrder.indexOf(selectedConversationId);
-                  return currentIndex > 0;
-                }
-              })()}
-              hasNextConversation={(() => {
-                if (!selectedConversationId) return false;
-                
-                if (navigationContext === 'saved-chats') {
-                  const savedChatsOrder = savedChatsOrderRef.current;
-                  if (savedChatsOrder.length === 0) return false;
-                  const currentIndex = savedChatsOrder.indexOf(selectedConversationId);
-                  return currentIndex >= 0 && currentIndex < savedChatsOrder.length - 1;
-                } else {
-                  if (threadOrder.length === 0) return false;
-                  const currentIndex = threadOrder.indexOf(selectedConversationId);
-                  return currentIndex >= 0 && currentIndex < threadOrder.length - 1;
-                }
-              })()}
+              hasPreviousConversation={false}
+              hasNextConversation={false}
               onConversationFetched={(conversation) => {
                 setFetchedConversationsMap(prev => {
                   const newMap = new Map(prev);

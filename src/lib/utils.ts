@@ -39,9 +39,6 @@ export function formatTimestamp(
 }
 
 export function calculateThreadAnalytics(threads: Thread[]): ThreadAnalytics {
-  console.log('\n🧵 CALCULATING THREAD ANALYTICS');
-  console.log('Number of threads:', threads.length);
-  
   let totalMessages = 0;
   let assistantMessages = 0;
   let userMessages = 0;
@@ -52,26 +49,18 @@ export function calculateThreadAnalytics(threads: Thread[]): ThreadAnalytics {
   const conversationIds = new Set<string>();
   const excludedMessageIds: string[] = [];
 
-  threads.forEach((thread, threadIndex) => {
-    console.log(`\n--- THREAD ${threadIndex} ---`);
-    console.log('Thread ID:', thread.id);
-    console.log('Messages in thread:', thread.messages.length);
+  threads.forEach((thread) => {
     conversationIds.add(thread.conversationId);
     const parsed = parseThreadId(thread.id);
     namespaceBreakdown[parsed.namespace] = (namespaceBreakdown[parsed.namespace] || 0) + 1;
 
-    thread.messages.forEach((message, msgIndex) => {
-      console.log(`  Message ${msgIndex} (${message.id}): role=${message.role}`);
-      console.log('    Content types:', message.content.map(c => c.kind).join(', '));
-      
+    thread.messages.forEach((message) => {
       // Skip system messages for metrics calculation
       if (message.role !== 'system') {
         // Check if message contains UI components - if so, exclude from message count
         const hasUiComponent = message.content.some(content => content.kind === 'ui');
-        console.log(`    Has UI component: ${hasUiComponent}`);
         
         if (!hasUiComponent) {
-          console.log('    -> INCLUDED in count');
           totalMessages++;
           if (message.role === 'assistant') {
             assistantMessages++;
@@ -79,12 +68,9 @@ export function calculateThreadAnalytics(threads: Thread[]): ThreadAnalytics {
             userMessages++;
           }
         } else {
-          console.log('    -> EXCLUDED from count (has UI)');
           excludedUIMessages++;
           excludedMessageIds.push(message.id);
         }
-      } else {
-        console.log('    -> EXCLUDED from count (system message)');
       }
 
       message.content.forEach(content => {
@@ -106,14 +92,6 @@ export function calculateThreadAnalytics(threads: Thread[]): ThreadAnalytics {
   const avgMessagesPerThread = threads.length > 0 ? totalMessages / threads.length : 0;
   const assistantMessagePercent = totalMessages > 0 ? (assistantMessages / totalMessages) * 100 : 0;
   const userMessagePercent = totalMessages > 0 ? (userMessages / totalMessages) * 100 : 0;
-
-  console.log('\n📊 THREAD ANALYTICS RESULTS:');
-  console.log('Total messages (excluding UI):', totalMessages);
-  console.log('Messages excluded due to UI:', excludedUIMessages);
-  console.log('Excluded message IDs:', excludedMessageIds);
-  console.log('Assistant messages:', assistantMessages);
-  console.log('User messages:', userMessages);
-  console.log('UI events found:', Object.keys(uiEventCounts).length);
 
   return {
     totalThreads: threads.length,

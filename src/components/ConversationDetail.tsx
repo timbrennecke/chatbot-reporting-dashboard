@@ -110,9 +110,9 @@ function cleanText(text: string): string {
   return cleaned;
 }
 
-// Function to check if a system message contains errors
+// Function to check if a system/status message contains errors
 function systemMessageHasErrors(message: any): boolean {
-  if (message.role !== 'system') return false;
+  if (message.role !== 'system' && message.role !== 'status') return false;
   
   return message.content.some((content: any) => {
     if (content.text || content.content) {
@@ -245,25 +245,12 @@ function processMessageText(content: MessageContent[]): string {
   
   if (textContents.length === 0) return '';
   
-  // Enhanced logging to understand the structure
-  console.log('📝 Text content analysis:', {
-    totalTextItems: textContents.length,
-    textItems: textContents.map((item, i) => ({
-      index: i,
-      hasText: !!item.text,
-      hasContent: !!item.content,
-      textLength: item.text?.length || 0,
-      contentLength: item.content?.length || 0,
-      textPreview: (item.text || item.content || '').substring(0, 50),
-      fullItem: item
-    }))
-  });
+  // Process text content
   
   // Try different approaches based on the content structure
   if (textContents.length === 1) {
     // Single text item - use it directly
     const text = textContents[0].text || textContents[0].content || '';
-    console.log('📝 Single text item:', { length: text.length, preview: text.substring(0, 100) });
     return text;
   } else {
     // Multiple text items - they might be fragments that need to be joined properly
@@ -271,12 +258,6 @@ function processMessageText(content: MessageContent[]): string {
       .map(item => item.text || item.content || '')
       .filter(text => text.length > 0)
       .join(''); // Try joining without spaces first
-      
-    console.log('📝 Multiple text items combined:', { 
-      itemCount: textContents.length,
-      combinedLength: combinedText.length, 
-      preview: combinedText.substring(0, 100) 
-    });
     
     return combinedText;
   }
@@ -295,21 +276,6 @@ function consolidateMessageContent(content: MessageContent[]) {
   return { consolidatedText, otherContents };
 }
 
-// Function to merge ONLY thread system messages with conversation messages chronologically
-function mergeMessagesChronologically(conversationMessages: Message[], threadMessages: Message[]): Message[] {
-  // Get only system messages from thread endpoint
-  const threadSystemMessages = threadMessages.filter(msg => msg.role === 'system');
-  
-  // Combine conversation messages (user/assistant) with thread system messages
-  const allMessages = [...conversationMessages, ...threadSystemMessages];
-
-  // Sort by sentAt timestamp chronologically
-  return allMessages.sort((a, b) => {
-    const timeA = new Date(a.sentAt).getTime();
-    const timeB = new Date(b.sentAt).getTime();
-    return timeA - timeB;
-  });
-}
 
 export function ConversationDetail({ 
   conversation, 
@@ -333,6 +299,9 @@ export function ConversationDetail({
   
   
   const [showSystemMessages, setShowSystemMessages] = useState(false);
+  
+  // Debug: Log the state (removed to prevent infinite logs)
+  // console.log('🔍 ConversationDetail showSystemMessages state:', showSystemMessages);
   const [paginationConversationId, setPaginationConversationId] = useState(() => {
     const id = conversationId || conversation?.id || selectedThread?.conversationId || '';
     return id;
@@ -352,6 +321,12 @@ export function ConversationDetail({
   // Notes state
   const [showNotesPanel, setShowNotesPanel] = useState(false);
   const [notes, setNotes] = useState(initialNotes);
+
+  // Context state
+  const [contextData, setContextData] = useState<any>(null);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextError, setContextError] = useState<string>('');
+  const [showContextPopup, setShowContextPopup] = useState(false);
 
   // Handle notes changes
   const handleNotesChange = (newNotes: string) => {
@@ -392,45 +367,120 @@ export function ConversationDetail({
     }
   };
 
-  // Determine which conversation data to use
+  // Fetch context data function
+  const fetchContextData = async (threadId: string) => {
+    if (!threadId || !apiKey.trim()) {
+      setContextError('Thread ID and API key are required');
+      return;
+    }
+
+    setContextLoading(true);
+    setContextError('');
+
+    try {
+      const baseUrl = getApiBaseUrl();
+      
+      const response = await fetch(`${baseUrl}/attributes/bulk`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey.trim()}`,
+        },
+        body: JSON.stringify({
+          threads: [{ threadId }]
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      setContextData(data);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+      setContextError(`Failed to fetch context: ${errorMessage}`);
+      console.error('Context fetch error:', err);
+    } finally {
+      setContextLoading(false);
+    }
+  };
+
+  // Determine which conversation data to use - prioritize selectedThread since it now contains all messages
   const activeConversation = useMemo(() => {
+    // If we have a selectedThread with messages, use it as the primary source
+    if (selectedThread && selectedThread.messages && selectedThread.messages.length > 0) {
+      // Create a conversation-like object from the thread data
+      const threadAsConversation = {
+        id: selectedThread.conversationId,
+        title: `Thread ${selectedThread.id}`,
+        createdAt: selectedThread.createdAt,
+        lastMessageAt: selectedThread.messages[selectedThread.messages.length - 1]?.sentAt || selectedThread.createdAt,
+        messages: selectedThread.messages,
+        threadIds: [selectedThread.id]
+      };
+      // Using selectedThread as primary data source
+      return threadAsConversation;
+    }
+    
+    // Fallback to traditional conversation sources
     const result = conversation || uploadedConversation || fetchedConversation;
-    console.log('🔍 Active Conversation Debug:', {
-      hasConversation: !!conversation,
-      hasUploadedConversation: !!uploadedConversation,
-      hasFetchedConversation: !!fetchedConversation,
-      hasSelectedThread: !!selectedThread,
-      selectedThreadId: selectedThread?.id,
-      activeConversationId: result?.id,
-      usingConversationType: conversation ? 'conversation' : uploadedConversation ? 'uploadedConversation' : fetchedConversation ? 'fetchedConversation' : 'none'
-    });
+    // Fallback to conversation sources
     return result;
   }, [conversation, uploadedConversation, fetchedConversation, selectedThread]);
 
 
   // Auto-fetch conversation when component mounts or conversation ID changes
+  // BUT NOT when we have selectedThread data (since threads now contain all messages)
   useEffect(() => {
     const shouldAutoFetch = 
       paginationConversationId.trim() && // Has conversation ID
       apiKey.trim() && // Has API key
       !uploadedConversation && // No uploaded conversation data
       !fetchedConversation && // Not already fetched
-      !fetchLoading; // Not currently loading
+      !fetchLoading && // Not currently loading
+      !(selectedThread && selectedThread.messages && selectedThread.messages.length > 0); // Don't auto-fetch if we have thread data
 
     if (shouldAutoFetch) {
+      console.log('🔄 Auto-fetching conversation (no thread data available)');
       handleFetchConversation();
+    } else if (selectedThread && selectedThread.messages && selectedThread.messages.length > 0) {
+      console.log('✅ Skipping auto-fetch: using selectedThread data instead');
     }
-  }, [paginationConversationId, apiKey, uploadedConversation, fetchedConversation, fetchLoading]);
+  }, [paginationConversationId, apiKey, uploadedConversation, fetchedConversation, fetchLoading, selectedThread]);
 
   // Clear fetched conversation when conversation ID changes (for navigation)
   useEffect(() => {
     const newId = conversationId || conversation?.id || selectedThread?.conversationId || '';
-    if (newId && newId !== paginationConversationId && fetchedConversation) {
-      console.log('🔄 Conversation ID changed, clearing fetched data and refetching:', newId);
-      setFetchedConversation(null);
+    if (newId && newId !== paginationConversationId) {
+      console.log('🔄 Conversation ID changed, updating pagination ID:', paginationConversationId, '->', newId);
       setPaginationConversationId(newId);
+      if (fetchedConversation && newId !== (fetchedConversation.id || '')) {
+        console.log('🔄 Clearing fetched data for new conversation');
+        setFetchedConversation(null);
+      }
     }
   }, [conversationId, conversation?.id, selectedThread?.conversationId, paginationConversationId, fetchedConversation]);
+
+  // Mark conversation as viewed when conversation ID changes or component mounts
+  useEffect(() => {
+    const currentConversationId = conversationId || conversation?.id || selectedThread?.conversationId || paginationConversationId;
+    if (currentConversationId) {
+      // Dispatch a custom event to mark this conversation as viewed
+      const event = new CustomEvent('conversationViewed', { detail: { conversationId: currentConversationId } });
+      window.dispatchEvent(event);
+      console.log('👁️ Marked conversation as viewed:', currentConversationId);
+    }
+  }, [conversationId, conversation?.id, selectedThread?.conversationId, paginationConversationId]);
+
+  // Auto-fetch context data when thread changes
+  useEffect(() => {
+    const threadId = selectedThread?.id;
+    if (threadId && apiKey.trim()) {
+      console.log('🔄 Auto-fetching context data for thread:', threadId);
+      fetchContextData(threadId);
+    }
+  }, [selectedThread?.id, apiKey]);
 
 
   const analytics = useMemo((): ConversationAnalytics | null => {
@@ -481,8 +531,19 @@ export function ConversationDetail({
     setFetchResponse('');
     
     try {
+      const conversationId = paginationConversationId.trim();
+      
+      // No more cache checking - fetch directly from API
+      console.log('🌐 Fetching conversation from API');
+      console.log('🔍 API Call Debug:', {
+        conversationId,
+        paginationConversationId,
+        selectedThreadConversationId: selectedThread?.conversationId,
+        apiCallUrl: `${getApiBaseUrl()}/conversation/${conversationId}`
+      });
+      
       const apiBaseUrl = getApiBaseUrl();
-      const response = await fetch(`${apiBaseUrl}/conversation/${paginationConversationId.trim()}`, {
+      const response = await fetch(`${apiBaseUrl}/conversation/${conversationId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${apiKey.trim()}`,
@@ -496,6 +557,9 @@ export function ConversationDetail({
       }
       
       const data = JSON.parse(responseText);
+      
+      // No more caching - just use the data directly
+      
       setFetchedConversation(data);
       
       // Notify parent component about the fetched conversation
@@ -604,6 +668,503 @@ export function ConversationDetail({
         </div>
       </div>
 
+
+      {/* Thread-based Conversation Display - when activeConversation is created from selectedThread */}
+      {(() => {
+        const shouldShowThreadDisplay = activeConversation && !uploadedConversation && !fetchedConversation;
+        // Display section logic
+        return shouldShowThreadDisplay;
+      })() && (
+        <div className="space-y-6">
+          {/* Conversation Header */}
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader className="bg-slate-50/50">
+              <div className="flex justify-between items-start">
+                <div className="flex-1">
+                  <CardTitle className="text-slate-800">{activeConversation.title || `Thread ${selectedThread?.id}`}</CardTitle>
+                  <div className="space-y-1 mt-1">
+                    <div className="flex items-center gap-2">
+                      <CardDescription className="text-slate-600">Conversation ID: {activeConversation.id}</CardDescription>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => copyToClipboard(activeConversation.id, 'thread-conversation')}
+                        className="h-6 w-6 p-0 hover:bg-slate-100"
+                        title="Copy Conversation ID"
+                      >
+                        {copiedId === 'thread-conversation' ? (
+                          <Check className="h-3 w-3 text-green-600" />
+                        ) : (
+                          <Copy className="h-3 w-3 text-slate-500" />
+                        )}
+                      </Button>
+                    </div>
+                    {selectedThread?.id && (
+                      <div className="flex items-center gap-2">
+                        <CardDescription className="text-slate-600">Thread ID: {selectedThread.id}</CardDescription>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => copyToClipboard(selectedThread.id, 'thread-id')}
+                          className="h-6 w-6 p-0 hover:bg-slate-100"
+                          title="Copy Thread ID"
+                        >
+                          {copiedId === 'thread-id' ? (
+                            <Check className="h-3 w-3 text-green-600" />
+                          ) : (
+                            <Copy className="h-3 w-3 text-slate-500" />
+                          )}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Navigation Arrows and Bookmark */}
+                <div className="flex items-center gap-3 mr-4">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      onPreviousConversation?.();
+                    }}
+                    disabled={!hasPreviousConversation}
+                    className={`flex items-center gap-1 px-3 py-2 h-auto ${!hasPreviousConversation ? 'text-gray-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`}
+                    title="Previous Chat"
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                    <span className="text-sm font-medium">Previous Chat</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      onNextConversation?.();
+                    }}
+                    disabled={!hasNextConversation}
+                    className={`flex items-center gap-1 px-3 py-2 h-auto ${!hasNextConversation ? 'text-gray-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`}
+                    title="Next Chat"
+                  >
+                    <span className="text-sm font-medium">Next Chat</span>
+                    <ChevronRight className="h-5 w-5" />
+                  </Button>
+
+                  {/* Bookmark Button */}
+                  {paginationConversationId && (
+                    <div className="relative flex flex-col items-start gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleSaveWithNotes}
+                        className={`flex items-center gap-2 px-3 py-2 h-auto transition-all duration-200 rounded-md ${
+                          isSaved 
+                            ? 'text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-200 bg-blue-50/50' 
+                            : 'text-slate-600 hover:text-slate-700 hover:bg-slate-100 border border-slate-200'
+                        }`}
+                        title={isSaved ? "Remove from saved chats" : "Save chat with notes"}
+                      >
+                        {isSaved ? (
+                          <>
+                            <BookmarkX className="h-4 w-4" />
+                            <span className="text-sm font-medium">Saved</span>
+                          </>
+                        ) : (
+                          <>
+                            <Bookmark className="h-4 w-4" />
+                            <span className="text-sm font-medium">Save</span>
+                          </>
+                        )}
+                      </Button>
+
+                      {/* Small Notes Button - only show when saved */}
+                      {isSaved && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowNotesPanel(true)}
+                          className="flex items-center gap-1 px-2 py-1 h-auto text-xs text-gray-600 hover:text-gray-700 hover:bg-gray-100 border border-gray-200 rounded-md"
+                          title="View/edit notes"
+                        >
+                          <FileText className="h-3 w-3" />
+                          <span>Notes</span>
+                        </Button>
+                      )}
+
+                      {/* Small Notes Popup */}
+                      {showNotesPanel && (
+                        <div className="absolute top-full left-0 mt-2 w-72 bg-white border-2 border-gray-300 rounded-lg shadow-xl z-50 overflow-hidden" style={{ backgroundColor: '#ffffff', opacity: 1 }}>
+                          <div className="p-3 bg-white">
+                            <div className="flex items-center gap-2 mb-2 bg-white">
+                              <FileText className="w-4 h-4 text-gray-700" />
+                              <span className="text-sm font-semibold text-gray-800">{notes.trim() ? 'Edit Notes' : 'Add Notes'}</span>
+                            </div>
+                            
+                            <Textarea
+                              placeholder="Add notes about this conversation..."
+                              value={notes}
+                              onChange={(e) => handleNotesChange(e.target.value)}
+                              className="text-sm resize-none bg-white border-2 border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 w-full"
+                              rows={4}
+                              style={{ backgroundColor: '#ffffff', opacity: 1 }}
+                            />
+                          </div>
+                          
+                          {/* Button Footer */}
+                          <div className="flex justify-end gap-2 px-3 py-2 bg-gray-100 border-t-2 border-gray-300">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setShowNotesPanel(false)}
+                              className="text-xs bg-white border-gray-400 hover:bg-gray-50 px-2 py-1"
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={handleSaveNotes}
+                              className="text-xs px-2 py-1"
+                            >
+                              Save
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                </div>
+                
+                <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-300">
+                  {countMessagesExcludingUI(activeConversation.messages || [])} messages
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div>
+                  <Label>Created</Label>
+                  <p className="text-sm">{formatTimestamp(activeConversation.createdAt)}</p>
+                </div>
+                <div>
+                  <Label>Last Message</Label>
+                  <p className="text-sm">{formatTimestamp(activeConversation.lastMessageAt)}</p>
+                </div>
+                <div>
+                  <Label>Thread Count</Label>
+                  <p className="text-sm">{activeConversation.threadIds?.length || 0} threads</p>
+                </div>
+                <div>
+                  <Label>Duration</Label>
+                  <p className="text-sm">
+                    {(() => {
+                      const messages = activeConversation.messages || [];
+                      if (messages.length < 2) return 'N/A';
+                      
+                      const timestamps = messages
+                        .map(m => new Date(m.created_at || m.createdAt || m.sentAt))
+                        .filter(date => !isNaN(date.getTime()))
+                        .sort((a, b) => a.getTime() - b.getTime());
+                      
+                      if (timestamps.length < 2) return 'N/A';
+                      
+                      const duration = timestamps[timestamps.length - 1].getTime() - timestamps[0].getTime();
+                      const minutes = Math.round(duration / (1000 * 60));
+                      const seconds = Math.round(duration / 1000);
+                      return minutes > 0 ? `${minutes}m` : seconds > 0 ? `${seconds}s` : '<1s';
+                    })()}
+                  </p>
+                </div>
+                <div>
+                  <Label>Response Time</Label>
+                  <p className="text-sm">
+                    {(() => {
+                      const messages = activeConversation.messages || [];
+                      const userMessages = messages.filter(m => m.role === 'user');
+                      const assistantMessages = messages.filter(m => m.role === 'assistant');
+                      
+                      if (userMessages.length === 0 || assistantMessages.length === 0) return 'N/A';
+                      
+                      const firstUser = userMessages
+                        .map(m => ({ ...m, timestamp: new Date(m.created_at || m.createdAt || m.sentAt) }))
+                        .filter(m => !isNaN(m.timestamp.getTime()))
+                        .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())[0];
+                      
+                      const firstAssistant = assistantMessages
+                        .map(m => ({ ...m, timestamp: new Date(m.created_at || m.createdAt || m.sentAt) }))
+                        .filter(m => !isNaN(m.timestamp.getTime()))
+                        .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())[0];
+                      
+                      if (!firstUser || !firstAssistant || firstAssistant.timestamp <= firstUser.timestamp) return 'N/A';
+                      
+                      const responseTime = firstAssistant.timestamp.getTime() - firstUser.timestamp.getTime();
+                      const seconds = Math.round(responseTime / 1000);
+                      return seconds > 0 ? `${seconds}s` : '<1s';
+                    })()}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Message Timeline */}
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader className="bg-slate-50/50">
+              <div className="flex justify-between items-start">
+                <div>
+                  <CardTitle className="text-slate-800">💬 Message Timeline</CardTitle>
+                  <CardDescription className="text-slate-600">
+                    Chronological view of conversation messages with system messages from thread data
+                  </CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const newValue = !showSystemMessages;
+                      console.log('🔍 Show System Button Clicked (Thread):', {
+                        currentValue: showSystemMessages,
+                        newValue,
+                        hasSelectedThread: !!selectedThread,
+                        selectedThreadId: selectedThread?.id,
+                        threadMessagesCount: selectedThread?.messages?.length || 0,
+                        systemMessagesInThread: selectedThread?.messages?.filter(msg => msg.role === 'system').length || 0
+                      });
+                      setShowSystemMessages(newValue);
+                    }}
+                    className={`flex items-center gap-2 ${showSystemMessages ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-300 text-gray-700'}`}
+                    style={{
+                      backgroundColor: showSystemMessages ? '#dbeafe' : '#ffffff',
+                      borderColor: showSystemMessages ? '#93c5fd' : '#d1d5db',
+                      color: showSystemMessages ? '#1d4ed8' : '#374151'
+                    }}
+                  >
+                    {showSystemMessages ? (
+                      <>
+                        <EyeOff className="h-4 w-4" />
+                        Hide System
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="h-4 w-4" />
+                        Show System
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowContextPopup(true)}
+                    disabled={!selectedThread?.id || contextLoading}
+                    className="flex items-center gap-2"
+                  >
+                    {contextLoading ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Loading...
+                      </>
+                    ) : (
+                      <>
+                        <FileText className="h-4 w-4" />
+                        Show Context
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="bg-gradient-to-b from-slate-100/90 to-slate-200/60 rounded-lg">
+              <div className="max-h-[70vh] overflow-y-auto px-6 py-8 space-y-4">
+                      {(() => {
+                        // Use activeConversation messages directly
+                        const allMessages = activeConversation?.messages || [];
+                        
+                        // Debug: Check message data
+                        // Debug: Check message data (only log once per conversation)
+                        if (allMessages.length > 0 && !window.debugLoggedFor) {
+                          console.log('🔍 Thread section - Processing messages:', {
+                            totalMessages: allMessages.length,
+                            messageRoles: allMessages.map(m => m.role),
+                            systemMessageCount: allMessages.filter(m => m.role === 'system').length,
+                            statusMessageCount: allMessages.filter(m => m.role === 'status').length,
+                            showSystemMessages
+                          });
+                          window.debugLoggedFor = true;
+                        }
+                        
+                        const filteredMessages = allMessages
+                          .filter(message => {
+                            // Always show user and assistant messages
+                            if (message.role === 'user' || message.role === 'assistant') return true;
+                            // Show system/status messages based on toggle (your data uses 'status' not 'system')
+                            if (message.role === 'system' || message.role === 'status') {
+                              return showSystemMessages;
+                            }
+                            return true;
+                          });
+                        
+                        // Debug: Show message breakdown
+                        const messageBreakdown = allMessages.reduce((acc, msg) => {
+                          acc[msg.role] = (acc[msg.role] || 0) + 1;
+                          return acc;
+                        }, {} as Record<string, number>);
+                        
+                        if (filteredMessages.length === 0) {
+                          return (
+                            <div className="text-center py-8 text-slate-500">
+                              <p>No messages to display</p>
+                              <p className="text-sm mt-2">
+                                {allMessages.length > 0 
+                                  ? `${allMessages.length} messages found, but filtered out. Try toggling "Show System" if messages are system messages.`
+                                  : 'No messages found in this thread.'
+                                }
+                              </p>
+                            </div>
+                          );
+                        }
+                        
+                        return filteredMessages.map((message, index) => {
+                  const { consolidatedText, otherContents } = consolidateMessageContent(message.content || []);
+                  
+                  return (
+                    <div key={message.id} className={`flex gap-4 mb-8 ${
+                      message.role === 'user' ? 'justify-end' : 'justify-start'
+                    }`}>
+                      {/* Avatar - only for assistant and system messages (left side) */}
+                      {message.role !== 'user' && (
+                        <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center shadow-sm border ${
+                          message.role === 'assistant' ? 'bg-slate-100 border-slate-200' :
+                          (message.role === 'system' || message.role === 'status') ? 'bg-amber-50 border-amber-200' : 'bg-slate-100 border-slate-200'
+                        }`}>
+                          {message.role === 'assistant' ? (
+                            <Bot className="h-5 w-5 text-slate-600" />
+                          ) : message.role === 'system' ? (
+                            <AlertCircle className="h-5 w-5 text-amber-600" />
+                          ) : (
+                            <User className="h-5 w-5 text-slate-600" />
+                          )}
+                        </div>
+                      )}
+                      
+                      {/* Message bubble */}
+                      <div className={`max-w-[70%] ${message.role === 'system' ? 'max-w-[90%]' : ''}`}>
+                        {/* Message header with role and timestamp */}
+                        <div className={`flex items-center gap-2 mb-2 ${
+                          message.role === 'user' ? 'justify-end' : 'justify-start'
+                        }`}>
+                          <div className={`px-3 py-1 rounded-full text-xs font-medium ${
+                            message.role === 'user' ? 'bg-blue-50 text-blue-700' :
+                            message.role === 'assistant' ? 'bg-green-50 text-green-700' :
+                            message.role === 'system' ? 'bg-red-50 text-red-700' :
+                            'bg-amber-50 text-amber-700'
+                          }`}>
+                            {message.role === 'user' ? 'User' : message.role === 'assistant' ? 'Assistant' : 'System'}
+                          </div>
+                          <span className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {formatTimestamp(message.sentAt)}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => copyToClipboard(consolidatedText, `message-${message.id}`)}
+                            className="h-6 w-6 p-0 hover:bg-slate-100"
+                            title="Copy message content"
+                          >
+                            {copiedId === `message-${message.id}` ? (
+                              <Check className="h-3 w-3 text-green-600" />
+                            ) : (
+                              <Copy className="h-3 w-3 text-slate-500" />
+                            )}
+                          </Button>
+                        </div>
+                        
+                        {/* Message content bubble */}
+                        <div 
+                          className={`!rounded-2xl !px-6 !py-6 shadow-sm !border ${
+                            message.role === 'user' 
+                              ? 'bg-blue-50 text-slate-800 ml-auto border-blue-200' 
+                              : message.role === 'assistant'
+                              ? 'bg-slate-50 text-slate-800 border-green-200 shadow-sm'
+                              : message.role === 'system'
+                              ? 'bg-amber-50 text-amber-900 border-amber-200'
+                              : 'bg-slate-50 text-slate-800 border-slate-200'
+                          }`}
+                          style={{
+                            backgroundColor: message.role === 'user' ? '#eff6ff' : 
+                                           (message.role === 'system' || message.role === 'status') ? '#fefce8' : 
+                                           message.role === 'assistant' ? '#f0fdf4' : '#f8fafc',
+                            borderRadius: '1rem',
+                            padding: '1.5rem',
+                            border: '1px solid',
+                            borderColor: message.role === 'user' ? '#bfdbfe' : (message.role === 'system' || message.role === 'status') ? '#fde68a' : message.role === 'assistant' ? '#bbf7d0' : '#e2e8f0',
+                            ...((message.role === 'system' || message.role === 'status') && {
+                              maxHeight: '320px',
+                              overflowY: 'auto',
+                              overflowX: 'hidden',
+                              wordWrap: 'break-word',
+                              wordBreak: 'break-word'
+                            })
+                          }}
+                        >
+                              {/* Text content */}
+                              {consolidatedText && (
+                                <div className="prose prose-sm max-w-none">
+                                  {consolidatedText.includes('```json') ? (
+                                    // Render formatted JSON with code highlighting
+                                    <div className="whitespace-pre-wrap leading-relaxed m-0 text-slate-700 text-base">
+                                      {consolidatedText.split(/(```json[\s\S]*?```)/g).map((part, index) => {
+                                        if (part.startsWith('```json') && part.endsWith('```')) {
+                                          const jsonContent = part.replace(/```json\n?/, '').replace(/\n?```$/, '');
+                                          return (
+                                            <div key={index} className="my-4">
+                                              <div className="bg-slate-900 text-green-400 p-4 rounded-lg overflow-x-auto">
+                                                <pre className="text-sm font-mono whitespace-pre-wrap">
+                                                  <code>{jsonContent}</code>
+                                                </pre>
+                                              </div>
+                                            </div>
+                                          );
+                                        } else {
+                                          return <span key={index}>{part}</span>;
+                                        }
+                                      })}
+                                    </div>
+                                  ) : (
+                                    // Regular text content
+                                    <div className="whitespace-pre-wrap leading-relaxed m-0 text-slate-700 text-base">
+                                      {consolidatedText}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              
+                              {/* Other content (UI, linkouts, etc.) */}
+                              {otherContents.length > 0 && (
+                                <div className="mt-4 space-y-3">
+                                  {otherContents.map((content, idx) => renderMessageContent(content, idx))}
+                                </div>
+                              )}
+                        </div>
+                      </div>
+                      
+                      {/* Avatar - only for user messages (right side) */}
+                      {message.role === 'user' && (
+                        <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 border border-blue-200 flex items-center justify-center shadow-sm">
+                          <User className="h-5 w-5 text-blue-600" />
+                        </div>
+                      )}
+                    </div>
+                  );
+                  });
+                })()}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Uploaded Conversation Display */}
       {uploadedConversation && (
         <div className="space-y-6">
@@ -657,7 +1218,6 @@ export function ConversationDetail({
                     variant="ghost"
                     size="sm"
                     onClick={() => {
-                      console.log('🔄 Previous button clicked!', { hasPreviousConversation, onPreviousConversation });
                       onPreviousConversation?.();
                     }}
                     disabled={!hasPreviousConversation}
@@ -671,7 +1231,6 @@ export function ConversationDetail({
                     variant="ghost"
                     size="sm"
                     onClick={() => {
-                      console.log('🔄 Next button clicked!', { hasNextConversation, onNextConversation });
                       onNextConversation?.();
                     }}
                     disabled={!hasNextConversation}
@@ -801,52 +1360,77 @@ export function ConversationDetail({
                     Chronological view of conversation messages
                   </CardDescription>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const newValue = !showSystemMessages;
-                    console.log('🔍 Show System Button Clicked:', {
-                      currentValue: showSystemMessages,
-                      newValue,
-                      hasSelectedThread: !!selectedThread,
-                      selectedThreadId: selectedThread?.id,
-                      threadMessagesCount: selectedThread?.messages?.length || 0,
-                      systemMessagesInThread: selectedThread?.messages?.filter(msg => msg.role === 'system').length || 0
-                    });
-                    setShowSystemMessages(newValue);
-                  }}
-                  className="flex items-center gap-2"
-                >
-                  {showSystemMessages ? (
-                    <>
-                      <EyeOff className="h-4 w-4" />
-                      Hide System
-                    </>
-                  ) : (
-                    <>
-                      <Eye className="h-4 w-4" />
-                      Show System
-                    </>
-                  )}
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const newValue = !showSystemMessages;
+                      console.log('🔍 Show System Button Clicked:', {
+                        currentValue: showSystemMessages,
+                        newValue,
+                        hasSelectedThread: !!selectedThread,
+                        selectedThreadId: selectedThread?.id,
+                        threadMessagesCount: selectedThread?.messages?.length || 0,
+                        systemMessagesInThread: selectedThread?.messages?.filter(msg => msg.role === 'system').length || 0
+                      });
+                      setShowSystemMessages(newValue);
+                    }}
+                    className={`flex items-center gap-2 ${showSystemMessages ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-300 text-gray-700'}`}
+                    style={{
+                      backgroundColor: showSystemMessages ? '#dbeafe' : '#ffffff',
+                      borderColor: showSystemMessages ? '#93c5fd' : '#d1d5db',
+                      color: showSystemMessages ? '#1d4ed8' : '#374151'
+                    }}
+                  >
+                    {showSystemMessages ? (
+                      <>
+                        <EyeOff className="h-4 w-4" />
+                        Hide System
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="h-4 w-4" />
+                        Show System
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowContextPopup(true)}
+                    disabled={!selectedThread?.id || contextLoading}
+                    className="flex items-center gap-2"
+                  >
+                    {contextLoading ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Loading...
+                      </>
+                    ) : (
+                      <>
+                        <FileText className="h-4 w-4" />
+                        Show Context
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="bg-gradient-to-b from-slate-100/90 to-slate-200/60 rounded-lg">
               <div className="max-h-[70vh] overflow-y-auto px-6 py-8 space-y-4">
                 {(() => {
-                  // Merge uploaded conversation messages with thread system messages chronologically
-                  const conversationMessages = uploadedConversation.messages || [];
-                  const threadMessages = selectedThread?.messages || [];
+                  // Since activeConversation now contains all messages from thread, use it directly
+                  const allMessages = uploadedConversation?.messages || activeConversation?.messages || [];
                   
-                  const mergedMessages = mergeMessagesChronologically(conversationMessages, threadMessages);
-                  
-                  const filteredMessages = mergedMessages
+                  const filteredMessages = allMessages
                     .filter(message => {
                       // Always show user and assistant messages
                       if (message.role === 'user' || message.role === 'assistant') return true;
-                      // Show system messages based on toggle
-                      if (message.role === 'system') return showSystemMessages;
+                            // Show system/status messages based on toggle
+                            if (message.role === 'system' || message.role === 'status') {
+                              return showSystemMessages;
+                            }
                       return true;
                     });
                   
@@ -861,7 +1445,7 @@ export function ConversationDetail({
                       {message.role !== 'user' && (
                         <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center shadow-sm border ${
                           message.role === 'assistant' ? 'bg-slate-100 border-slate-200' :
-                          message.role === 'system' ? 'bg-amber-50 border-amber-200' : 'bg-slate-100 border-slate-200'
+                          (message.role === 'system' || message.role === 'status') ? 'bg-amber-50 border-amber-200' : 'bg-slate-100 border-slate-200'
                         }`}>
                           {message.role === 'assistant' ? (
                             <Bot className="h-5 w-5 text-slate-600" />
@@ -918,11 +1502,14 @@ export function ConversationDetail({
                               : 'bg-slate-50 text-slate-800 border-slate-200'
                           }`}
                           style={{
+                            backgroundColor: message.role === 'user' ? '#eff6ff' : 
+                                           (message.role === 'system' || message.role === 'status') ? '#fefce8' : 
+                                           message.role === 'assistant' ? '#f0fdf4' : '#f8fafc',
                             borderRadius: '1rem',
                             padding: '1.5rem',
                             border: '1px solid',
-                            borderColor: message.role === 'user' ? '#bfdbfe' : message.role === 'system' ? '#fde68a' : message.role === 'assistant' ? '#bbf7d0' : '#e2e8f0',
-                            ...(message.role === 'system' && {
+                            borderColor: message.role === 'user' ? '#bfdbfe' : (message.role === 'system' || message.role === 'status') ? '#fde68a' : message.role === 'assistant' ? '#bbf7d0' : '#e2e8f0',
+                            ...((message.role === 'system' || message.role === 'status') && {
                               maxHeight: '320px',
                               overflowY: 'auto',
                               overflowX: 'hidden',
@@ -992,8 +1579,8 @@ export function ConversationDetail({
         </div>
       )}
 
-      {/* Fetch Section */}
-      {!fetchedConversation && !uploadedConversation && (
+      {/* Fetch Section - only show if we don't have any conversation data */}
+      {!fetchedConversation && !uploadedConversation && !activeConversation && (
         <div className="max-w-md mx-auto mt-16">
               <Card>
                 <CardHeader>
@@ -1159,7 +1746,6 @@ export function ConversationDetail({
                         variant="ghost"
                         size="sm"
                         onClick={() => {
-                          console.log('🔄 Previous button clicked (fetched)!', { hasPreviousConversation, onPreviousConversation });
                           onPreviousConversation?.();
                         }}
                         disabled={!hasPreviousConversation}
@@ -1173,7 +1759,6 @@ export function ConversationDetail({
                         variant="ghost"
                         size="sm"
                         onClick={() => {
-                          console.log('🔄 Next button clicked (fetched)!', { hasNextConversation, onNextConversation });
                           onNextConversation?.();
                         }}
                         disabled={!hasNextConversation}
@@ -1303,52 +1888,72 @@ export function ConversationDetail({
                         Chronological view of conversation messages with system messages from thread data
                       </CardDescription>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        const newValue = !showSystemMessages;
-                        console.log('🔍 Show System Button Clicked (Fetched):', {
-                          currentValue: showSystemMessages,
-                          newValue,
-                          hasSelectedThread: !!selectedThread,
-                          selectedThreadId: selectedThread?.id,
-                          threadMessagesCount: selectedThread?.messages?.length || 0,
-                          systemMessagesInThread: selectedThread?.messages?.filter(msg => msg.role === 'system').length || 0
-                        });
-                        setShowSystemMessages(newValue);
-                      }}
-                      className="flex items-center gap-2"
-                    >
-                      {showSystemMessages ? (
-                        <>
-                          <EyeOff className="h-4 w-4" />
-                          Hide System
-                        </>
-                      ) : (
-                        <>
-                          <Eye className="h-4 w-4" />
-                          Show System
-                        </>
-                      )}
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const newValue = !showSystemMessages;
+                          console.log('🔍 Show System Button Clicked (Fetched):', {
+                            currentValue: showSystemMessages,
+                            newValue,
+                            hasSelectedThread: !!selectedThread,
+                            selectedThreadId: selectedThread?.id,
+                            threadMessagesCount: selectedThread?.messages?.length || 0,
+                            systemMessagesInThread: selectedThread?.messages?.filter(msg => msg.role === 'system').length || 0
+                          });
+                          setShowSystemMessages(newValue);
+                        }}
+                        className="flex items-center gap-2"
+                      >
+                        {showSystemMessages ? (
+                          <>
+                            <EyeOff className="h-4 w-4" />
+                            Hide System
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="h-4 w-4" />
+                            Show System
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowContextPopup(true)}
+                        disabled={!selectedThread?.id || contextLoading}
+                        className="flex items-center gap-2"
+                      >
+                        {contextLoading ? (
+                          <>
+                            <RefreshCw className="h-4 w-4 animate-spin" />
+                            Loading...
+                          </>
+                        ) : (
+                          <>
+                            <FileText className="h-4 w-4" />
+                            Show Context
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="bg-gradient-to-b from-slate-100/90 to-slate-200/60 rounded-lg">
                   <div className="max-h-[70vh] overflow-y-auto px-6 py-8 space-y-4">
                     {(() => {
-                      // Merge conversation messages with thread system messages chronologically
-                      const conversationMessages = fetchedConversation.messages || [];
-                      const threadMessages = selectedThread?.messages || [];
+                      // Since activeConversation now contains all messages from thread, use it directly
+                      const allMessages = fetchedConversation?.messages || activeConversation?.messages || [];
                       
-                      const mergedMessages = mergeMessagesChronologically(conversationMessages, threadMessages);
-                      
-                      const filteredMessages = mergedMessages
+                      const filteredMessages = allMessages
                         ?.filter(message => {
                           // Always show user and assistant messages
                           if (message.role === 'user' || message.role === 'assistant') return true;
-                          // Show system messages based on toggle
-                          if (message.role === 'system') return showSystemMessages;
+                          // Show system/status messages based on toggle
+                          if (message.role === 'system' || message.role === 'status') {
+                            return showSystemMessages;
+                          }
                           return true;
                         });
                       
@@ -1365,7 +1970,7 @@ export function ConversationDetail({
                           {message.role !== 'user' && (
                             <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center shadow-sm border ${
                               message.role === 'assistant' ? 'bg-slate-100 border-slate-200' :
-                              message.role === 'system' ? 'bg-amber-50 border-amber-200' : 'bg-slate-100 border-slate-200'
+                              (message.role === 'system' || message.role === 'status') ? 'bg-amber-50 border-amber-200' : 'bg-slate-100 border-slate-200'
                             }`}>
                               {message.role === 'assistant' ? (
                                 <Bot className="h-5 w-5 text-slate-600" />
@@ -1417,7 +2022,7 @@ export function ConversationDetail({
                                   ? 'bg-blue-50 text-slate-800 ml-auto border-blue-200' 
                                   : message.role === 'assistant'
                                   ? 'bg-slate-50 text-slate-800 border-green-200 shadow-sm'
-                                  : message.role === 'system'
+                                  : (message.role === 'system' || message.role === 'status')
                                   ? systemMessageHasErrors(message)
                                     ? 'bg-red-200 text-red-950 border-red-400'
                                     : 'bg-amber-50 text-amber-900 border-amber-200'
@@ -1429,20 +2034,20 @@ export function ConversationDetail({
                                 border: '1px solid',
                                 borderColor: message.role === 'user' 
                                   ? '#bfdbfe' 
-                                  : message.role === 'system' 
+                                  : (message.role === 'system' || message.role === 'status')
                                   ? systemMessageHasErrors(message) 
                                     ? '#f87171' 
                                     : '#fde68a'
                                   : message.role === 'assistant' 
                                   ? '#bbf7d0' 
                                   : '#e2e8f0',
-                                ...(message.role === 'system' && {
+                                ...((message.role === 'system' || message.role === 'status') && {
                                   maxHeight: '320px',
                                   overflowY: 'auto',
                                   overflowX: 'hidden',
                                   wordWrap: 'break-word',
                                   wordBreak: 'break-word',
-                                  backgroundColor: systemMessageHasErrors(message) ? '#fecaca' : '#fffbeb'
+                                  backgroundColor: systemMessageHasErrors(message) ? '#fecaca' : '#fefce8'
                                 })
                               }}
                             >
@@ -1597,6 +2202,141 @@ export function ConversationDetail({
               )}
             </div>
           )}
+
+      {/* Context Popup Overlay */}
+      {showContextPopup && (
+        <div 
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+          style={{ 
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            backdropFilter: 'blur(2px)'
+          }}
+          onClick={() => setShowContextPopup(false)}
+        >
+          <div 
+            className="bg-white rounded-lg shadow-2xl flex flex-col"
+            style={{ 
+              backgroundColor: '#ffffff',
+              border: '1px solid #d1d5db',
+              width: '600px',
+              height: '500px',
+              maxWidth: '90vw',
+              maxHeight: '90vh'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div 
+              className="flex justify-between items-center p-4 border-b flex-shrink-0"
+              style={{ 
+                backgroundColor: '#f9fafb',
+                borderBottom: '1px solid #e5e7eb'
+              }}
+            >
+              <h2 className="text-lg font-semibold" style={{ color: '#111827' }}>
+                Context Data
+              </h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowContextPopup(false)}
+                className="h-8 w-8 p-0"
+                style={{ 
+                  backgroundColor: 'transparent',
+                  color: '#6b7280'
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            
+            {/* Content */}
+            <div 
+              className="flex-1 p-4 overflow-hidden flex flex-col"
+              style={{ backgroundColor: '#ffffff' }}
+            >
+              {contextError ? (
+                <div 
+                  className="p-4 rounded-lg border"
+                  style={{ 
+                    backgroundColor: '#fef2f2',
+                    borderColor: '#fecaca',
+                    color: '#991b1b'
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4" />
+                    <span>{contextError}</span>
+                  </div>
+                </div>
+              ) : contextData ? (
+                <>
+                  <div className="flex justify-between items-center mb-3 flex-shrink-0">
+                    <h3 className="text-base font-medium" style={{ color: '#111827' }}>
+                      JSON Response
+                    </h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => copyToClipboard(JSON.stringify(contextData, null, 2), 'context-data')}
+                      className="flex items-center gap-2"
+                      style={{ 
+                        backgroundColor: '#ffffff',
+                        borderColor: '#d1d5db',
+                        color: '#374151'
+                      }}
+                    >
+                      {copiedId === 'context-data' ? (
+                        <>
+                          <Check className="h-4 w-4" style={{ color: '#059669' }} />
+                          <span style={{ color: '#059669' }}>Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-4 w-4" />
+                          Copy JSON
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                  <div 
+                    className="flex-1 rounded-lg border overflow-hidden"
+                    style={{ 
+                      backgroundColor: '#f9fafb',
+                      borderColor: '#e5e7eb',
+                      minHeight: 0
+                    }}
+                  >
+                    <div 
+                      className="h-full overflow-auto p-3"
+                      style={{ 
+                        backgroundColor: '#ffffff',
+                        maxHeight: '100%'
+                      }}
+                    >
+                      <pre 
+                        className="text-xs font-mono whitespace-pre-wrap break-words"
+                        style={{ 
+                          color: '#374151',
+                          margin: 0,
+                          fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace',
+                          lineHeight: '1.4'
+                        }}
+                      >
+                        {JSON.stringify(contextData, null, 2)}
+                      </pre>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center justify-center h-32">
+                  <p style={{ color: '#6b7280' }}>No context data available</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

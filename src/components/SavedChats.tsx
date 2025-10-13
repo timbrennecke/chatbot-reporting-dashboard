@@ -90,11 +90,27 @@ export function SavedChats({
       const fetchPromises = missingConversationIds.map(async (conversationId) => {
         try {
           const baseUrl = getApiBaseUrl();
-          const response = await api.get(`${baseUrl}/conversation/${conversationId}`);
-          if (response.data) {
-            console.log('✅ Fetched conversation details for saved chat:', conversationId, response.data.title || 'No title');
-            onConversationFetched(response.data);
+          const apiKey = getEnvironmentSpecificItem('chatbot-dashboard-api-key');
+          if (!apiKey?.trim()) {
+            console.warn('⚠️ No API key available for fetching conversation:', conversationId);
+            return;
           }
+          
+          const response = await fetch(`${baseUrl}/conversation/${conversationId}`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${apiKey.trim()}`,
+            },
+          });
+          
+          if (!response.ok) {
+            console.warn('⚠️ Failed to fetch conversation details for saved chat:', conversationId, 'HTTP', response.status);
+            return;
+          }
+          
+          const data = await response.json();
+          console.log('✅ Fetched conversation details for saved chat:', conversationId, data.title || 'No title');
+          onConversationFetched(data);
         } catch (error) {
           console.warn('⚠️ Failed to fetch conversation details for saved chat:', conversationId, error);
         }
