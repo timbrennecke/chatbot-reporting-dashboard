@@ -1210,7 +1210,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
               <Button
                 variant="outline"
                 size="sm"
-                onClick={async () => {
+                onClick={() => {
                   const now = new Date();
                   console.log('Today button clicked. Current date:', now);
                   
@@ -1223,13 +1223,14 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                   const currentTime = new Date();
                   console.log('Current time:', currentTime);
                   
+                  // Debug the date formatting
+                  const todayFormatted = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+                  const currentFormatted = `${currentTime.getFullYear()}-${String(currentTime.getMonth() + 1).padStart(2, '0')}-${String(currentTime.getDate()).padStart(2, '0')}`;
+                  console.log('Today formatted for input:', todayFormatted);
+                  console.log('Current formatted for input:', currentFormatted);
+                  
                   setStartDate(today);
                   setEndDate(currentTime);
-                  
-                  // Automatically trigger analysis
-                  setTimeout(() => {
-                    fetchConversationsForStats();
-                  }, 10);
                 }}
                 className="text-xs h-8"
               >
@@ -1238,7 +1239,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
               <Button
                 variant="outline"
                 size="sm"
-                onClick={async () => {
+                onClick={() => {
                   const now = new Date();
                   console.log('Last 24 Hours button clicked. Current date:', now);
                   
@@ -1254,11 +1255,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                   
                   setStartDate(yesterday);
                   setEndDate(currentTime);
-                  
-                  // Automatically trigger analysis
-                  setTimeout(() => {
-                    fetchConversationsForStats();
-                  }, 10);
                 }}
                 className="text-xs h-8"
               >
@@ -1267,16 +1263,11 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
               <Button
                 variant="outline"
                 size="sm"
-                onClick={async () => {
+                onClick={() => {
                   const date = new Date();
                   date.setDate(date.getDate() - 7);
                   setStartDate(date);
                   setEndDate(new Date());
-                  
-                  // Automatically trigger analysis
-                  setTimeout(() => {
-                    fetchConversationsForStats();
-                  }, 10);
                 }}
                 className="whitespace-nowrap"
               >
@@ -1285,16 +1276,11 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
               <Button
                 variant="outline"
                 size="sm"
-                onClick={async () => {
+                onClick={() => {
                   const date = new Date();
                   date.setDate(date.getDate() - 30);
                   setStartDate(date);
                   setEndDate(new Date());
-                  
-                  // Automatically trigger analysis
-                  setTimeout(() => {
-                    fetchConversationsForStats();
-                  }, 10);
                 }}
                 className="whitespace-nowrap"
               >

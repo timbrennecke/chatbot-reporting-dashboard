@@ -408,7 +408,7 @@ export function ThreadsOverview({
   const itemsPerPage = 20;
 
   // Quick time range filter functions
-  const setTimeRange = async (hours: number) => {
+  const setTimeRange = (hours: number) => {
     // Round to consistent 5-minute intervals for better cache hits
     const now = new Date();
     const roundedNow = new Date(Math.floor(now.getTime() / (5 * 60 * 1000)) * (5 * 60 * 1000));
@@ -424,19 +424,11 @@ export function ThreadsOverview({
       return `${year}-${month}-${day}T${hours}:${minutes}`;
     };
     
-    const formattedStartTime = formatDateTimeLocal(startTime);
-    const formattedEndTime = formatDateTimeLocal(roundedNow);
+    setStartDate(formatDateTimeLocal(startTime));
+    setEndDate(formatDateTimeLocal(roundedNow));
     
-    setStartDate(formattedStartTime);
-    setEndDate(formattedEndTime);
-    
-    console.log(`⏰ Set time range: ${hours}h (${formattedStartTime} - ${formattedEndTime})`);
-    
-    // Automatically trigger search after setting the time range
-    // Wait a tiny bit for state to update
-    setTimeout(() => {
-      fetchThreads();
-    }, 10);
+    console.log(`⏰ Set time range: ${hours}h (${formatDateTimeLocal(startTime)} - ${formatDateTimeLocal(roundedNow)})`);
+    // Don't reset hasSearched here - let it persist until user performs new search
   };
 
   const setDefaultTimeRange = () => {
@@ -1094,9 +1086,8 @@ export function ThreadsOverview({
                   key={filter.hours}
                   variant={activeQuickFilter === filter.hours ? "default" : "outline"}
                   size="sm"
-                  onClick={async () => await setTimeRange(filter.hours)}
+                  onClick={() => setTimeRange(filter.hours)}
                   className="text-xs"
-                  disabled={loading}
                 >
                   {filter.label}
                 </Button>
