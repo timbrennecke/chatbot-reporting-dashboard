@@ -28,7 +28,8 @@ import {
   Bookmark,
   BookmarkX,
   X,
-  FileText
+  FileText,
+  Settings
 } from 'lucide-react';
 import { Conversation, Thread, Message, MessageContent } from '../lib/types';
 import { getApiBaseUrl, getEnvironmentSpecificItem } from '../lib/api';
@@ -1035,12 +1036,14 @@ export function ConversationDetail({
                       {message.role !== 'user' && (
                         <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center shadow-sm border ${
                           message.role === 'assistant' ? 'bg-slate-100 border-slate-200' :
-                          (message.role === 'system' || message.role === 'status') ? 'bg-amber-50 border-amber-200' : 'bg-slate-100 border-slate-200'
+                          (message.role === 'system' || message.role === 'status') 
+                            ? (systemMessageHasErrors(message) ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200')
+                            : 'bg-slate-100 border-slate-200'
                         }`}>
                           {message.role === 'assistant' ? (
                             <Bot className="h-5 w-5 text-slate-600" />
                           ) : message.role === 'system' ? (
-                            <AlertCircle className="h-5 w-5 text-amber-600" />
+                            <Settings className={`h-5 w-5 ${systemMessageHasErrors(message) ? 'text-red-600' : 'text-amber-600'}`} />
                           ) : (
                             <User className="h-5 w-5 text-slate-600" />
                           )}
@@ -1093,12 +1096,15 @@ export function ConversationDetail({
                           }`}
                           style={{
                             backgroundColor: message.role === 'user' ? '#eff6ff' : 
-                                           (message.role === 'system' || message.role === 'status') ? '#fefce8' : 
-                                           message.role === 'assistant' ? '#f0fdf4' : '#f8fafc',
+                                           (message.role === 'system' || message.role === 'status') 
+                                           ? (systemMessageHasErrors(message) ? '#fee2e2' : '#fefce8')
+                                           : message.role === 'assistant' ? '#f0fdf4' : '#f8fafc',
                             borderRadius: '1rem',
                             padding: '1.5rem',
                             border: '1px solid',
-                            borderColor: message.role === 'user' ? '#bfdbfe' : (message.role === 'system' || message.role === 'status') ? '#fde68a' : message.role === 'assistant' ? '#bbf7d0' : '#e2e8f0',
+                            borderColor: message.role === 'user' ? '#bfdbfe' : (message.role === 'system' || message.role === 'status') 
+                              ? (systemMessageHasErrors(message) ? '#fca5a5' : '#fde68a') 
+                              : message.role === 'assistant' ? '#bbf7d0' : '#e2e8f0',
                             ...((message.role === 'system' || message.role === 'status') && {
                               maxHeight: '320px',
                               overflowY: 'auto',
@@ -1445,12 +1451,14 @@ export function ConversationDetail({
                       {message.role !== 'user' && (
                         <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center shadow-sm border ${
                           message.role === 'assistant' ? 'bg-slate-100 border-slate-200' :
-                          (message.role === 'system' || message.role === 'status') ? 'bg-amber-50 border-amber-200' : 'bg-slate-100 border-slate-200'
+                          (message.role === 'system' || message.role === 'status') 
+                            ? (systemMessageHasErrors(message) ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200')
+                            : 'bg-slate-100 border-slate-200'
                         }`}>
                           {message.role === 'assistant' ? (
                             <Bot className="h-5 w-5 text-slate-600" />
                           ) : message.role === 'system' ? (
-                            <AlertCircle className="h-5 w-5 text-amber-600" />
+                            <Settings className={`h-5 w-5 ${systemMessageHasErrors(message) ? 'text-red-600' : 'text-amber-600'}`} />
                           ) : (
                             <User className="h-5 w-5 text-slate-600" />
                           )}
@@ -1503,12 +1511,15 @@ export function ConversationDetail({
                           }`}
                           style={{
                             backgroundColor: message.role === 'user' ? '#eff6ff' : 
-                                           (message.role === 'system' || message.role === 'status') ? '#fefce8' : 
-                                           message.role === 'assistant' ? '#f0fdf4' : '#f8fafc',
+                                           (message.role === 'system' || message.role === 'status') 
+                                           ? (systemMessageHasErrors(message) ? '#fee2e2' : '#fefce8')
+                                           : message.role === 'assistant' ? '#f0fdf4' : '#f8fafc',
                             borderRadius: '1rem',
                             padding: '1.5rem',
                             border: '1px solid',
-                            borderColor: message.role === 'user' ? '#bfdbfe' : (message.role === 'system' || message.role === 'status') ? '#fde68a' : message.role === 'assistant' ? '#bbf7d0' : '#e2e8f0',
+                            borderColor: message.role === 'user' ? '#bfdbfe' : (message.role === 'system' || message.role === 'status') 
+                              ? (systemMessageHasErrors(message) ? '#fca5a5' : '#fde68a') 
+                              : message.role === 'assistant' ? '#bbf7d0' : '#e2e8f0',
                             ...((message.role === 'system' || message.role === 'status') && {
                               maxHeight: '320px',
                               overflowY: 'auto',
@@ -1970,12 +1981,14 @@ export function ConversationDetail({
                           {message.role !== 'user' && (
                             <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center shadow-sm border ${
                               message.role === 'assistant' ? 'bg-slate-100 border-slate-200' :
-                              (message.role === 'system' || message.role === 'status') ? 'bg-amber-50 border-amber-200' : 'bg-slate-100 border-slate-200'
+                              (message.role === 'system' || message.role === 'status') 
+                                ? (systemMessageHasErrors(message) ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200')
+                                : 'bg-slate-100 border-slate-200'
                             }`}>
                               {message.role === 'assistant' ? (
                                 <Bot className="h-5 w-5 text-slate-600" />
                               ) : message.role === 'system' ? (
-                                <AlertCircle className="h-5 w-5 text-amber-600" />
+                                <Settings className={`h-5 w-5 ${systemMessageHasErrors(message) ? 'text-red-600' : 'text-amber-600'}`} />
                               ) : (
                                 <User className="h-5 w-5 text-slate-600" />
                               )}
@@ -2036,7 +2049,7 @@ export function ConversationDetail({
                                   ? '#bfdbfe' 
                                   : (message.role === 'system' || message.role === 'status')
                                   ? systemMessageHasErrors(message) 
-                                    ? '#f87171' 
+                                    ? '#fca5a5' 
                                     : '#fde68a'
                                   : message.role === 'assistant' 
                                   ? '#bbf7d0' 
@@ -2047,7 +2060,7 @@ export function ConversationDetail({
                                   overflowX: 'hidden',
                                   wordWrap: 'break-word',
                                   wordBreak: 'break-word',
-                                  backgroundColor: systemMessageHasErrors(message) ? '#fecaca' : '#fefce8'
+                                  backgroundColor: systemMessageHasErrors(message) ? '#fca5a5' : '#fefce8'
                                 })
                               }}
                             >
