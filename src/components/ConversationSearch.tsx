@@ -97,8 +97,8 @@ export function ConversationSearch({
               )}
               
               {searchError && (
-                <Alert variant="destructive" className="text-left">
-                  <AlertDescription>
+                <Alert variant="destructive" className="text-left bg-red-100 border-red-300">
+                  <AlertDescription className="text-red-800">
                     {searchError}
                   </AlertDescription>
                 </Alert>

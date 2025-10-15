@@ -47,6 +47,7 @@ import {
   setEnvironmentSpecificItem 
 } from '../lib/api';
 import { parseThreadId, calculateThreadAnalytics, formatTimestamp, debounce } from '../lib/utils';
+import { IntentAnalysis } from './IntentAnalysis';
 
 interface ThreadsOverviewProps {
   uploadedThreads?: Thread[];
@@ -570,39 +571,42 @@ export function ThreadsOverview({
       
       const apiBaseUrl = getApiBaseUrl();
       
-      // Calculate time difference - always use daily chunking for reliability
+      // Calculate time difference - use 6-hour chunking for optimal balance
       const timeDiff = new Date(endTimestamp).getTime() - new Date(startTimestamp).getTime();
-      const daysDiff = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+      const hoursDiff = Math.ceil(timeDiff / (1000 * 60 * 60));
+      const chunksDiff = Math.ceil(hoursDiff / 6);
       
       let allThreads: any[] = [];
       
-      // Always use daily chunking to avoid timeouts
-      console.log(`📊 Processing ${daysDiff} days with daily chunking to avoid timeouts...`);
+      // Use 6-hour chunking to balance speed and reliability
+      console.log(`📊 Processing ${hoursDiff} hours (${chunksDiff} chunks) with 6-hour chunking...`);
       
       const chunks: Array<{start: Date, end: Date, dateStr: string}> = [];
       
-      // Create daily chunks
+      // Create 6-hour chunks
       let currentDate = new Date(startTimestamp);
       const endDateObj = new Date(endTimestamp);
-      while (currentDate <= endDateObj) {
+      while (currentDate < endDateObj) {
         let nextDate = new Date(currentDate);
-        nextDate.setDate(nextDate.getDate() + 1);
+        nextDate.setHours(nextDate.getHours() + 6);
         
         // Don't go past the end date
         if (nextDate > endDateObj) {
           nextDate = new Date(endDateObj);
         }
         
+        const startHour = currentDate.getHours();
+        const endHour = nextDate.getHours();
         chunks.push({
           start: new Date(currentDate),
           end: new Date(nextDate),
-          dateStr: currentDate.toLocaleDateString()
+          dateStr: `${currentDate.toLocaleDateString()} ${startHour}:00-${endHour}:00`
         });
         
-        currentDate.setDate(currentDate.getDate() + 1);
+        currentDate.setHours(currentDate.getHours() + 6);
       }
       
-      console.log(`📦 Processing ${chunks.length} daily chunks`);
+      console.log(`📦 Processing ${chunks.length} 6-hour chunks`);
       setLoadingProgress({ current: 0, total: chunks.length, currentDate: '' });
       
       // Process chunks with progress tracking
@@ -610,7 +614,7 @@ export function ThreadsOverview({
         const chunk = chunks[i];
         setLoadingProgress({ current: i + 1, total: chunks.length, currentDate: chunk.dateStr });
         
-        console.log(`📅 Day ${i + 1}/${chunks.length}: ${chunk.dateStr}`);
+        console.log(`📅 Chunk ${i + 1}/${chunks.length}: ${chunk.dateStr}`);
         
         try {
           const response = await fetch(`${apiBaseUrl}/thread`, {
@@ -626,15 +630,15 @@ export function ThreadsOverview({
           });
 
           if (!response.ok) {
-            console.warn(`⚠️ Day ${i + 1} (${chunk.dateStr}) failed: HTTP ${response.status}`);
-            continue; // Skip failed days but continue with others
+            console.warn(`⚠️ Chunk ${i + 1} (${chunk.dateStr}) failed: HTTP ${response.status}`);
+            continue; // Skip failed chunks but continue with others
           }
 
           const chunkData = await response.json();
           const chunkThreads = chunkData.threads?.map((item: any) => item.thread) || [];
           
           allThreads.push(...chunkThreads);
-          console.log(`✅ Day ${i + 1}/${chunks.length} (${chunk.dateStr}): +${chunkThreads.length} threads (total: ${allThreads.length})`);
+          console.log(`✅ Chunk ${i + 1}/${chunks.length} (${chunk.dateStr}): +${chunkThreads.length} threads (total: ${allThreads.length})`);
           
           // Small delay to be nice to the server
           if (i < chunks.length - 1) {
@@ -642,12 +646,12 @@ export function ThreadsOverview({
           }
           
         } catch (chunkError) {
-          console.warn(`⚠️ Day ${i + 1} (${chunk.dateStr}) error:`, chunkError);
-          // Continue with other days
+          console.warn(`⚠️ Chunk ${i + 1} (${chunk.dateStr}) error:`, chunkError);
+          // Continue with other chunks
         }
       }
       
-      console.log(`🎉 Daily processing complete: ${allThreads.length} total threads from ${chunks.length} days`);
+      console.log(`🎉 6-hour chunking complete: ${allThreads.length} total threads from ${chunks.length} chunks`);
       setLoadingProgress({ current: 0, total: 0, currentDate: '' });
       
       // No more caching - just set the threads directly
@@ -1349,7 +1353,7 @@ export function ThreadsOverview({
           <CardContent className="pt-6">
             <div className="space-y-3">
               <div className="flex justify-between items-center">
-                <h3 className="text-lg font-medium">Processing Daily Chunks</h3>
+                <h3 className="text-lg font-medium">Processing 6-Hour Chunks</h3>
                 <span className="text-sm text-muted-foreground">
                   {Math.round((loadingProgress.current / loadingProgress.total) * 100)}%
                 </span>
@@ -1357,7 +1361,7 @@ export function ThreadsOverview({
               
               {loadingProgress.currentDate && (
                 <p className="text-sm text-muted-foreground">
-                  📅 Current: {loadingProgress.currentDate} (Day {loadingProgress.current} of {loadingProgress.total})
+                  📅 Current: {loadingProgress.currentDate} (Chunk {loadingProgress.current} of {loadingProgress.total})
                 </p>
               )}
               
@@ -1370,11 +1374,18 @@ export function ThreadsOverview({
               </div>
               
               <p className="text-xs text-muted-foreground">
-                Processing data in daily chunks to avoid timeouts...
+                Processing data in 6-hour chunks for optimal speed and reliability...
               </p>
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Intent Analysis - Show when we have threads */}
+      {threads.length > 0 && hasSearched && (
+        <div className="mb-6">
+          <IntentAnalysis threads={filteredThreads} />
+        </div>
       )}
 
       {/* Threads Table (only show when threads are available) */}
