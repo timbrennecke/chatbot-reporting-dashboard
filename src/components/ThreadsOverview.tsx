@@ -419,10 +419,9 @@ export function ThreadsOverview({
 
   // Quick time range filter functions
   const setTimeRange = (hours: number) => {
-    // Round to consistent 5-minute intervals for better cache hits
+    // Use current system time without rounding for precise time selection
     const now = new Date();
-    const roundedNow = new Date(Math.floor(now.getTime() / (5 * 60 * 1000)) * (5 * 60 * 1000));
-    const startTime = new Date(roundedNow.getTime() - hours * 60 * 60 * 1000);
+    const startTime = new Date(now.getTime() - hours * 60 * 60 * 1000);
     
     // Format for datetime-local input (YYYY-MM-DDTHH:mm) using local timezone
     const formatDateTimeLocal = (date: Date) => {
@@ -435,9 +434,9 @@ export function ThreadsOverview({
     };
     
     setStartDate(formatDateTimeLocal(startTime));
-    setEndDate(formatDateTimeLocal(roundedNow));
+    setEndDate(formatDateTimeLocal(now));
     
-    console.log(`⏰ Set time range: ${hours}h (${formatDateTimeLocal(startTime)} - ${formatDateTimeLocal(roundedNow)})`);
+    console.log(`⏰ Set time range: ${hours}h (${formatDateTimeLocal(startTime)} - ${formatDateTimeLocal(now)})`);
     // Don't reset hasSearched here - let it persist until user performs new search
   };
 
@@ -466,9 +465,9 @@ export function ThreadsOverview({
     const end = new Date(endDate);
     const diffHours = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60));
     
-    // Check if end time is close to now (within 5 minutes) using local time
+    // Check if end time is close to now (within 2 minutes) using local time
     const now = new Date();
-    const isEndTimeNow = Math.abs(end.getTime() - now.getTime()) < 5 * 60 * 1000;
+    const isEndTimeNow = Math.abs(end.getTime() - now.getTime()) < 2 * 60 * 1000;
     
     if (isEndTimeNow) {
       return quickFilters.find(filter => filter.hours === diffHours)?.hours || null;
