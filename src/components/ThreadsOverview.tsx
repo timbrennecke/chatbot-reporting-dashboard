@@ -178,6 +178,7 @@ export function ThreadsOverview({
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const toolDropdownRef = useRef<HTMLDivElement>(null);
   const [showErrorsOnly, setShowErrorsOnly] = useState(false);
+  const [showTimeoutsOnly, setShowTimeoutsOnly] = useState(false);
 
   // Advanced filters
   const [minMessages, setMinMessages] = useState<number | ''>('');
@@ -235,10 +236,48 @@ export function ThreadsOverview({
     });
   }, []);
 
+  // Function to check if a thread has timeouts (30+ second gaps between consecutive messages)
+  // Excludes user-initiated gaps (session restarts) where the gap is followed by a user message
+  const threadHasTimeouts = useCallback((thread: any) => {
+    if (!thread.messages || thread.messages.length < 2) return false;
+    
+    // Sort messages by timestamp
+    const sortedMessages = [...thread.messages].sort((a, b) => {
+      const timeA = new Date(a.created_at || a.createdAt || a.sentAt).getTime();
+      const timeB = new Date(b.created_at || b.createdAt || b.sentAt).getTime();
+      return timeA - timeB;
+    });
+    
+    // Check for gaps of 30+ seconds between consecutive messages
+    for (let i = 1; i < sortedMessages.length; i++) {
+      const prevMessage = sortedMessages[i - 1];
+      const currentMessage = sortedMessages[i];
+      
+      const prevTime = new Date(prevMessage.created_at || prevMessage.createdAt || prevMessage.sentAt).getTime();
+      const currentTime = new Date(currentMessage.created_at || currentMessage.createdAt || currentMessage.sentAt).getTime();
+      
+      // Check if there's a gap of 30 seconds or more (30,000 milliseconds)
+      if (currentTime - prevTime >= 30000) {
+        // Exception: If the gap is followed by a user message, treat it as a session restart, not a timeout
+        if (currentMessage.role === 'user') {
+          continue; // Skip this gap - it's a session restart
+        }
+        return true; // This is an actual timeout
+      }
+    }
+    
+    return false;
+  }, []);
+
   // Calculate total threads with errors
   const totalThreadsWithErrors = useMemo(() => {
     return threads.filter(thread => threadHasErrors(thread)).length;
   }, [threads, threadHasErrors]);
+
+  // Calculate total threads with timeouts
+  const totalThreadsWithTimeouts = useMemo(() => {
+    return threads.filter(thread => threadHasTimeouts(thread)).length;
+  }, [threads, threadHasTimeouts]);
   
   // Message search functionality
   const [messageSearchEnabled, setMessageSearchEnabled] = useState(false);
@@ -796,6 +835,11 @@ export function ThreadsOverview({
         if (!threadHasErrors(thread)) return false;
       }
 
+      // Timeout filter - show only threads with timeouts if checkbox is checked
+      if (showTimeoutsOnly) {
+        if (!threadHasTimeouts(thread)) return false;
+      }
+
       // Advanced filters - calculate metrics for this thread
       const messageCount = thread.messages.filter(
         msg => msg.role === 'user' || msg.role === 'assistant'
@@ -853,7 +897,7 @@ export function ThreadsOverview({
       const timeB = new Date(b.createdAt).getTime();
       return timeB - timeA; // Most recent first
     });
-  }, [threads, searchTerm, hasUiFilter, selectedTools, showErrorsOnly, messageSearchEnabled, messageSearchTerm, threadHasErrors, minMessages, maxMessages, minDuration, maxDuration, minResponseTime, maxResponseTime]);
+  }, [threads, searchTerm, hasUiFilter, selectedTools, showErrorsOnly, showTimeoutsOnly, messageSearchEnabled, messageSearchTerm, threadHasErrors, threadHasTimeouts, minMessages, maxMessages, minDuration, maxDuration, minResponseTime, maxResponseTime]);
 
   // Update thread order whenever filtered threads change to keep navigation in sync
   useEffect(() => {
@@ -874,7 +918,7 @@ export function ThreadsOverview({
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, hasUiFilter, selectedTools, showErrorsOnly, minMessages, maxMessages, minDuration, maxDuration, minResponseTime, maxResponseTime]);
+  }, [searchTerm, hasUiFilter, selectedTools, showErrorsOnly, showTimeoutsOnly, minMessages, maxMessages, minDuration, maxDuration, minResponseTime, maxResponseTime]);
 
   const analytics = useMemo(() => calculateThreadAnalytics(filteredThreads), [filteredThreads]);
 
@@ -1591,6 +1635,25 @@ export function ThreadsOverview({
                         Show errors only
                         <Badge variant="destructive" className="ml-2 px-2 py-0 text-xs">
                           {totalThreadsWithErrors}
+                        </Badge>
+                      </Label>
+                    </div>
+                  )}
+                  
+                  {/* Timeout Filter */}
+                  {totalThreadsWithTimeouts > 0 && (
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="show-timeouts-only"
+                        checked={showTimeoutsOnly}
+                        onCheckedChange={(checked) => setShowTimeoutsOnly(!!checked)}
+                        className="h-4 w-4"
+                      />
+                      <Label htmlFor="show-timeouts-only" className="text-sm font-medium cursor-pointer flex items-center">
+                        <Clock className="mr-1 h-4 w-4 text-orange-500" />
+                        Show timeouts only
+                        <Badge variant="secondary" className="ml-2 px-2 py-0 text-xs bg-orange-100 text-orange-800">
+                          {totalThreadsWithTimeouts}
                         </Badge>
                       </Label>
                     </div>
