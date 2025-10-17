@@ -146,38 +146,42 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
 
       const apiBaseUrl = getApiBaseUrl();
       
-      // Calculate time difference - always use daily chunking for reliability
+      // Calculate time difference - use 6-hour chunking for optimal balance
       const timeDiff = endDate.getTime() - startDate.getTime();
-      const daysDiff = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+      const hoursDiff = Math.ceil(timeDiff / (1000 * 60 * 60));
+      const chunksDiff = Math.ceil(hoursDiff / 6);
       
       let allConversations: any[] = [];
       
-      // Always use daily chunking to avoid timeouts
-      console.log(`📊 Processing ${daysDiff} days with daily chunking to avoid timeouts...`);
+      // Use 6-hour chunking to balance speed and reliability
+      console.log(`📊 Processing ${hoursDiff} hours (${chunksDiff} chunks) with 6-hour chunking...`);
       
       const chunks: Array<{start: Date, end: Date, dateStr: string}> = [];
       
-      // Create daily chunks
+      // Create 6-hour chunks
       let currentDate = new Date(startDate);
-      while (currentDate <= endDate) {
+      const endDateObj = new Date(endDate);
+      while (currentDate < endDateObj) {
         let nextDate = new Date(currentDate);
-        nextDate.setDate(nextDate.getDate() + 1);
+        nextDate.setHours(nextDate.getHours() + 6);
         
         // Don't go past the end date
-        if (nextDate > endDate) {
-          nextDate = new Date(endDate);
+        if (nextDate > endDateObj) {
+          nextDate = new Date(endDateObj);
         }
         
+        const startHour = currentDate.getHours();
+        const endHour = nextDate.getHours();
         chunks.push({
           start: new Date(currentDate),
           end: new Date(nextDate),
-          dateStr: currentDate.toLocaleDateString()
+          dateStr: `${currentDate.toLocaleDateString()} ${startHour}:00-${endHour}:00`
         });
         
-        currentDate.setDate(currentDate.getDate() + 1);
+        currentDate.setHours(currentDate.getHours() + 6);
       }
       
-      console.log(`📦 Processing ${chunks.length} daily chunks`);
+      console.log(`📦 Processing ${chunks.length} 6-hour chunks`);
       setLoadingProgress({ current: 0, total: chunks.length, currentDate: '' });
       
       // Process chunks with progress tracking
@@ -185,7 +189,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
         const chunk = chunks[i];
         setLoadingProgress({ current: i + 1, total: chunks.length, currentDate: chunk.dateStr });
         
-        console.log(`📅 Day ${i + 1}/${chunks.length}: ${chunk.dateStr}`);
+        console.log(`📅 Chunk ${i + 1}/${chunks.length}: ${chunk.dateStr}`);
         
         try {
           const response = await fetch(`${apiBaseUrl}/thread`, {
@@ -202,8 +206,8 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
           });
 
           if (!response.ok) {
-            console.warn(`⚠️ Day ${i + 1} (${chunk.dateStr}) failed: HTTP ${response.status}`);
-            continue; // Skip failed days but continue with others
+            console.warn(`⚠️ Chunk ${i + 1} (${chunk.dateStr}) failed: HTTP ${response.status}`);
+            continue; // Skip failed chunks but continue with others
           }
 
           const chunkData = await response.json();
@@ -220,7 +224,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
           }));
           
           allConversations.push(...chunkConversations);
-          console.log(`✅ Day ${i + 1}/${chunks.length} (${chunk.dateStr}): +${chunkConversations.length} conversations (total: ${allConversations.length})`);
+          console.log(`✅ Chunk ${i + 1}/${chunks.length} (${chunk.dateStr}): +${chunkConversations.length} conversations (total: ${allConversations.length})`);
           
           // Small delay to be nice to the server
           if (i < chunks.length - 1) {
@@ -228,12 +232,12 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
           }
           
         } catch (chunkError) {
-          console.warn(`⚠️ Day ${i + 1} (${chunk.dateStr}) error:`, chunkError);
-          // Continue with other days
+          console.warn(`⚠️ Chunk ${i + 1} (${chunk.dateStr}) error:`, chunkError);
+          // Continue with other chunks
         }
       }
       
-      console.log(`🎉 Daily processing complete: ${allConversations.length} total conversations from ${chunks.length} days`);
+      console.log(`🎉 6-hour chunking complete: ${allConversations.length} total conversations from ${chunks.length} chunks`);
       setLoadingProgress({ current: 0, total: 0, currentDate: '' });
       
       setFetchedConversations(allConversations);
@@ -383,12 +387,51 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       { conversations: 0, formattedDate: 'N/A' }
     );
 
+    // Function to check if a conversation has errors (same logic as ThreadsOverview)
+    const conversationHasErrors = (conversation: any): boolean => {
+      if (!conversation.messages) return false;
+      return conversation.messages.some((message: any) => {
+        if (message.role === 'system' || message.role === 'status') {
+          return message.content.some((content: any) => {
+            if (content.text || content.content) {
+              const text = content.text || content.content || '';
+              // Check for any error patterns
+              const errorPatterns = [
+                /Agent execution error/gi,
+                /Error:/gi,
+                /Failed:/gi,
+                /Exception:/gi,
+                /Timeout/gi,
+                /Connection error/gi,
+                /Invalid/gi,
+                /Not found/gi,
+                /Unauthorized/gi,
+                /Forbidden/gi
+              ];
+              return errorPatterns.some(pattern => pattern.test(text));
+            }
+            return false;
+          });
+        }
+        return false;
+      });
+    };
+
+    // Calculate conversations with errors
+    const conversationsWithErrors = allConversations.filter(conversationHasErrors);
+    const errorPercentage = allConversations.length > 0 
+      ? Math.round((conversationsWithErrors.length / allConversations.length) * 100)
+      : 0;
+
     // Conversation metrics aggregation
     const totalUserMessages = conversationMetrics.reduce((sum, conv) => sum + (conv?.userMessages || 0), 0);
     const totalAssistantMessages = conversationMetrics.reduce((sum, conv) => sum + (conv?.assistantMessages || 0), 0);
+    
+    // Modified: Average messages per conversation - ONLY count user messages
     const avgMessagesPerConversation = conversationMetrics.length > 0 
-      ? Math.round(((totalUserMessages + totalAssistantMessages) / conversationMetrics.length) * 100) / 100
+      ? Math.round((totalUserMessages / conversationMetrics.length) * 100) / 100
       : 0;
+    
     const avgDurationMinutes = conversationMetrics.length > 0
       ? Math.round((conversationMetrics.reduce((sum, conv) => sum + (conv?.durationMinutes || 0), 0) / conversationMetrics.length) * 100) / 100
       : 0;
@@ -719,6 +762,8 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       avgDurationMinutes,
       avgTimeToFirstResponseSeconds,
       fetchedConversationsCount: fetchedConversations.length,
+      conversationsWithErrors: conversationsWithErrors.length,
+      errorPercentage,
       kontaktquote,
       conversationsWithContactTools: conversationsWithContactTools.length,
       travelAgentQuote,
@@ -1371,7 +1416,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
           <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
             💬 Message Analysis
           </h3>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
             <div className="text-center">
               <p className="text-xl font-bold text-green-600">{stats.totalUserMessages.toLocaleString()}</p>
               <p className="text-sm text-gray-600">User Messages</p>
@@ -1382,7 +1427,11 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
             </div>
             <div className="text-center">
               <p className="text-xl font-bold text-green-600">{stats.avgMessagesPerConversation}</p>
-              <p className="text-sm text-gray-600">Avg. Messages</p>
+              <p className="text-sm text-gray-600">Avg. User Messages</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xl font-bold text-red-600">{stats.conversationsWithErrors} ({stats.errorPercentage}%)</p>
+              <p className="text-sm text-gray-600">Conversations with Errors</p>
             </div>
             <div className="text-center">
               <p className="text-xl font-bold text-green-600">{stats.avgTimeToFirstResponseSeconds}s</p>
@@ -1852,7 +1901,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
             {loadingProgress.total > 0 && (
               <div className="space-y-2">
                 <div className="flex justify-between text-sm text-blue-600">
-                  <span>Processing day {loadingProgress.current} of {loadingProgress.total}</span>
+                  <span>Processing chunk {loadingProgress.current} of {loadingProgress.total}</span>
                   <span>{Math.round((loadingProgress.current / loadingProgress.total) * 100)}%</span>
                 </div>
                 
@@ -1867,6 +1916,10 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                     style={{ width: `${(loadingProgress.current / loadingProgress.total) * 100}%` }}
                   ></div>
                 </div>
+                
+                <p className="text-xs text-blue-600">
+                  Processing data in 6-hour chunks to avoid timeouts...
+                </p>
               </div>
             )}
           </div>

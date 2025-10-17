@@ -35,6 +35,86 @@ import { Conversation, Thread, Message, MessageContent } from '../lib/types';
 import { getApiBaseUrl, getEnvironmentSpecificItem } from '../lib/api';
 import { formatTimestamp, parseThreadId } from '../lib/utils';
 
+// Topic categorization keywords (same as IntentAnalysis)
+const TOPIC_KEYWORDS = {
+  'Parkplätze/Parking': ['parkplatz', 'parkplätze', 'parken', 'parking', 'park', 'auto', 'car', 'fahrzeug', 'vehicle', 'stellplatz', 'garage', 'tiefgarage', 'wo kann ich parken', 'parkgebühren', 'kostenpflichtig parken', 'parkschein', 'parkuhr'],
+  'Frühstück/Breakfast': ['frühstück', 'breakfast', 'morgenbuffet', 'buffet', 'morgen', 'morning', 'früh', 'early', 'kaffee', 'coffee', 'brötchen', 'bread', 'gibt es frühstück', 'frühstückszeiten', 'kontinentales frühstück', 'müsli', 'marmelade', 'butter', 'eier', 'speck'],
+  'Öffnungszeiten/Opening Hours': ['öffnungszeit', 'öffnungszeiten', 'opening hours', 'geöffnet', 'öffnen', 'schließen', 'geschlossen', 'closed', 'wann', 'when', 'uhrzeit', 'time', 'bis wann', 'until when', 'ab wann', 'from when', 'wie lange geöffnet', 'öffnungszeiten heute', 'wann macht auf', 'wann macht zu'],
+  'Preise/Prices': ['preis', 'preise', 'kosten', 'price', 'prices', 'cost', 'costs', 'wie viel', 'how much', 'was kostet', 'what costs', 'teuer', 'expensive', 'günstig', 'cheap', 'euro', 'dollar', 'geld', 'money', 'wie teuer', 'preiswert', 'bezahlen', 'zahlung', 'gebühr', 'tarif'],
+  'Reservierung/Booking': ['reservierung', 'buchen', 'booking', 'reserve', 'buchung', 'reservation', 'verfügbar', 'available', 'frei', 'free', 'belegt', 'occupied', 'termin', 'appointment', 'platz', 'space', 'reservieren', 'vorbestellen', 'tisch reservieren', 'platz buchen'],
+  'WLAN/WiFi': ['wlan', 'wifi', 'wi-fi', 'internet', 'password', 'passwort', 'netzwerk', 'network', 'verbindung', 'connection', 'online', 'zugang', 'access', 'internetverbindung', 'wlan passwort', 'wie komme ich ins internet', 'netz', 'empfang'],
+  'Check-in/Check-out': ['check-in', 'check-out', 'checkin', 'checkout', 'anreise', 'abreise', 'einchecken', 'auschecken', 'ankunft', 'arrival', 'departure', 'schlüssel', 'key', 'karte', 'card', 'zimmerschlüssel', 'keycard', 'rezeption', 'empfang', 'wann kann ich einchecken'],
+  'Restaurant/Essen': ['restaurant', 'essen', 'food', 'dinner', 'lunch', 'abendessen', 'mittagessen', 'küche', 'kitchen', 'speisekarte', 'menu', 'bestellen', 'order', 'trinken', 'drink', 'bar', 'café', 'kaffee', 'coffee', 'gastronomie', 'verpflegung', 'mahlzeit', 'snack', 'getränke', 'alkohol', 'bier', 'wein'],
+  'Transport/Anfahrt': ['anfahrt', 'transport', 'bus', 'bahn', 'zug', 'taxi', 'directions', 'weg', 'route', 'fahren', 'drive', 'gehen', 'walk', 'entfernung', 'distance', 'wie komme ich', 'how do i get', 'flughafen', 'airport', 'bahnhof', 'station', 'öffentliche verkehrsmittel', 'u-bahn', 's-bahn', 'straßenbahn', 'bushaltestelle', 'fahrplan', 'verbindung'],
+  'Stornierung/Cancellation': ['stornierung', 'stornieren', 'cancel', 'cancellation', 'absagen', 'rückgängig', 'undo', 'zurück', 'back', 'ändern', 'change', 'modify', 'umbuchen', 'rebook', 'stornogebühr', 'kostenlos stornieren', 'buchung ändern', 'termin verschieben'],
+  'Zimmer/Room': ['zimmer', 'room', 'suite', 'bett', 'bed', 'schlafzimmer', 'bedroom', 'bad', 'bathroom', 'dusche', 'shower', 'balkon', 'balcony', 'aussicht', 'view', 'etage', 'floor', 'doppelzimmer', 'einzelzimmer', 'familienzimmer', 'klimaanlage', 'heizung', 'fernseher', 'minibar', 'safe', 'handtücher'],
+  'Wellness/Spa': ['wellness', 'spa', 'sauna', 'pool', 'schwimmbad', 'massage', 'entspannung', 'relaxation', 'fitness', 'gym', 'sport', 'schwimmen', 'swimming', 'baden', 'bathing', 'wellnessbereich', 'fitnessraum', 'dampfbad', 'whirlpool', 'jacuzzi', 'beauty', 'kosmetik'],
+  'Events/Veranstaltungen': ['event', 'veranstaltung', 'conference', 'meeting', 'feier', 'party', 'hochzeit', 'wedding', 'tagung', 'seminar', 'workshop', 'celebration', 'fest', 'festival', 'konferenz', 'business', 'geschäftlich', 'firmenfeier', 'geburtstag', 'jubiläum'],
+  'Haustiere/Pets': ['hund', 'katze', 'haustier', 'pet', 'dog', 'cat', 'tier', 'animal', 'welpe', 'puppy', 'kätzchen', 'kitten', 'erlaubt', 'allowed', 'mitbringen', 'bring', 'haustiere erlaubt', 'hundefreundlich', 'katzenfreundlich', 'tierfreundlich', 'haustiergebühr'],
+  'Fahrrad/Bicycle': ['fahrrad', 'bicycle', 'bike', 'rad', 'fahrräder', 'abstellen', 'parken', 'garage', 'fahrradgarage', 'fahrradkeller', 'fahrradständer', 'radfahren', 'cycling', 'mountainbike', 'e-bike', 'pedelec', 'fahrradverleih', 'fahrradtour', 'radweg'],
+  'Inspiration/Reiseberatung': ['urlaub', 'vacation', 'reise', 'travel', 'hotel', 'destination', 'ziel', 'wohin', 'where to go', 'where can i', 'show me', 'zeig mir', 'great vacation', 'schöner urlaub', 'reiseberatung', 'travel advice', 'travel consultant', 'reiseziel', 'urlaubsziel', 'holiday destination', 'trip', 'ausflug', 'sightseeing', 'sehenswürdigkeiten', 'gibt es wälder', 'natur', 'landschaft', 'berge', 'seen', 'wandern', 'spazieren', 'umgebung', 'nähe', 'in der nähe', 'was gibt es hier zu sehen', 'lohnenswert', 'schön', 'empfehlung', 'empfehlungen', 'recommend', 'recommendation', 'suggestion', 'vorschlag', 'tipp', 'tipps', 'was können sie empfehlen', 'what do you recommend', 'beste', 'best', 'gut', 'good', 'aktivitäten', 'activities', 'was kann man machen', 'was gibt es hier', 'lohnt sich', 'interessant', 'besichtigen'],
+  'Kundenberatung/Customer Support': ['hilfe', 'help', 'support', 'kundenservice', 'customer service', 'beratung', 'beraten', 'rückruf', 'callback', 'call back', 'zurückrufen', 'anrufen', 'call me', 'ruf mich an', 'nachricht', 'message', 'kontakt', 'contact', 'sprechen', 'talk', 'problem', 'issue', 'beschwerde', 'complaint', 'frage', 'question', 'können sie mir helfen', 'can you help me', 'ich brauche hilfe', 'i need help', 'assistance', 'unterstützung', 'service', 'mitarbeiter', 'staff', 'personal', 'ich hätte gerne', 'könnten sie', 'wäre es möglich'],
+};
+
+// Category colors for tags
+const CATEGORY_COLORS: { [key: string]: { bg: string; text: string; border: string } } = {
+  'Parkplätze/Parking': { bg: '#dbeafe', text: '#1e40af', border: '#3b82f6' },
+  'Frühstück/Breakfast': { bg: '#fef3c7', text: '#92400e', border: '#f59e0b' },
+  'Öffnungszeiten/Opening Hours': { bg: '#e0e7ff', text: '#3730a3', border: '#6366f1' },
+  'Preise/Prices': { bg: '#dcfce7', text: '#166534', border: '#22c55e' },
+  'Reservierung/Booking': { bg: '#fce7f3', text: '#be185d', border: '#ec4899' },
+  'WLAN/WiFi': { bg: '#e0f2fe', text: '#0c4a6e', border: '#0ea5e9' },
+  'Check-in/Check-out': { bg: '#f3e8ff', text: '#6b21a8', border: '#a855f7' },
+  'Restaurant/Essen': { bg: '#fed7d7', text: '#c53030', border: '#f56565' },
+  'Transport/Anfahrt': { bg: '#e6fffa', text: '#234e52', border: '#38b2ac' },
+  'Stornierung/Cancellation': { bg: '#fef5e7', text: '#c05621', border: '#ed8936' },
+  'Zimmer/Room': { bg: '#edf2f7', text: '#2d3748', border: '#4a5568' },
+  'Wellness/Spa': { bg: '#f0fff4', text: '#22543d', border: '#48bb78' },
+  'Events/Veranstaltungen': { bg: '#faf5ff', text: '#553c9a', border: '#9f7aea' },
+  'Haustiere/Pets': { bg: '#fffbeb', text: '#92400e', border: '#f6ad55' },
+  'Fahrrad/Bicycle': { bg: '#f0f9ff', text: '#0c4a6e', border: '#0284c7' },
+  'Inspiration/Reiseberatung': { bg: '#ecfdf5', text: '#065f46', border: '#10b981' },
+  'Kundenberatung/Customer Support': { bg: '#fef2f2', text: '#991b1b', border: '#ef4444' },
+  'Others/Sonstiges': { bg: '#f9fafb', text: '#374151', border: '#6b7280' }
+};
+
+// Function to categorize a conversation
+function categorizeConversation(messages: Message[]): string | null {
+  if (!messages || messages.length === 0) return null;
+
+  // Get first user message
+  const firstUserMessage = messages
+    .filter(m => m.role === 'user')
+    .sort((a, b) => {
+      const timeA = new Date(a.sentAt || a.createdAt || a.created_at || 0).getTime();
+      const timeB = new Date(b.sentAt || b.createdAt || b.created_at || 0).getTime();
+      return timeA - timeB;
+    })[0];
+
+  if (!firstUserMessage || !firstUserMessage.content) return null;
+
+  const messageText = firstUserMessage.content
+    .map(content => content.text || content.content || '')
+    .join(' ')
+    .trim()
+    .toLowerCase();
+
+  if (!messageText) return null;
+
+  // Check against all categories
+  for (const [categoryName, keywords] of Object.entries(TOPIC_KEYWORDS)) {
+    const hasKeyword = keywords.some(keyword => 
+      messageText.includes(keyword.toLowerCase())
+    );
+    
+    if (hasKeyword) {
+      return categoryName;
+    }
+  }
+
+  return 'Others/Sonstiges';
+}
+
 interface ConversationDetailProps {
   conversation?: Conversation;
   conversationId?: string;
@@ -203,17 +283,98 @@ function formatJsonInText(text: string): { hasJson: boolean; formattedText: stri
     
     // Only process if it looks like a substantial JSON object
     if (jsonString.length > 50 && jsonString.includes('\\"')) {
-      try {
-        // Try to unescape the JSON string
-        const unescapedJson = jsonString
-          .replace(/\\"/g, '"')
-          .replace(/\\\\/g, '\\')
-          .replace(/\\n/g, '\n')
-          .replace(/\\t/g, '\t')
-          .replace(/\\r/g, '\r');
+      // Additional validation - check if this looks like valid JSON structure
+      const hasValidJsonStructure = (str: string): boolean => {
+        // Must start with { and end with }
+        if (!str.trim().startsWith('{') || !str.trim().endsWith('}')) return false;
         
-        // Try to parse the unescaped JSON
-        const parsedJson = JSON.parse(unescapedJson);
+        // Should have some basic JSON patterns
+        const hasJsonPatterns = /["']\s*:\s*["'\[\{]/.test(str) || /["']\s*:\s*\w/.test(str);
+        return hasJsonPatterns;
+      };
+      
+      if (!hasValidJsonStructure(jsonString)) {
+        // Skip this - it's probably not actually JSON
+        searchIndex = startIndex + 1;
+        continue;
+      }
+      
+      try {
+        // Helper function to sanitize JSON string by removing/replacing invalid control characters
+        const sanitizeJsonString = (jsonStr: string): string => {
+          // First, let's handle the basic unescaping
+          let result = jsonStr
+            .replace(/\\"/g, '"')
+            .replace(/\\\\/g, '\\')
+            .replace(/\\n/g, '\n')
+            .replace(/\\t/g, '\t')
+            .replace(/\\r/g, '\r')
+            .replace(/\\f/g, '\f')
+            .replace(/\\b/g, '\b');
+          
+          // Now we need to be more careful about control characters within JSON strings
+          // We'll process the string character by character to properly handle quoted content
+          let sanitized = '';
+          let inString = false;
+          let escaped = false;
+          
+          for (let i = 0; i < result.length; i++) {
+            const char = result[i];
+            const charCode = char.charCodeAt(0);
+            
+            if (escaped) {
+              sanitized += char;
+              escaped = false;
+              continue;
+            }
+            
+            if (char === '\\') {
+              escaped = true;
+              sanitized += char;
+              continue;
+            }
+            
+            if (char === '"') {
+              inString = !inString;
+              sanitized += char;
+              continue;
+            }
+            
+            // Handle control characters
+            if (charCode < 32 || charCode === 127) {
+              if (inString) {
+                // Inside a string, escape control characters properly
+                switch (charCode) {
+                  case 8: sanitized += '\\b'; break;
+                  case 9: sanitized += '\\t'; break;
+                  case 10: sanitized += '\\n'; break;
+                  case 12: sanitized += '\\f'; break;
+                  case 13: sanitized += '\\r'; break;
+                  default:
+                    // For other control characters, use unicode escape
+                    sanitized += '\\u' + charCode.toString(16).padStart(4, '0');
+                    break;
+                }
+              } else {
+                // Outside strings, just remove control characters (except newlines, tabs)
+                if (charCode === 10 || charCode === 13 || charCode === 9) {
+                  sanitized += char;
+                }
+                // Otherwise skip the character
+              }
+            } else {
+              sanitized += char;
+            }
+          }
+          
+          return sanitized;
+        };
+        
+        // Sanitize the JSON string to handle control characters
+        const sanitizedJson = sanitizeJsonString(jsonString);
+        
+        // Try to parse the sanitized JSON
+        const parsedJson = JSON.parse(sanitizedJson);
         // Format it nicely with 2-space indentation
         const formattedJson = JSON.stringify(parsedJson, null, 2);
         // Replace the original match with the formatted version
@@ -222,16 +383,22 @@ function formatJsonInText(text: string): { hasJson: boolean; formattedText: stri
         // Continue searching after the replacement
         searchIndex = startIndex + formattedJson.length;
       } catch (error) {
-        // If parsing fails, still try to format as a code block for better readability
+        // If parsing still fails, format as a code block without trying to parse
         console.warn('Failed to parse JSON, formatting as code block:', error.message);
-        const unescapedJson = jsonString
+        
+        // Let's try a more aggressive approach - just display as text without JSON parsing
+        const displayText = jsonString
           .replace(/\\"/g, '"')
           .replace(/\\\\/g, '\\')
           .replace(/\\n/g, '\n')
-          .replace(/\\t/g, '\t');
-        formattedText = formattedText.replace(jsonString, '\n\n```json\n' + unescapedJson + '\n```\n\n');
+          .replace(/\\t/g, '  ')
+          .replace(/\\r/g, '\r')
+          // Remove all control characters that could cause issues
+          .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+        
+        formattedText = formattedText.replace(jsonString, '\n\n```text\n' + displayText + '\n```\n\n');
         hasJson = true;
-        searchIndex = startIndex + unescapedJson.length;
+        searchIndex = startIndex + displayText.length;
       }
     } else {
       searchIndex = startIndex + 1;
@@ -518,6 +685,42 @@ export function ConversationDetail({
     return activeConversation.messages.filter(message => showSystemMessages || message.role !== 'system');
   }, [activeConversation, showSystemMessages]);
 
+  // Function to check if a message was followed by a timeout (30+ second gap after it)
+  // Shows timeout pills on messages that caused delays, excluding user-initiated session restarts
+  const hasTimeoutAfter = useMemo(() => {
+    if (!activeConversation?.messages) return new Set();
+    
+    const timeoutMessageIds = new Set<string>();
+    
+    // Sort all messages by timestamp
+    const sortedMessages = [...activeConversation.messages].sort((a, b) => {
+      const timeA = new Date(a.created_at || a.createdAt || a.sentAt).getTime();
+      const timeB = new Date(b.created_at || b.createdAt || b.sentAt).getTime();
+      return timeA - timeB;
+    });
+    
+    // Check for gaps of 30+ seconds between consecutive messages
+    for (let i = 0; i < sortedMessages.length - 1; i++) {
+      const currentMessage = sortedMessages[i];
+      const nextMessage = sortedMessages[i + 1];
+      
+      const currentTime = new Date(currentMessage.created_at || currentMessage.createdAt || currentMessage.sentAt).getTime();
+      const nextTime = new Date(nextMessage.created_at || nextMessage.createdAt || nextMessage.sentAt).getTime();
+      
+      // Check if there's a gap of 30 seconds or more (30,000 milliseconds)
+      if (nextTime - currentTime >= 30000) {
+        // Exception: If the gap is followed by a user message, treat it as a session restart, not a timeout
+        if (nextMessage.role === 'user') {
+          continue; // Skip this gap - it's a session restart, don't show timeout pill
+        }
+        // Show timeout pill on the message that was followed by the delay
+        timeoutMessageIds.add(currentMessage.id);
+      }
+    }
+    
+    return timeoutMessageIds;
+  }, [activeConversation]);
+
   const handleFetchConversation = async () => {
     if (!paginationConversationId.trim()) return;
     
@@ -682,7 +885,33 @@ export function ConversationDetail({
             <CardHeader className="bg-slate-50/50">
               <div className="flex justify-between items-start">
                 <div className="flex-1">
-                  <CardTitle className="text-slate-800">{activeConversation.title || `Thread ${selectedThread?.id}`}</CardTitle>
+                  <div className="flex items-center gap-3 mb-1">
+                    <CardTitle className="text-slate-800">{activeConversation.title || `Thread ${selectedThread?.id}`}</CardTitle>
+                    {(() => {
+                      const category = categorizeConversation(activeConversation.messages || []);
+                      if (category) {
+                        const colors = CATEGORY_COLORS[category] || CATEGORY_COLORS['Others/Sonstiges'];
+                        return (
+                          <span
+                            style={{
+                              backgroundColor: colors.bg,
+                              color: colors.text,
+                              border: `1px solid ${colors.border}`,
+                              fontSize: '11px',
+                              fontWeight: '600',
+                              padding: '2px 8px',
+                              borderRadius: '12px',
+                              whiteSpace: 'nowrap'
+                            }}
+                            title={`Categorized as: ${category}`}
+                          >
+                            {category}
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
                   <div className="space-y-1 mt-1">
                     <div className="flex items-center gap-2">
                       <CardDescription className="text-slate-600">Conversation ID: {activeConversation.id}</CardDescription>
@@ -1068,6 +1297,16 @@ export function ConversationDetail({
                             <Clock className="h-3 w-3" />
                             {formatTimestamp(message.sentAt)}
                           </span>
+                          {/* Timeout indicator pill */}
+                          {hasTimeoutAfter.has(message.id) && (
+                            <Badge 
+                              variant="secondary" 
+                              className="text-xs px-2 py-0 bg-orange-100 text-orange-800 border border-orange-200 flex items-center gap-1"
+                            >
+                              <Clock className="h-3 w-3" />
+                              Timeout
+                            </Badge>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
@@ -1179,7 +1418,33 @@ export function ConversationDetail({
             <CardHeader className="bg-slate-50/50">
               <div className="flex justify-between items-start">
                 <div className="flex-1">
-                  <CardTitle className="text-slate-800">{uploadedConversation.title || 'Uploaded Conversation'}</CardTitle>
+                  <div className="flex items-center gap-3 mb-1">
+                    <CardTitle className="text-slate-800">{uploadedConversation.title || 'Uploaded Conversation'}</CardTitle>
+                    {(() => {
+                      const category = categorizeConversation(uploadedConversation.messages || []);
+                      if (category) {
+                        const colors = CATEGORY_COLORS[category] || CATEGORY_COLORS['Others/Sonstiges'];
+                        return (
+                          <span
+                            style={{
+                              backgroundColor: colors.bg,
+                              color: colors.text,
+                              border: `1px solid ${colors.border}`,
+                              fontSize: '11px',
+                              fontWeight: '600',
+                              padding: '2px 8px',
+                              borderRadius: '12px',
+                              whiteSpace: 'nowrap'
+                            }}
+                            title={`Categorized as: ${category}`}
+                          >
+                            {category}
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
                   <div className="space-y-1 mt-1">
                     <div className="flex items-center gap-2">
                       <CardDescription className="text-slate-600">Conversation ID: {uploadedConversation.id}</CardDescription>
@@ -1483,6 +1748,16 @@ export function ConversationDetail({
                             <Clock className="h-3 w-3" />
                             {formatTimestamp(message.sentAt)}
                           </span>
+                          {/* Timeout indicator pill */}
+                          {hasTimeoutAfter.has(message.id) && (
+                            <Badge 
+                              variant="secondary" 
+                              className="text-xs px-2 py-0 bg-orange-100 text-orange-800 border border-orange-200 flex items-center gap-1"
+                            >
+                              <Clock className="h-3 w-3" />
+                              Timeout
+                            </Badge>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"

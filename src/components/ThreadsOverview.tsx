@@ -178,6 +178,16 @@ export function ThreadsOverview({
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const toolDropdownRef = useRef<HTMLDivElement>(null);
   const [showErrorsOnly, setShowErrorsOnly] = useState(false);
+  const [showTimeoutsOnly, setShowTimeoutsOnly] = useState(false);
+
+  // Advanced filters
+  const [minMessages, setMinMessages] = useState<number | ''>('');
+  const [maxMessages, setMaxMessages] = useState<number | ''>('');
+  const [minDuration, setMinDuration] = useState<number | ''>('');
+  const [maxDuration, setMaxDuration] = useState<number | ''>('');
+  const [minResponseTime, setMinResponseTime] = useState<number | ''>('');
+  const [maxResponseTime, setMaxResponseTime] = useState<number | ''>('');
+  const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -226,10 +236,48 @@ export function ThreadsOverview({
     });
   }, []);
 
+  // Function to check if a thread has timeouts (30+ second gaps between consecutive messages)
+  // Excludes user-initiated gaps (session restarts) where the gap is followed by a user message
+  const threadHasTimeouts = useCallback((thread: any) => {
+    if (!thread.messages || thread.messages.length < 2) return false;
+    
+    // Sort messages by timestamp
+    const sortedMessages = [...thread.messages].sort((a, b) => {
+      const timeA = new Date(a.created_at || a.createdAt || a.sentAt).getTime();
+      const timeB = new Date(b.created_at || b.createdAt || b.sentAt).getTime();
+      return timeA - timeB;
+    });
+    
+    // Check for gaps of 30+ seconds between consecutive messages
+    for (let i = 1; i < sortedMessages.length; i++) {
+      const prevMessage = sortedMessages[i - 1];
+      const currentMessage = sortedMessages[i];
+      
+      const prevTime = new Date(prevMessage.created_at || prevMessage.createdAt || prevMessage.sentAt).getTime();
+      const currentTime = new Date(currentMessage.created_at || currentMessage.createdAt || currentMessage.sentAt).getTime();
+      
+      // Check if there's a gap of 30 seconds or more (30,000 milliseconds)
+      if (currentTime - prevTime >= 30000) {
+        // Exception: If the gap is followed by a user message, treat it as a session restart, not a timeout
+        if (currentMessage.role === 'user') {
+          continue; // Skip this gap - it's a session restart
+        }
+        return true; // This is an actual timeout
+      }
+    }
+    
+    return false;
+  }, []);
+
   // Calculate total threads with errors
   const totalThreadsWithErrors = useMemo(() => {
     return threads.filter(thread => threadHasErrors(thread)).length;
   }, [threads, threadHasErrors]);
+
+  // Calculate total threads with timeouts
+  const totalThreadsWithTimeouts = useMemo(() => {
+    return threads.filter(thread => threadHasTimeouts(thread)).length;
+  }, [threads, threadHasTimeouts]);
   
   // Message search functionality
   const [messageSearchEnabled, setMessageSearchEnabled] = useState(false);
@@ -410,10 +458,9 @@ export function ThreadsOverview({
 
   // Quick time range filter functions
   const setTimeRange = (hours: number) => {
-    // Round to consistent 5-minute intervals for better cache hits
+    // Use current system time without rounding for precise time selection
     const now = new Date();
-    const roundedNow = new Date(Math.floor(now.getTime() / (5 * 60 * 1000)) * (5 * 60 * 1000));
-    const startTime = new Date(roundedNow.getTime() - hours * 60 * 60 * 1000);
+    const startTime = new Date(now.getTime() - hours * 60 * 60 * 1000);
     
     // Format for datetime-local input (YYYY-MM-DDTHH:mm) using local timezone
     const formatDateTimeLocal = (date: Date) => {
@@ -426,9 +473,9 @@ export function ThreadsOverview({
     };
     
     setStartDate(formatDateTimeLocal(startTime));
-    setEndDate(formatDateTimeLocal(roundedNow));
+    setEndDate(formatDateTimeLocal(now));
     
-    console.log(`⏰ Set time range: ${hours}h (${formatDateTimeLocal(startTime)} - ${formatDateTimeLocal(roundedNow)})`);
+    console.log(`⏰ Set time range: ${hours}h (${formatDateTimeLocal(startTime)} - ${formatDateTimeLocal(now)})`);
     // Don't reset hasSearched here - let it persist until user performs new search
   };
 
@@ -457,9 +504,9 @@ export function ThreadsOverview({
     const end = new Date(endDate);
     const diffHours = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60));
     
-    // Check if end time is close to now (within 5 minutes) using local time
+    // Check if end time is close to now (within 2 minutes) using local time
     const now = new Date();
-    const isEndTimeNow = Math.abs(end.getTime() - now.getTime()) < 5 * 60 * 1000;
+    const isEndTimeNow = Math.abs(end.getTime() - now.getTime()) < 2 * 60 * 1000;
     
     if (isEndTimeNow) {
       return quickFilters.find(filter => filter.hours === diffHours)?.hours || null;
@@ -752,14 +799,6 @@ export function ThreadsOverview({
         if (!hasUi) return false;
       }
 
-      // Linkout filter
-      if (hasLinkoutFilter) {
-        const hasLinkout = thread.messages.some(m => 
-          m.content.some(c => c.kind === 'linkout')
-        );
-        if (!hasLinkout) return false;
-      }
-
       // Tool filter
       if (selectedTools.size > 0) {
         const threadTools = new Set<string>();
@@ -796,6 +835,61 @@ export function ThreadsOverview({
         if (!threadHasErrors(thread)) return false;
       }
 
+      // Timeout filter - show only threads with timeouts if checkbox is checked
+      if (showTimeoutsOnly) {
+        if (!threadHasTimeouts(thread)) return false;
+      }
+
+      // Advanced filters - calculate metrics for this thread
+      const messageCount = thread.messages.filter(
+        msg => msg.role === 'user' || msg.role === 'assistant'
+      ).length;
+
+      // Calculate conversation duration (first to last message)
+      const allTimestamps = thread.messages
+        .map((m: any) => new Date(m.created_at || m.createdAt || m.sentAt))
+        .filter(date => !isNaN(date.getTime()))
+        .sort((a, b) => a.getTime() - b.getTime());
+      
+      const conversationDuration = allTimestamps.length > 1 
+        ? allTimestamps[allTimestamps.length - 1].getTime() - allTimestamps[0].getTime()
+        : 0;
+      const durationSeconds = Math.round(conversationDuration / 1000);
+
+      // Calculate time to first assistant response
+      const userMessages = thread.messages.filter((m: any) => m.role === 'user');
+      const assistantMessages = thread.messages.filter((m: any) => m.role === 'assistant');
+      
+      let timeToFirstResponse = 0;
+      if (userMessages.length > 0 && assistantMessages.length > 0) {
+        const firstUserMessage = userMessages
+          .map(m => ({ ...m, timestamp: new Date(m.created_at || m.createdAt || m.sentAt) }))
+          .filter(m => !isNaN(m.timestamp.getTime()))
+          .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())[0];
+        
+        const firstAssistantMessage = assistantMessages
+          .map(m => ({ ...m, timestamp: new Date(m.created_at || m.createdAt || m.sentAt) }))
+          .filter(m => !isNaN(m.timestamp.getTime()))
+          .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())[0];
+        
+        if (firstUserMessage && firstAssistantMessage && firstAssistantMessage.timestamp > firstUserMessage.timestamp) {
+          timeToFirstResponse = firstAssistantMessage.timestamp.getTime() - firstUserMessage.timestamp.getTime();
+        }
+      }
+      const responseTimeSeconds = Math.round(timeToFirstResponse / 1000);
+
+      // Message count filters
+      if (minMessages !== '' && messageCount < minMessages) return false;
+      if (maxMessages !== '' && messageCount > maxMessages) return false;
+
+      // Duration filters (in seconds)
+      if (minDuration !== '' && durationSeconds < minDuration) return false;
+      if (maxDuration !== '' && durationSeconds > maxDuration) return false;
+
+      // Response time filters (in seconds)
+      if (minResponseTime !== '' && responseTimeSeconds < minResponseTime) return false;
+      if (maxResponseTime !== '' && responseTimeSeconds > maxResponseTime) return false;
+
       return true;
     }).sort((a, b) => {
       // Sort by createdAt timestamp with most recent first (descending order)
@@ -803,7 +897,7 @@ export function ThreadsOverview({
       const timeB = new Date(b.createdAt).getTime();
       return timeB - timeA; // Most recent first
     });
-  }, [threads, searchTerm, hasUiFilter, hasLinkoutFilter, selectedTools, showErrorsOnly, messageSearchEnabled, messageSearchTerm, threadHasErrors]);
+  }, [threads, searchTerm, hasUiFilter, selectedTools, showErrorsOnly, showTimeoutsOnly, messageSearchEnabled, messageSearchTerm, threadHasErrors, threadHasTimeouts, minMessages, maxMessages, minDuration, maxDuration, minResponseTime, maxResponseTime]);
 
   // Update thread order whenever filtered threads change to keep navigation in sync
   useEffect(() => {
@@ -824,7 +918,7 @@ export function ThreadsOverview({
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, hasUiFilter, hasLinkoutFilter, selectedTools, showErrorsOnly]);
+  }, [searchTerm, hasUiFilter, selectedTools, showErrorsOnly, showTimeoutsOnly, minMessages, maxMessages, minDuration, maxDuration, minResponseTime, maxResponseTime]);
 
   const analytics = useMemo(() => calculateThreadAnalytics(filteredThreads), [filteredThreads]);
 
@@ -1428,14 +1522,22 @@ export function ThreadsOverview({
                     />
                     <Label htmlFor="hasUi" className="text-sm">Has UI Components</Label>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="hasLinkout"
-                      checked={hasLinkoutFilter}
-                      onCheckedChange={(checked) => setHasLinkoutFilter(checked as boolean)}
-                    />
-                    <Label htmlFor="hasLinkout" className="text-sm">Has Linkouts</Label>
-                  </div>
+                  
+                  {/* Advanced Filters Toggle */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 border-dashed"
+                    onClick={() => setAdvancedFiltersOpen(!advancedFiltersOpen)}
+                  >
+                    <Filter className="mr-2 h-3 w-3" />
+                    Advanced Filters
+                    {(minMessages !== '' || maxMessages !== '' || minDuration !== '' || maxDuration !== '' || minResponseTime !== '' || maxResponseTime !== '') && (
+                      <Badge variant="secondary" className="ml-2 px-1 py-0 text-xs">
+                        Active
+                      </Badge>
+                    )}
+                  </Button>
                   
                   {/* Tool Filter Dropdown */}
                   {availableTools.length > 0 && (
@@ -1537,10 +1639,132 @@ export function ThreadsOverview({
                       </Label>
                     </div>
                   )}
+                  
+                  {/* Timeout Filter */}
+                  {totalThreadsWithTimeouts > 0 && (
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="show-timeouts-only"
+                        checked={showTimeoutsOnly}
+                        onCheckedChange={(checked) => setShowTimeoutsOnly(!!checked)}
+                        className="h-4 w-4"
+                      />
+                      <Label htmlFor="show-timeouts-only" className="text-sm font-medium cursor-pointer flex items-center">
+                        <Clock className="mr-1 h-4 w-4 text-orange-500" />
+                        Show timeouts only
+                        <Badge variant="secondary" className="ml-2 px-2 py-0 text-xs bg-orange-100 text-orange-800">
+                          {totalThreadsWithTimeouts}
+                        </Badge>
+                      </Label>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           </CardHeader>
+          
+          {/* Advanced Filters Panel */}
+          {advancedFiltersOpen && (
+            <div className="px-6 pb-4 border-b bg-gray-50">
+              <div className="space-y-4">
+                <h4 className="text-sm font-medium text-gray-700">Advanced Filters</h4>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Message Count Filters */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-gray-600">Message Count</Label>
+                    <div className="flex items-center space-x-2">
+                      <Input
+                        type="number"
+                        placeholder="Min"
+                        value={minMessages}
+                        onChange={(e) => setMinMessages(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="h-8 text-xs"
+                        min="0"
+                      />
+                      <span className="text-xs text-gray-400">to</span>
+                      <Input
+                        type="number"
+                        placeholder="Max"
+                        value={maxMessages}
+                        onChange={(e) => setMaxMessages(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="h-8 text-xs"
+                        min="0"
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* Duration Filters */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-gray-600">Duration (seconds)</Label>
+                    <div className="flex items-center space-x-2">
+                      <Input
+                        type="number"
+                        placeholder="Min"
+                        value={minDuration}
+                        onChange={(e) => setMinDuration(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="h-8 text-xs"
+                        min="0"
+                      />
+                      <span className="text-xs text-gray-400">to</span>
+                      <Input
+                        type="number"
+                        placeholder="Max"
+                        value={maxDuration}
+                        onChange={(e) => setMaxDuration(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="h-8 text-xs"
+                        min="0"
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* Response Time Filters */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-gray-600">Response Time (seconds)</Label>
+                    <div className="flex items-center space-x-2">
+                      <Input
+                        type="number"
+                        placeholder="Min"
+                        value={minResponseTime}
+                        onChange={(e) => setMinResponseTime(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="h-8 text-xs"
+                        min="0"
+                      />
+                      <span className="text-xs text-gray-400">to</span>
+                      <Input
+                        type="number"
+                        placeholder="Max"
+                        value={maxResponseTime}
+                        onChange={(e) => setMaxResponseTime(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="h-8 text-xs"
+                        min="0"
+                      />
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Clear Advanced Filters */}
+                <div className="flex justify-end">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setMinMessages('');
+                      setMaxMessages('');
+                      setMinDuration('');
+                      setMaxDuration('');
+                      setMinResponseTime('');
+                      setMaxResponseTime('');
+                    }}
+                    className="h-8 text-xs"
+                  >
+                    Clear Advanced Filters
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+          
           <CardContent>
             <div className="rounded-md border overflow-x-auto">
               <Table className="w-full table-fixed">
