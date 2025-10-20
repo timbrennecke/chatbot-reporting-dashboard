@@ -773,22 +773,39 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
 
   // Calculate tool statistics with timing analysis
   const toolStats = useMemo(() => {
-    console.log('🔧 Tool analysis STARTING - using threads data (same as ThreadsOverview):', {
+    // Create combined dataset like ThreadsOverview does
+    // ThreadsOverview uses: uploaded threads + fetched threads from API
+    // We need to combine: threads (uploaded) + convert fetchedConversations to thread format
+    const combinedThreads = [...threads];
+    
+    // Convert fetchedConversations to thread format to match ThreadsOverview logic
+    const threadsFromFetched = fetchedConversations.map(conv => ({
+      id: conv.id,
+      conversationId: conv.id,
+      messages: conv.messages || [],
+      createdAt: conv.created_at || conv.createdAt,
+      updatedAt: conv.updated_at || conv.updatedAt
+    }));
+    
+    combinedThreads.push(...threadsFromFetched);
+    
+    console.log('🔧 Tool analysis STARTING - using combined threads data (same as ThreadsOverview):', {
       threadsLength: threads.length,
-      allConversationsLength: allConversations.length,
       fetchedConversationsLength: fetchedConversations.length,
+      combinedThreadsLength: combinedThreads.length,
+      allConversationsLength: allConversations.length,
       uploadedConversationsLength: uploadedConversations.length,
       sampleThread: threads[0],
+      sampleFetchedThread: threadsFromFetched[0],
       sampleAllConversation: allConversations[0],
-      sampleFetchedConversation: fetchedConversations[0],
       sampleUploadedConversation: uploadedConversations[0]
     });
 
     const toolAnalysis: { [toolName: string]: { count: number; responseTimes: number[] } } = {};
     let totalToolCalls = 0;
 
-    // Use threads data (same as ThreadsOverview) for consistency
-    if (threads.length === 0) {
+    // Use combined threads data (same approach as ThreadsOverview)
+    if (combinedThreads.length === 0) {
       console.log('🔧 No threads found for tool analysis');
       return {
         totalToolCalls: 0,
@@ -799,13 +816,13 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       };
     }
 
-    console.log('🔧 Tool analysis starting with threads data:', {
-      threadsCount: threads.length,
-      sampleThread: threads[0]
+    console.log('🔧 Tool analysis starting with combined threads data:', {
+      combinedThreadsCount: combinedThreads.length,
+      sampleThread: combinedThreads[0]
     });
 
     // Analyze each thread for tool usage and timing (same as ThreadsOverview logic)
-    threads.forEach((thread, threadIndex) => {
+    combinedThreads.forEach((thread, threadIndex) => {
       const messages = thread.messages || [];
       
         for (let i = 0; i < messages.length; i++) {
@@ -1179,7 +1196,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       mostUsedTool: toolDetails.length > 0 ? toolDetails[0].name : '',
       toolDetails
     };
-  }, [threads]);
+  }, [threads, fetchedConversations]);
 
   return (
     <div className="space-y-6">
