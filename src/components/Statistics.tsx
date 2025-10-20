@@ -1662,33 +1662,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                 </div>
               </div>
               
-              {/* Statistical Explanations */}
-              <div style={{
-                backgroundColor: '#ffffff',
-                border: '1px solid #e5e7eb',
-                borderRadius: '8px',
-                padding: '12px',
-                fontSize: '12px',
-                color: '#374151'
-              }}>
-                <div style={{ fontWeight: '600', marginBottom: '8px', color: '#111827', fontSize: '13px' }}>
-                  📊 Statistical Metrics Explained
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  <div>
-                    <div style={{ fontWeight: '600', color: '#1e40af' }}>Avg Time ± Margin:</div>
-                    <div>Average response time with 95% confidence interval. The ± shows uncertainty range.</div>
-                    <div style={{ fontWeight: '600', color: '#7c3aed', marginTop: '6px' }}>CV (Coefficient of Variation):</div>
-                    <div>Measures relative variability. &lt;10% = Very Consistent, &lt;25% = Consistent, &lt;50% = Variable, ≥50% = Highly Variable</div>
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: '600', color: '#059669' }}>Samples:</div>
-                    <div>Number of timing measurements. More samples = more reliable statistics.</div>
-                    <div style={{ fontWeight: '600', color: '#dc2626', marginTop: '6px' }}>Outliers:</div>
-                    <div>Unusually slow/fast calls detected using statistical methods. May indicate performance issues.</div>
-                  </div>
-                </div>
-              </div>
             </div>
             
             {/* Scrollable Table */}
@@ -1717,13 +1690,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                         Count
                       </th>
                       <th style={{ textAlign: 'center', padding: '8px 12px', fontSize: '14px', fontWeight: '600', color: '#111827' }}>
-                        Avg Time (95% CI)
-                      </th>
-                      <th style={{ textAlign: 'center', padding: '8px 12px', fontSize: '14px', fontWeight: '600', color: '#111827' }}>
-                        Variability (CV)
-                      </th>
-                      <th style={{ textAlign: 'center', padding: '8px 12px', fontSize: '14px', fontWeight: '600', color: '#111827' }}>
-                        Samples & Confidence
+                        Average Time
                       </th>
                     </tr>
                   </thead>
@@ -1772,7 +1739,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                         </td>
                         <td style={{ padding: '8px 12px', textAlign: 'center' }}>
                           <div style={{ fontSize: '12px' }}>
-                            {tool.confidenceInterval ? (
+                            {tool.confidenceInterval && tool.responseTimes.length > 1 ? (
                               <div>
                                 <div style={{
                                   display: 'inline-block',
@@ -1784,14 +1751,14 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                                   borderRadius: '4px',
                                   marginBottom: '2px'
                                 }}>
-                                  {tool.avgResponseTime}s ± {tool.confidenceInterval.margin.toFixed(2)}s
+                                  {tool.avgResponseTime}s
                                 </div>
                                 <div style={{ 
                                   fontSize: '10px', 
                                   color: '#6b7280',
                                   marginTop: '2px'
                                 }}>
-                                  95% CI
+                                  {(tool.avgResponseTime - tool.confidenceInterval.margin).toFixed(2)}s - {(tool.avgResponseTime + tool.confidenceInterval.margin).toFixed(2)}s
                                 </div>
                               </div>
                             ) : (
@@ -1805,76 +1772,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                                 borderRadius: '4px'
                               }}>
                                 {tool.avgResponseTime > 0 ? `${tool.avgResponseTime}s` : 'N/A'}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                          <div style={{ fontSize: '12px' }}>
-                            <div style={{
-                              display: 'inline-block',
-                              padding: '2px 8px',
-                              fontSize: '12px',
-                              fontWeight: '600',
-                              backgroundColor: tool.significance.color + '20',
-                              color: tool.significance.color,
-                              borderRadius: '4px',
-                              marginBottom: '2px',
-                              border: `1px solid ${tool.significance.color}40`
-                            }}>
-                              {tool.significance.icon} CV = {tool.coefficientOfVariation}%
-                            </div>
-                            <div style={{ 
-                              fontSize: '10px', 
-                              color: tool.significance.color, 
-                              marginTop: '2px',
-                              fontWeight: '600'
-                            }}>
-                              {tool.significance.variabilityLevel || tool.significance.interpretation}
-                            </div>
-                            {tool.outliers && tool.outliers.length > 0 && (
-                              <div style={{ 
-                                fontSize: '10px', 
-                                color: '#ef4444',
-                                marginTop: '1px',
-                                fontWeight: '600'
-                              }}>
-                                ⚠️ {tool.outliers.length} outlier{tool.outliers.length > 1 ? 's' : ''}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                          <div style={{ fontSize: '12px' }}>
-                            <div style={{
-                              display: 'inline-block',
-                              padding: '2px 8px',
-                              fontSize: '12px',
-                              fontWeight: '600',
-                              backgroundColor: '#f3f4f6',
-                              color: '#374151',
-                              borderRadius: '4px',
-                              marginBottom: '2px'
-                            }}>
-                              n = {tool.responseTimes.length}
-                            </div>
-                            {tool.significance.confidence > 0 && (
-                              <div style={{ 
-                                fontSize: '10px', 
-                                color: tool.significance.color,
-                                marginTop: '2px',
-                                fontWeight: '600'
-                              }}>
-                                {tool.significance.confidence}% confidence
-                              </div>
-                            )}
-                            {tool.responseTimes.length > 1 && (
-                              <div style={{ 
-                                fontSize: '10px', 
-                                color: '#6b7280',
-                                marginTop: '1px'
-                              }}>
-                                Range: {tool.minTime}s - {tool.maxTime}s
                               </div>
                             )}
                           </div>
