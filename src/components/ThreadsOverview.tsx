@@ -48,6 +48,7 @@ import {
 } from '../lib/api';
 import { parseThreadId, calculateThreadAnalytics, formatTimestamp, debounce } from '../lib/utils';
 import { IntentAnalysis } from './IntentAnalysis';
+import { AllConversationsManager, LoadProgress, ConversationSearchResult } from '../lib/conversationManager';
 
 interface ThreadsOverviewProps {
   uploadedThreads?: Thread[];
@@ -72,6 +73,9 @@ export function ThreadsOverview({
   onThreadsChange,
   savedConversationIds = new Set()
 }: ThreadsOverviewProps) {
+  // IndexedDB Manager for large datasets
+  const [conversationManager] = useState(() => new AllConversationsManager());
+  
   const [threads, setThreads] = useState<Thread[]>(() => {
     // If we have uploaded threads, use them
     if (uploadedThreads && uploadedThreads.length > 0) {
@@ -84,7 +88,21 @@ export function ThreadsOverview({
   const [loading, setLoading] = useState(false);
   const [buttonClicked, setButtonClicked] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loadingProgress, setLoadingProgress] = useState({ current: 0, total: 0, currentDate: '' });
+  const [loadingProgress, setLoadingProgress] = useState<LoadProgress>({ 
+    current: 0, 
+    total: 0, 
+    phase: 'fetching',
+    message: '' 
+  });
+  
+  // Search functionality
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [searchResults, setSearchResults] = useState<ConversationSearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchProgress, setSearchProgress] = useState({ current: 0, total: 0 });
+  const [totalStoredConversations, setTotalStoredConversations] = useState(0);
+  const [storageInfo, setStorageInfo] = useState({ usedBytes: 0, availableBytes: 0 });
+  const [useIndexedDB, setUseIndexedDB] = useState(false);
   const [selectedThreads, setSelectedThreads] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkResults, setBulkResults] = useState<any>(null);
@@ -533,6 +551,88 @@ export function ThreadsOverview({
       console.warn('Failed to save search term:', error);
     }
   }, [searchTerm]);
+
+  // Load all conversations using IndexedDB manager
+  const loadAllConversations = async () => {
+    if (!startDate || !endDate) {
+      setError('Please select start and end dates');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setUseIndexedDB(true);
+
+    try {
+      const totalCount = await conversationManager.loadAllConversations(
+        startDate,
+        endDate,
+        (progress: LoadProgress) => {
+          setLoadingProgress(progress);
+        }
+      );
+
+      setTotalStoredConversations(totalCount);
+      
+      // Update storage info
+      const storageInfo = await conversationManager.getStorageInfo();
+      setStorageInfo(storageInfo);
+      
+      console.log(`✅ Successfully loaded ${totalCount} conversations into IndexedDB`);
+      
+    } catch (error) {
+      console.error('Error loading conversations:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load conversations');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Search through all stored conversations
+  const searchStoredConversations = async () => {
+    if (!searchKeyword.trim()) {
+      setError('Please enter a search keyword');
+      return;
+    }
+
+    if (!conversationManager.isLoaded) {
+      setError('Please load conversations first');
+      return;
+    }
+
+    setIsSearching(true);
+    setError(null);
+    setSearchResults([]);
+
+    try {
+      const results = await conversationManager.searchAllConversations(
+        searchKeyword,
+        (current: number, total: number) => {
+          setSearchProgress({ current, total });
+        }
+      );
+
+      setSearchResults(results);
+      
+      // Convert search results to threads format for display
+      const threadsFromSearch = results.map(conv => ({
+        id: conv.threadId || conv.id,
+        conversationId: conv.conversationId || conv.id,
+        messages: conv.messages || [],
+        createdAt: conv.created_at || conv.createdAt,
+        updatedAt: conv.updated_at || conv.updatedAt
+      }));
+      
+      setThreads(threadsFromSearch);
+      console.log(`🔍 Found ${results.length} conversations matching "${searchKeyword}"`);
+      
+    } catch (error) {
+      console.error('Search failed:', error);
+      setError(error instanceof Error ? error.message : 'Search failed');
+    } finally {
+      setIsSearching(false);
+    }
+  };
 
   const fetchThreads = async () => {
     if (!startDate || !endDate) {
@@ -1240,8 +1340,153 @@ export function ThreadsOverview({
             </div>
           </div>
 
+          {/* IndexedDB Large Dataset Mode */}
+          <div className="border-t pt-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-sm font-medium">Large Dataset Mode (IndexedDB)</Label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  For 10k+ conversations. Loads all data into local storage for fast searching.
+                </p>
+              </div>
+              <Button
+                onClick={loadAllConversations}
+                disabled={loading || !startDate || !endDate}
+                variant="secondary"
+                size="sm"
+              >
+                {loading && useIndexedDB ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  <>
+                    📦 Load All Data
+                  </>
+                )}
+              </Button>
+            </div>
+
+            {/* IndexedDB Status */}
+            {conversationManager.isLoaded && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2 text-green-700">
+                    <Activity className="h-4 w-4" />
+                    <span>✅ {totalStoredConversations.toLocaleString()} conversations loaded</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-green-600">
+                    <span>Storage: {(storageInfo.usedBytes / 1024 / 1024).toFixed(1)}MB</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        if (confirm('Clear all stored conversation data? This cannot be undone.')) {
+                          await conversationManager.clearAllData();
+                          setTotalStoredConversations(0);
+                          setSearchResults([]);
+                          setSearchKeyword('');
+                          setUseIndexedDB(false);
+                          const newStorageInfo = await conversationManager.getStorageInfo();
+                          setStorageInfo(newStorageInfo);
+                        }
+                      }}
+                      className="text-xs h-6 px-2 text-red-600 border-red-200 hover:bg-red-50"
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Search Interface */}
+                <div className="flex gap-2 items-end mt-3">
+                  <div className="flex-1">
+                    <Label htmlFor="search-keyword" className="text-sm font-medium text-green-700">
+                      Search All Conversations
+                    </Label>
+                    <Input
+                      id="search-keyword"
+                      type="text"
+                      placeholder="Enter keyword to search through all conversations..."
+                      value={searchKeyword}
+                      onChange={(e) => setSearchKeyword(e.target.value)}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter') {
+                          searchStoredConversations();
+                        }
+                      }}
+                      className="mt-1"
+                      disabled={isSearching}
+                    />
+                  </div>
+                  <Button
+                    onClick={searchStoredConversations}
+                    disabled={isSearching || !searchKeyword.trim()}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    {isSearching ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+                        Searching...
+                      </>
+                    ) : (
+                      '🔍 Search'
+                    )}
+                  </Button>
+                </div>
+
+                {/* Search Progress */}
+                {isSearching && (
+                  <div className="text-sm text-green-600 mt-2">
+                    Searching: {searchProgress.current.toLocaleString()} / {searchProgress.total.toLocaleString()} conversations
+                    <div className="w-full bg-green-200 rounded-full h-2 mt-1">
+                      <div 
+                        className="bg-green-600 h-2 rounded-full transition-all duration-300" 
+                        style={{ width: `${(searchProgress.current / searchProgress.total) * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Search Results */}
+                {searchResults.length > 0 && (
+                  <div className="text-sm text-green-700 mt-2">
+                    <strong>Found {searchResults.length} conversations matching "{searchKeyword}"</strong>
+                    <div className="mt-1 text-xs text-green-600">
+                      Results are displayed in the table below.
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Loading Progress for IndexedDB */}
+            {loading && useIndexedDB && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <div className="text-sm text-blue-700 mb-2">
+                  {loadingProgress.message}
+                </div>
+                {loadingProgress.total > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm text-blue-600">
+                      <span>Phase: {loadingProgress.phase}</span>
+                      <span>{loadingProgress.current.toLocaleString()} / {loadingProgress.total.toLocaleString()}</span>
+                    </div>
+                    <div className="w-full bg-blue-200 rounded-full h-2">
+                      <div 
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
+                        style={{ width: `${loadingProgress.total > 0 ? (loadingProgress.current / loadingProgress.total) * 100 : 0}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Message Search - only show after thread search results */}
-          {threads.length > 0 && !uploadedThreads?.length && (
+          {threads.length > 0 && !uploadedThreads?.length && !useIndexedDB && (
             <div className="border-t pt-4 space-y-3 mt-4">
               <div className="flex items-center space-x-2">
                 <Checkbox

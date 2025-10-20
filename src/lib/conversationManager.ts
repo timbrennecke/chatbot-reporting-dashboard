@@ -81,15 +81,15 @@ export class AllConversationsManager {
       }
 
       const apiBaseUrl = getApiBaseUrl();
-      const response = await fetch(`${apiBaseUrl}/conversations`, {
+      const response = await fetch(`${apiBaseUrl}/thread`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKey}`
         },
         body: JSON.stringify({
-          start_date: startDate.toISOString(),
-          end_date: endDate.toISOString(),
+          startTimestamp: startDate.toISOString(),
+          endTimestamp: endDate.toISOString(),
           offset,
           limit
         })
@@ -100,7 +100,18 @@ export class AllConversationsManager {
       }
 
       const data = await response.json();
-      return data.conversations || [];
+      const threads = data.threads?.map((item: any) => item.thread) || [];
+      
+      // Convert threads to conversation-like objects
+      return threads.map((thread: any) => ({
+        id: thread.conversationId || thread.id,
+        conversationId: thread.conversationId,
+        createdAt: thread.createdAt,
+        created_at: thread.createdAt,
+        messages: thread.messages || [],
+        threadId: thread.id,
+        threadCreatedAt: thread.createdAt
+      }));
     } catch (error) {
       console.error('Failed to fetch conversations batch:', error);
       throw error;
