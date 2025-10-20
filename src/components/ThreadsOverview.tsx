@@ -386,7 +386,9 @@ export function ThreadsOverview({
       toolsCount: toolsWithCounts.length,
       tools: toolsWithCounts.map(t => `${t.name} (${t.count})`),
       threadsCount: threads.length,
-      toolCountsMap: Object.fromEntries(toolCounts)
+      toolThreadCountsMap: Object.fromEntries(
+        Array.from(toolThreadCounts.entries()).map(([name, threadSet]) => [name, Array.from(threadSet)])
+      )
     });
     
     // Available tools extracted
