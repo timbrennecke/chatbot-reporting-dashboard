@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { Thread } from '../lib/types';
 import { getApiBaseUrl, getEnvironmentSpecificItem, setEnvironmentSpecificItem } from '../lib/api';
+import { AllConversationsManager, LoadProgress, ConversationSearchResult } from '../lib/conversationManager';
 
 interface StatisticsProps {
   threads: Thread[];
@@ -76,13 +77,29 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
     return date;
   });
 
+  // IndexedDB Manager
+  const [conversationManager] = useState(() => new AllConversationsManager());
+  
   // Fetching state
   const [fetchedConversations, setFetchedConversations] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastSearchKey, setLastSearchKey] = useState<string>('');
-  const [loadingProgress, setLoadingProgress] = useState({ current: 0, total: 0, currentDate: '' });
+  const [loadingProgress, setLoadingProgress] = useState<LoadProgress>({ 
+    current: 0, 
+    total: 0, 
+    phase: 'fetching',
+    message: '' 
+  });
   const [showToolDetails, setShowToolDetails] = useState(false);
+  
+  // Search functionality
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [searchResults, setSearchResults] = useState<ConversationSearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchProgress, setSearchProgress] = useState({ current: 0, total: 0 });
+  const [totalStoredConversations, setTotalStoredConversations] = useState(0);
+  const [storageInfo, setStorageInfo] = useState({ usedBytes: 0, availableBytes: 0 });
 
   // Prevent background scrolling when modal is open
   useEffect(() => {
@@ -120,135 +137,93 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
   }, [endDate]);
 
   // Fetch conversations for statistics
-  const fetchConversationsForStats = async () => {
+  // Load all conversations using IndexedDB manager
+  const loadAllConversations = async () => {
     if (!startDate || !endDate) {
       setError('Please select start and end dates');
       return;
     }
 
-    // Create cache key
-    const searchKey = `${startDate.toISOString().split('T')[0]}_${endDate.toISOString().split('T')[0]}`;
-    
-    // Check if we already have this data cached
-    if (searchKey === lastSearchKey && fetchedConversations.length > 0) {
-      console.log('Using cached statistics data');
-      return;
-    }
-
     setIsLoading(true);
     setError(null);
+    setFetchedConversations([]); // Clear old data
 
     try {
-      const apiKey = getEnvironmentSpecificItem('chatbot-dashboard-api-key');
-      if (!apiKey?.trim()) {
-        throw new Error('API key is required');
-      }
-
-      const apiBaseUrl = getApiBaseUrl();
-      
-      // Calculate time difference - use 6-hour chunking for optimal balance
-      const timeDiff = endDate.getTime() - startDate.getTime();
-      const hoursDiff = Math.ceil(timeDiff / (1000 * 60 * 60));
-      const chunksDiff = Math.ceil(hoursDiff / 6);
-      
-      let allConversations: any[] = [];
-      
-      // Use 6-hour chunking to balance speed and reliability
-      console.log(`📊 Processing ${hoursDiff} hours (${chunksDiff} chunks) with 6-hour chunking...`);
-      
-      const chunks: Array<{start: Date, end: Date, dateStr: string}> = [];
-      
-      // Create 6-hour chunks
-      let currentDate = new Date(startDate);
-      const endDateObj = new Date(endDate);
-      while (currentDate < endDateObj) {
-        let nextDate = new Date(currentDate);
-        nextDate.setHours(nextDate.getHours() + 6);
-        
-        // Don't go past the end date
-        if (nextDate > endDateObj) {
-          nextDate = new Date(endDateObj);
+      const totalCount = await conversationManager.loadAllConversations(
+        startDate,
+        endDate,
+        (progress: LoadProgress) => {
+          setLoadingProgress(progress);
         }
-        
-        const startHour = currentDate.getHours();
-        const endHour = nextDate.getHours();
-        chunks.push({
-          start: new Date(currentDate),
-          end: new Date(nextDate),
-          dateStr: `${currentDate.toLocaleDateString()} ${startHour}:00-${endHour}:00`
-        });
-        
-        currentDate.setHours(currentDate.getHours() + 6);
-      }
-      
-      console.log(`📦 Processing ${chunks.length} 6-hour chunks`);
-      setLoadingProgress({ current: 0, total: chunks.length, currentDate: '' });
-      
-      // Process chunks with progress tracking
-      for (let i = 0; i < chunks.length; i++) {
-        const chunk = chunks[i];
-        setLoadingProgress({ current: i + 1, total: chunks.length, currentDate: chunk.dateStr });
-        
-        console.log(`📅 Chunk ${i + 1}/${chunks.length}: ${chunk.dateStr}`);
-        
-        try {
-          const response = await fetch(`${apiBaseUrl}/thread`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${apiKey.trim()}`,
-            },
-            body: JSON.stringify({
-              startTimestamp: chunk.start.toISOString(),
-              endTimestamp: chunk.end.toISOString(),
-              limit: 10000
-            }),
-          });
+      );
 
-          if (!response.ok) {
-            console.warn(`⚠️ Chunk ${i + 1} (${chunk.dateStr}) failed: HTTP ${response.status}`);
-            continue; // Skip failed chunks but continue with others
-          }
-
-          const chunkData = await response.json();
-          const chunkThreads = chunkData.threads?.map((item: any) => item.thread) || [];
-          
-          // Convert to conversation-like objects
-          const chunkConversations = chunkThreads.map((thread: any) => ({
-            id: thread.conversationId,
-            createdAt: thread.createdAt,
-            created_at: thread.createdAt,
-            messages: thread.messages || [],
-            threadId: thread.id,
-            threadCreatedAt: thread.createdAt
-          }));
-          
-          allConversations.push(...chunkConversations);
-          console.log(`✅ Chunk ${i + 1}/${chunks.length} (${chunk.dateStr}): +${chunkConversations.length} conversations (total: ${allConversations.length})`);
-          
-          // Small delay to be nice to the server
-          if (i < chunks.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-          }
-          
-        } catch (chunkError) {
-          console.warn(`⚠️ Chunk ${i + 1} (${chunk.dateStr}) error:`, chunkError);
-          // Continue with other chunks
-        }
-      }
+      setTotalStoredConversations(totalCount);
+      setLastSearchKey(`${startDate.toISOString().split('T')[0]}_${endDate.toISOString().split('T')[0]}`);
       
-      console.log(`🎉 6-hour chunking complete: ${allConversations.length} total conversations from ${chunks.length} chunks`);
-      setLoadingProgress({ current: 0, total: 0, currentDate: '' });
+      // Update storage info
+      const storageInfo = await conversationManager.getStorageInfo();
+      setStorageInfo(storageInfo);
       
-      setFetchedConversations(allConversations);
-      setLastSearchKey(searchKey);
+      console.log(`✅ Successfully loaded ${totalCount} conversations into IndexedDB`);
       
     } catch (error) {
-      console.error('Error fetching conversations for statistics:', error);
-      setError(error instanceof Error ? error.message : 'Failed to fetch conversations');
+      console.error('Error loading conversations:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load conversations');
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Search through all stored conversations
+  const searchStoredConversations = async () => {
+    if (!searchKeyword.trim()) {
+      setError('Please enter a search keyword');
+      return;
+    }
+
+    if (!conversationManager.isLoaded) {
+      setError('Please load conversations first');
+      return;
+    }
+
+    setIsSearching(true);
+    setError(null);
+    setSearchResults([]);
+
+    try {
+      const results = await conversationManager.searchAllConversations(
+        searchKeyword,
+        (current: number, total: number) => {
+          setSearchProgress({ current, total });
+        }
+      );
+
+      setSearchResults(results);
+      console.log(`🔍 Found ${results.length} conversations matching "${searchKeyword}"`);
+      
+    } catch (error) {
+      console.error('Search failed:', error);
+      setError(error instanceof Error ? error.message : 'Search failed');
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // Get all conversations for statistics (use search results if available, otherwise get all)
+  const getConversationsForStats = async (): Promise<any[]> => {
+    if (searchResults.length > 0) {
+      console.log(`📊 Using search results for statistics: ${searchResults.length} conversations`);
+      return searchResults;
+    }
+    
+    if (conversationManager.isLoaded) {
+      console.log(`📊 Getting all stored conversations for statistics: ${totalStoredConversations} conversations`);
+      // For statistics, we'll process conversations in batches to avoid memory issues
+      // Return empty array for now - we'll process statistics differently
+      return [];
+    }
+    
+    return [];
   };
 
   // Filter data based on selected time range
@@ -773,39 +748,35 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
 
   // Calculate tool statistics with timing analysis
   const toolStats = useMemo(() => {
-    // Create combined dataset like ThreadsOverview does
-    // ThreadsOverview uses: uploaded threads + fetched threads from API
-    // We need to combine: threads (uploaded) + convert fetchedConversations to thread format
-    const combinedThreads = [...threads];
+    // Use search results if available, otherwise use uploaded threads
+    let dataToAnalyze = [];
     
-    // Convert fetchedConversations to thread format to match ThreadsOverview logic
-    const threadsFromFetched = fetchedConversations.map(conv => ({
-      id: conv.id,
-      conversationId: conv.id,
-      messages: conv.messages || [],
-      createdAt: conv.created_at || conv.createdAt,
-      updatedAt: conv.updated_at || conv.updatedAt
-    }));
+    if (searchResults.length > 0) {
+      // Use search results for analysis
+      dataToAnalyze = searchResults.map(conv => ({
+        id: conv.id,
+        conversationId: conv.id,
+        messages: conv.messages || [],
+        createdAt: conv.created_at || conv.createdAt,
+        updatedAt: conv.updated_at || conv.updatedAt
+      }));
+      console.log('🔧 Tool analysis using search results:', {
+        searchResultsCount: searchResults.length,
+        keyword: searchKeyword
+      });
+    } else {
+      // Use uploaded threads only (no fetched conversations to avoid memory issues)
+      dataToAnalyze = [...threads];
+      console.log('🔧 Tool analysis using uploaded threads only:', {
+        threadsCount: threads.length
+      });
+    }
     
-    combinedThreads.push(...threadsFromFetched);
-    
-    console.log('🔧 Tool analysis STARTING - using combined threads data (same as ThreadsOverview):', {
-      threadsLength: threads.length,
-      fetchedConversationsLength: fetchedConversations.length,
-      combinedThreadsLength: combinedThreads.length,
-      allConversationsLength: allConversations.length,
-      uploadedConversationsLength: uploadedConversations.length,
-      sampleThread: threads[0],
-      sampleFetchedThread: threadsFromFetched[0],
-      sampleAllConversation: allConversations[0],
-      sampleUploadedConversation: uploadedConversations[0]
-    });
-
     const toolAnalysis: { [toolName: string]: { count: number; responseTimes: number[] } } = {};
     let totalToolCalls = 0;
 
-    // Use combined threads data (same approach as ThreadsOverview)
-    if (combinedThreads.length === 0) {
+    // Check if we have data to analyze
+    if (dataToAnalyze.length === 0) {
       console.log('🔧 No threads found for tool analysis');
       return {
         totalToolCalls: 0,
@@ -816,13 +787,13 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       };
     }
 
-    console.log('🔧 Tool analysis starting with combined threads data:', {
-      combinedThreadsCount: combinedThreads.length,
-      sampleThread: combinedThreads[0]
+    console.log('🔧 Tool analysis starting with data:', {
+      dataCount: dataToAnalyze.length,
+      sampleItem: dataToAnalyze[0]
     });
 
-    // Analyze each thread for tool usage and timing (same as ThreadsOverview logic)
-    combinedThreads.forEach((thread, threadIndex) => {
+    // Analyze each thread for tool usage and timing
+    dataToAnalyze.forEach((thread, threadIndex) => {
       const messages = thread.messages || [];
       
         for (let i = 0; i < messages.length; i++) {
@@ -1196,7 +1167,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       mostUsedTool: toolDetails.length > 0 ? toolDetails[0].name : '',
       toolDetails
     };
-  }, [threads, fetchedConversations]);
+  }, [threads, searchResults, searchKeyword]);
 
   return (
     <div className="space-y-6">
@@ -1351,7 +1322,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
               
               {/* ANALYZE BUTTON - Blue and clean */}
               <button
-                onClick={fetchConversationsForStats}
+                onClick={loadAllConversations}
                 disabled={isLoading || !startDate || !endDate}
                 style={{
                   backgroundColor: isLoading || !startDate || !endDate ? '#9CA3AF' : '#3B82F6',
@@ -1372,12 +1343,12 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                 {isLoading ? (
                   <>
                     <RefreshCw className="h-4 w-4 animate-spin" />
-                    Analyzing...
+                    Loading...
                   </>
                 ) : (
                   <>
                     📊
-                    Analyze Data
+                    Load All Conversations
                   </>
                 )}
               </button>
@@ -1386,6 +1357,103 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
           </div>
         </CardContent>
       </Card>
+
+      {/* Search and Storage Info */}
+      {conversationManager.isLoaded && (
+        <Card className="border-green-200 bg-green-50">
+          <CardContent className="p-4">
+            <div className="space-y-4">
+              {/* Storage Info */}
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2 text-green-700">
+                  <Activity className="h-4 w-4" />
+                  <span>✅ {totalStoredConversations.toLocaleString()} conversations loaded</span>
+                </div>
+                <div className="flex items-center gap-2 text-green-600">
+                  <span>Storage: {(storageInfo.usedBytes / 1024 / 1024).toFixed(1)}MB used</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      if (confirm('Clear all stored conversation data? This cannot be undone.')) {
+                        await conversationManager.clearAllData();
+                        setTotalStoredConversations(0);
+                        setSearchResults([]);
+                        setSearchKeyword('');
+                        const newStorageInfo = await conversationManager.getStorageInfo();
+                        setStorageInfo(newStorageInfo);
+                      }
+                    }}
+                    className="text-xs h-6 px-2 text-red-600 border-red-200 hover:bg-red-50"
+                  >
+                    Clear Data
+                  </Button>
+                </div>
+              </div>
+
+              {/* Search Interface */}
+              <div className="flex gap-2 items-end">
+                <div className="flex-1">
+                  <Label htmlFor="search-keyword" className="text-sm font-medium text-green-700">
+                    Search Conversations
+                  </Label>
+                  <Input
+                    id="search-keyword"
+                    type="text"
+                    placeholder="Enter keyword to search through all conversations..."
+                    value={searchKeyword}
+                    onChange={(e) => setSearchKeyword(e.target.value)}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        searchStoredConversations();
+                      }
+                    }}
+                    className="mt-1"
+                    disabled={isSearching}
+                  />
+                </div>
+                <Button
+                  onClick={searchStoredConversations}
+                  disabled={isSearching || !searchKeyword.trim()}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  {isSearching ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+                      Searching...
+                    </>
+                  ) : (
+                    '🔍 Search'
+                  )}
+                </Button>
+              </div>
+
+              {/* Search Progress */}
+              {isSearching && (
+                <div className="text-sm text-green-600">
+                  Searching: {searchProgress.current.toLocaleString()} / {searchProgress.total.toLocaleString()} conversations
+                  <div className="w-full bg-green-200 rounded-full h-2 mt-1">
+                    <div 
+                      className="bg-green-600 h-2 rounded-full transition-all duration-300" 
+                      style={{ width: `${(searchProgress.current / searchProgress.total) * 100}%` }}
+                    ></div>
+                  </div>
+                </div>
+              )}
+
+              {/* Search Results */}
+              {searchResults.length > 0 && (
+                <div className="text-sm text-green-700">
+                  <strong>Found {searchResults.length} conversations matching "{searchKeyword}"</strong>
+                  <div className="mt-2 text-xs text-green-600">
+                    Statistics below will be calculated from these search results.
+                  </div>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Error Display */}
       {error && (
@@ -1815,24 +1883,24 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
             {loadingProgress.total > 0 && (
               <div className="space-y-2">
                 <div className="flex justify-between text-sm text-blue-600">
-                  <span>Processing chunk {loadingProgress.current} of {loadingProgress.total}</span>
-                  <span>{Math.round((loadingProgress.current / loadingProgress.total) * 100)}%</span>
+                  <span>{loadingProgress.message}</span>
+                  <span>{loadingProgress.total > 0 ? Math.round((loadingProgress.current / loadingProgress.total) * 100) : 0}%</span>
                 </div>
                 
-                {loadingProgress.currentDate && (
-                  <p className="text-sm text-blue-600">📅 Current: {loadingProgress.currentDate}</p>
-                )}
+                <div className="text-sm text-blue-600">
+                  Phase: {loadingProgress.phase} | {loadingProgress.current.toLocaleString()} / {loadingProgress.total.toLocaleString()}
+                </div>
                 
                 {/* Progress Bar */}
                 <div className="w-full bg-blue-200 rounded-full h-2">
                   <div 
                     className="bg-blue-600 h-2 rounded-full transition-all duration-300 ease-out"
-                    style={{ width: `${(loadingProgress.current / loadingProgress.total) * 100}%` }}
+                    style={{ width: `${loadingProgress.total > 0 ? (loadingProgress.current / loadingProgress.total) * 100 : 0}%` }}
                   ></div>
                 </div>
                 
                 <p className="text-xs text-blue-600">
-                  Processing data in 6-hour chunks to avoid timeouts...
+                  Loading conversations into IndexedDB for fast searching and analysis...
                 </p>
               </div>
             )}
