@@ -284,9 +284,9 @@ export function ThreadsOverview({
   const [messageSearchTerm, setMessageSearchTerm] = useState('');
   // Removed conversation fetching states since threads now contain all messages
   
-  // Extract all available tools from system messages with counts
+  // Extract all available tools from system messages with counts (counting unique threads, not total occurrences)
   const availableToolsWithCounts = useMemo(() => {
-    const toolCounts = new Map<string, number>();
+    const toolThreadCounts = new Map<string, Set<string>>(); // Map tool name to set of thread IDs
     
     console.log('🔧 Extracting tools from threads:', {
       threadsCount: threads.length,
@@ -305,8 +305,10 @@ export function ThreadsOverview({
       } : null
     });
     
-    // Extracting tools from threads
+    // Extracting tools from threads - count unique threads per tool
     threads.forEach(thread => {
+      const threadTools = new Set<string>(); // Tools found in this specific thread
+      
       thread.messages.forEach(message => {
         // Look for tools in system/status messages
         if (message.role === 'system' || message.role === 'status') {
@@ -321,7 +323,7 @@ export function ThreadsOverview({
               for (const match of matches) {
                 const toolName = match[1];
                 if (toolName && toolName.length > 1) {
-                  toolCounts.set(toolName, (toolCounts.get(toolName) || 0) + 1);
+                  threadTools.add(toolName);
                 }
               }
             }
@@ -335,7 +337,7 @@ export function ThreadsOverview({
             if (content.tool_use) {
               const toolName = content.tool_use.name;
               if (toolName && toolName.length > 1) {
-                toolCounts.set(toolName, (toolCounts.get(toolName) || 0) + 1);
+                threadTools.add(toolName);
               }
             }
             
@@ -356,91 +358,37 @@ export function ThreadsOverview({
                 for (const match of matches) {
                   const toolName = match[1];
                   if (toolName && toolName.length > 1) {
-                    toolCounts.set(toolName, (toolCounts.get(toolName) || 0) + 1);
+                    threadTools.add(toolName);
                   }
                 }
               });
             }
           });
         }
+      });
+      
+      // Add this thread ID to each tool it contains
+      threadTools.forEach(toolName => {
+        if (!toolThreadCounts.has(toolName)) {
+          toolThreadCounts.set(toolName, new Set());
+        }
+        toolThreadCounts.get(toolName)!.add(thread.id);
       });
     });
 
-    // Also check fetched conversations for tools (for when threads are cached with dummy messages)
-    // Tools are now extracted from thread data directly since threads contain all messages
-    if (threads && threads.length > 0) {
-      console.log('🔧 Checking threads for tools:', {
-        threadsCount: threads.length
-      });
-      
-      threads.forEach((thread: any) => {
-        if (thread?.messages) {
-          thread.messages.forEach((message: any) => {
-            // Check system/status messages
-            if ((message.role === 'system' || message.role === 'status') && message.content) {
-              message.content.forEach((content: any) => {
-                if (content.text || content.content) {
-                  const text = content.text || content.content || '';
-                  
-                  const toolNamePattern = /\*\*Tool Name:\*\*\s*`([^`]+)`/gi;
-                  const matches = text.matchAll(toolNamePattern);
-                  
-                  for (const match of matches) {
-                    const toolName = match[1];
-                    if (toolName && toolName.length > 1) {
-                      toolCounts.set(toolName, (toolCounts.get(toolName) || 0) + 1);
-                    }
-                  }
-                }
-              });
-            }
-            
-            // Check assistant messages for tool usage
-            if (message.role === 'assistant' && message.content) {
-              message.content.forEach((content: any) => {
-                if (content.tool_use) {
-                  const toolName = content.tool_use.name;
-                  if (toolName && toolName.length > 1) {
-                    toolCounts.set(toolName, (toolCounts.get(toolName) || 0) + 1);
-                  }
-                }
-                
-                if (content.text || content.content) {
-                  const text = content.text || content.content || '';
-                  
-                  const toolUsagePatterns = [
-                    /I'll use the (\w+) tool/gi,
-                    /Using the (\w+) tool/gi,
-                    /I'll call the (\w+) function/gi,
-                    /Calling the (\w+) function/gi
-                  ];
-                  
-                  toolUsagePatterns.forEach(pattern => {
-                    const matches = text.matchAll(pattern);
-                    for (const match of matches) {
-                      const toolName = match[1];
-                      if (toolName && toolName.length > 1) {
-                        toolCounts.set(toolName, (toolCounts.get(toolName) || 0) + 1);
-                      }
-                    }
-                  });
-                }
-              });
-            }
-          });
-        }
-      });
-    }
     
-    // Convert to array and sort by name
-    const toolsWithCounts = Array.from(toolCounts.entries())
-      .map(([name, count]) => ({ name, count }))
+    // Convert to array and sort by name (count = number of unique threads)
+    const toolsWithCounts = Array.from(toolThreadCounts.entries())
+      .map(([name, threadSet]) => ({ name, count: threadSet.size }))
       .sort((a, b) => a.name.localeCompare(b.name));
     
     console.log('🔧 Available tools extracted:', {
       toolsCount: toolsWithCounts.length,
       tools: toolsWithCounts.map(t => `${t.name} (${t.count})`),
-      threadsCount: threads.length
+      threadsCount: threads.length,
+      toolThreadCountsMap: Object.fromEntries(
+        Array.from(toolThreadCounts.entries()).map(([name, threadSet]) => [name, Array.from(threadSet)])
+      )
     });
     
     // Available tools extracted
@@ -799,18 +747,18 @@ export function ThreadsOverview({
         if (!hasUi) return false;
       }
 
-      // Tool filter
+      // Tool filter - using same logic as tool counting for consistency
       if (selectedTools.size > 0) {
         const threadTools = new Set<string>();
         
-        // Extract tools from this thread's system/status messages using same pattern as availableTools
+        // Extract tools from this thread using the same patterns as availableToolsWithCounts
         thread.messages.forEach(message => {
-          if (message.role === 'system' || message.role === 'status') {
-            message.content.forEach(content => {
+          // Check system/status messages
+          if ((message.role === 'system' || message.role === 'status') && message.content) {
+            message.content.forEach((content: any) => {
               if (content.text || content.content) {
                 const text = content.text || content.content || '';
                 
-                // Look specifically for "**Tool Name:**" pattern in system messages
                 const toolNamePattern = /\*\*Tool Name:\*\*\s*`([^`]+)`/gi;
                 const matches = text.matchAll(toolNamePattern);
                 
@@ -820,6 +768,39 @@ export function ThreadsOverview({
                     threadTools.add(toolName);
                   }
                 }
+              }
+            });
+          }
+          
+          // Check assistant messages for tool usage (same as counting logic)
+          if (message.role === 'assistant' && message.content) {
+            message.content.forEach((content: any) => {
+              if (content.tool_use) {
+                const toolName = content.tool_use.name;
+                if (toolName && toolName.length > 1) {
+                  threadTools.add(toolName);
+                }
+              }
+              
+              if (content.text || content.content) {
+                const text = content.text || content.content || '';
+                
+                const toolUsagePatterns = [
+                  /I'll use the (\w+) tool/gi,
+                  /Using the (\w+) tool/gi,
+                  /I'll call the (\w+) function/gi,
+                  /Calling the (\w+) function/gi
+                ];
+                
+                toolUsagePatterns.forEach(pattern => {
+                  const matches = text.matchAll(pattern);
+                  for (const match of matches) {
+                    const toolName = match[1];
+                    if (toolName && toolName.length > 1) {
+                      threadTools.add(toolName);
+                    }
+                  }
+                });
               }
             });
           }
