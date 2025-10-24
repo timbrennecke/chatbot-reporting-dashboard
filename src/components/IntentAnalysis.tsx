@@ -5,6 +5,7 @@ import { TrendingUp, Info } from 'lucide-react';
 
 interface IntentAnalysisProps {
   threads: Thread[];
+  onTopicClick?: (topicName: string) => void;
 }
 
 interface TopicFrequency {
@@ -14,28 +15,164 @@ interface TopicFrequency {
   examples: string[];
 }
 
-// Define key topics/keywords to look for (German and English)
+// Define key topics/keywords to look for (German only)
 const TOPIC_KEYWORDS = {
-  'Parkplätze/Parking': ['parkplatz', 'parkplätze', 'parken', 'parking', 'park', 'auto', 'car', 'fahrzeug', 'vehicle', 'stellplatz', 'garage', 'tiefgarage', 'wo kann ich parken', 'parkgebühren', 'kostenpflichtig parken', 'parkschein', 'parkuhr'],
-  'Frühstück/Breakfast': ['frühstück', 'breakfast', 'morgenbuffet', 'buffet', 'morgen', 'morning', 'früh', 'early', 'kaffee', 'coffee', 'brötchen', 'bread', 'gibt es frühstück', 'frühstückszeiten', 'kontinentales frühstück', 'müsli', 'marmelade', 'butter', 'eier', 'speck'],
-  'Öffnungszeiten/Opening Hours': ['öffnungszeit', 'öffnungszeiten', 'opening hours', 'geöffnet', 'öffnen', 'schließen', 'geschlossen', 'closed', 'wann', 'when', 'uhrzeit', 'time', 'bis wann', 'until when', 'ab wann', 'from when', 'wie lange geöffnet', 'öffnungszeiten heute', 'wann macht auf', 'wann macht zu'],
-  'Preise/Prices': ['preis', 'preise', 'kosten', 'price', 'prices', 'cost', 'costs', 'wie viel', 'how much', 'was kostet', 'what costs', 'teuer', 'expensive', 'günstig', 'cheap', 'euro', 'dollar', 'geld', 'money', 'wie teuer', 'preiswert', 'bezahlen', 'zahlung', 'gebühr', 'tarif'],
-  'Reservierung/Booking': ['reservierung', 'buchen', 'booking', 'reserve', 'buchung', 'reservation', 'verfügbar', 'available', 'frei', 'free', 'belegt', 'occupied', 'termin', 'appointment', 'platz', 'space', 'reservieren', 'vorbestellen', 'tisch reservieren', 'platz buchen'],
-  'WLAN/WiFi': ['wlan', 'wifi', 'wi-fi', 'internet', 'password', 'passwort', 'netzwerk', 'network', 'verbindung', 'connection', 'online', 'zugang', 'access', 'internetverbindung', 'wlan passwort', 'wie komme ich ins internet', 'netz', 'empfang'],
-  'Check-in/Check-out': ['check-in', 'check-out', 'checkin', 'checkout', 'anreise', 'abreise', 'einchecken', 'auschecken', 'ankunft', 'arrival', 'departure', 'schlüssel', 'key', 'karte', 'card', 'zimmerschlüssel', 'keycard', 'rezeption', 'empfang', 'wann kann ich einchecken'],
-  'Restaurant/Essen': ['restaurant', 'essen', 'food', 'dinner', 'lunch', 'abendessen', 'mittagessen', 'küche', 'kitchen', 'speisekarte', 'menu', 'bestellen', 'order', 'trinken', 'drink', 'bar', 'café', 'kaffee', 'coffee', 'gastronomie', 'verpflegung', 'mahlzeit', 'snack', 'getränke', 'alkohol', 'bier', 'wein'],
-  'Transport/Anfahrt': ['anfahrt', 'transport', 'bus', 'bahn', 'zug', 'taxi', 'directions', 'weg', 'route', 'fahren', 'drive', 'gehen', 'walk', 'entfernung', 'distance', 'wie komme ich', 'how do i get', 'flughafen', 'airport', 'bahnhof', 'station', 'öffentliche verkehrsmittel', 'u-bahn', 's-bahn', 'straßenbahn', 'bushaltestelle', 'fahrplan', 'verbindung'],
-  'Stornierung/Cancellation': ['stornierung', 'stornieren', 'cancel', 'cancellation', 'absagen', 'rückgängig', 'undo', 'zurück', 'back', 'ändern', 'change', 'modify', 'umbuchen', 'rebook', 'stornogebühr', 'kostenlos stornieren', 'buchung ändern', 'termin verschieben'],
-  'Zimmer/Room': ['zimmer', 'room', 'suite', 'bett', 'bed', 'schlafzimmer', 'bedroom', 'bad', 'bathroom', 'dusche', 'shower', 'balkon', 'balcony', 'aussicht', 'view', 'etage', 'floor', 'doppelzimmer', 'einzelzimmer', 'familienzimmer', 'klimaanlage', 'heizung', 'fernseher', 'minibar', 'safe', 'handtücher'],
-  'Wellness/Spa': ['wellness', 'spa', 'sauna', 'pool', 'schwimmbad', 'massage', 'entspannung', 'relaxation', 'fitness', 'gym', 'sport', 'schwimmen', 'swimming', 'baden', 'bathing', 'wellnessbereich', 'fitnessraum', 'dampfbad', 'whirlpool', 'jacuzzi', 'beauty', 'kosmetik'],
-  'Events/Veranstaltungen': ['event', 'veranstaltung', 'conference', 'meeting', 'feier', 'party', 'hochzeit', 'wedding', 'tagung', 'seminar', 'workshop', 'celebration', 'fest', 'festival', 'konferenz', 'business', 'geschäftlich', 'firmenfeier', 'geburtstag', 'jubiläum'],
-  'Haustiere/Pets': ['hund', 'katze', 'haustier', 'pet', 'dog', 'cat', 'tier', 'animal', 'welpe', 'puppy', 'kätzchen', 'kitten', 'erlaubt', 'allowed', 'mitbringen', 'bring', 'haustiere erlaubt', 'hundefreundlich', 'katzenfreundlich', 'tierfreundlich', 'haustiergebühr'],
-  'Fahrrad/Bicycle': ['fahrrad', 'bicycle', 'bike', 'rad', 'fahrräder', 'abstellen', 'parken', 'garage', 'fahrradgarage', 'fahrradkeller', 'fahrradständer', 'radfahren', 'cycling', 'mountainbike', 'e-bike', 'pedelec', 'fahrradverleih', 'fahrradtour', 'radweg'],
-  'Inspiration/Reiseberatung': ['urlaub', 'vacation', 'reise', 'travel', 'hotel', 'destination', 'ziel', 'wohin', 'where to go', 'where can i', 'show me', 'zeig mir', 'great vacation', 'schöner urlaub', 'reiseberatung', 'travel advice', 'travel consultant', 'reiseziel', 'urlaubsziel', 'holiday destination', 'trip', 'ausflug', 'sightseeing', 'sehenswürdigkeiten', 'gibt es wälder', 'natur', 'landschaft', 'berge', 'seen', 'wandern', 'spazieren', 'umgebung', 'nähe', 'in der nähe', 'was gibt es hier zu sehen', 'lohnenswert', 'schön', 'empfehlung', 'empfehlungen', 'recommend', 'recommendation', 'suggestion', 'vorschlag', 'tipp', 'tipps', 'was können sie empfehlen', 'what do you recommend', 'beste', 'best', 'gut', 'good', 'aktivitäten', 'activities', 'was kann man machen', 'was gibt es hier', 'lohnt sich', 'interessant', 'besichtigen'],
-  'Kundenberatung/Customer Support': ['hilfe', 'help', 'support', 'kundenservice', 'customer service', 'beratung', 'beraten', 'rückruf', 'callback', 'call back', 'zurückrufen', 'anrufen', 'call me', 'ruf mich an', 'nachricht', 'message', 'kontakt', 'contact', 'sprechen', 'talk', 'problem', 'issue', 'beschwerde', 'complaint', 'frage', 'question', 'können sie mir helfen', 'can you help me', 'ich brauche hilfe', 'i need help', 'assistance', 'unterstützung', 'service', 'mitarbeiter', 'staff', 'personal', 'ich hätte gerne', 'könnten sie', 'wäre es möglich'],
+  'Parkplätze/Parking': ['parkplatz', 'parkplätze', 'parken', 'auto', 'fahrzeug', 'stellplatz', 'garage', 'tiefgarage', 'wo kann ich parken', 'parkgebühren', 'kostenpflichtig parken', 'parkschein', 'parkuhr'],
+  'Frühstück/Breakfast': ['frühstück', 'morgenbuffet', 'buffet', 'morgen', 'kaffee', 'brötchen', 'gibt es frühstück', 'frühstückszeiten', 'kontinentales frühstück', 'müsli', 'marmelade', 'butter', 'eier', 'speck'],
+  'Check-in/Öffnungszeiten': ['öffnungszeit', 'öffnungszeiten', 'geöffnet', 'öffnen', 'schließen', 'geschlossen', 'wann', 'uhrzeit', 'bis wann', 'ab wann', 'wie lange geöffnet', 'öffnungszeiten heute', 'wann macht auf', 'wann macht zu', 'check-in', 'check-out', 'checkin', 'checkout', 'anreise', 'abreise', 'einchecken', 'auschecken', 'eingecheckt', 'ankunft', 'schlüssel', 'zimmerschlüssel', 'keycard', 'rezeption', 'empfang', 'wann kann ich einchecken'],
+  'Preise/Prices': ['preis', 'preise', 'kosten', 'wie viel', 'was kostet', 'teuer', 'günstig', 'euro', 'geld', 'wie teuer', 'preiswert', 'bezahlen', 'zahlung', 'gebühr', 'tarif'],
+  'Reservierung/Booking': ['reservierung', 'buchen', 'buchung', 'verfügbar', 'frei', 'belegt', 'termin', 'platz', 'reservieren', 'vorbestellen', 'tisch reservieren', 'platz buchen', 'halbpension', 'kulanzgutschein', 'kulanzguthaben', 'gutschein', 'wie kann ich nach kostenloser stornierung filtern'],
+  'WLAN/WiFi': ['wlan', 'wifi', 'wi-fi', 'internet', 'netzwerk', 'verbindung', 'online', 'zugang', 'internetverbindung', 'wlan passwort', 'wifi passwort', 'wie komme ich ins internet', 'netz', 'empfang'],
+  'Restaurant/Essen': ['restaurant', 'essen', 'abendessen', 'mittagessen', 'küche', 'speisekarte', 'bestellen', 'trinken', 'bar', 'café', 'kaffee', 'gastronomie', 'verpflegung', 'mahlzeit', 'getränke', 'alkohol', 'bier', 'wein'],
+  'Transport/Anfahrt': ['anfahrt', 'transport', 'bus', 'bahn', 'zug', 'taxi', 'weg', 'fahren', 'gehen', 'entfernung', 'wie komme ich', 'flughafen', 'bahnhof', 'öffentliche verkehrsmittel', 'u-bahn', 's-bahn', 'straßenbahn', 'bushaltestelle', 'fahrplan', 'verbindung'],
+  'Stornierung/Cancellation': ['stornierung', 'stornieren', 'absagen', 'rückgängig', 'zurück', 'ändern', 'umbuchen', 'stornogebühr', 'kostenlos stornieren', 'buchung ändern', 'termin verschieben'],
+  'Zimmer/Room': ['zimmer', 'bett', 'schlafzimmer', 'bad', 'dusche', 'balkon', 'aussicht', 'etage', 'doppelzimmer', 'einzelzimmer', 'familienzimmer', 'klimaanlage', 'heizung', 'fernseher', 'minibar', 'safe', 'handtücher'],
+  'Wellness/Spa': ['wellness', 'spa', 'sauna', 'pool', 'schwimmbad', 'massage', 'entspannung', 'fitness', 'sport', 'schwimmen', 'baden', 'wellnessbereich', 'fitnessraum', 'dampfbad', 'whirlpool', 'jacuzzi', 'kosmetik'],
+  'Events/Veranstaltungen': ['veranstaltung', 'feier', 'hochzeit', 'tagung', 'seminar', 'workshop', 'fest', 'festival', 'konferenz', 'geschäftlich', 'firmenfeier', 'geburtstag', 'jubiläum'],
+  'Fahrrad/Bicycle': ['fahrrad', 'rad', 'fahrräder', 'abstellen', 'parken', 'garage', 'fahrradgarage', 'fahrradkeller', 'fahrradständer', 'radfahren', 'mountainbike', 'e-bike', 'pedelec', 'fahrradverleih', 'fahrradtour', 'radweg'],
+  'Inspiration/Reiseberatung': ['urlaub', 'reise', 'hotel', 'ziel', 'wohin', 'zeig mir', 'schöner urlaub', 'reiseberatung', 'reiseziel', 'urlaubsziel', 'ausflug', 'sehenswürdigkeiten', 'gibt es wälder', 'natur', 'landschaft', 'berge', 'seen', 'wandern', 'spazieren', 'umgebung', 'nähe', 'in der nähe', 'was gibt es hier zu sehen', 'lohnenswert', 'schön', 'empfehlung', 'empfehlungen', 'vorschlag', 'tipp', 'tipps', 'was können sie empfehlen', 'beste', 'gut', 'aktivitäten', 'was kann man machen', 'was gibt es hier', 'lohnt sich', 'interessant', 'besichtigen'],
+  'Kundenberatung/Customer Support': ['hilfe', 'kundenservice', 'beratung', 'beraten', 'rückruf', 'zurückrufen', 'anrufen', 'ruf mich an', 'nachricht', 'kontakt', 'sprechen', 'problem', 'beschwerde', 'frage', 'können sie mir helfen', 'ich brauche hilfe', 'unterstützung', 'mitarbeiter', 'personal', 'ich hätte gerne', 'könnten sie', 'wäre es möglich'],
+  'Haustiere/Pets': ['haustiere', 'haustier', 'hund', 'hunde', 'katze', 'katzen', 'tier', 'tiere', 'mit hund', 'mit katze', 'erlaubt', 'mitbringen', 'tierfrei', 'hundefrei', 'katzenfrei']
 };
 
-export function IntentAnalysis({ threads }: IntentAnalysisProps) {
+// Exact message patterns for Inspiration/Reiseberatung category
+const INSPIRATION_EXACT_MESSAGES = [
+  'Beliebte Ziele für einen Wellnesstrip',
+  'Welche Städte sind bekannt für ihr lebendiges Nachtleben?',
+  'Reiseziele für einen Städtetrip',
+  'Kinderfreundliche All-Inclusive-Resorts',
+  'Rückzugsorte in den Bergen',
+  'Reiseziele für Outdoor-Aktivitäten'
+];
+
+// Pattern-based messages for Inspiration/Reiseberatung (X = variable placeholder)
+const INSPIRATION_PATTERN_MESSAGES = [
+  /^Welche gut bewerteten Hotels in .+ kannst du mir empfehlen\?$/i,
+  /^Welche Hotels in .+ haben einen Parkplatz\?$/i,
+  /^Welche Veranstaltungen gibt es in .+ während meiner Reise\?$/i,
+  /^Wie ist das Klima in .+ während meiner Reise\?$/i,
+  /^Welche Hotels in .+ haben gut bewertetes Frühstück\?$/i
+];
+
+// Helper function to categorize a thread (shared logic for consistency)
+function categorizeThread(thread: Thread): string | null {
+  if (!thread.messages || thread.messages.length === 0) return null;
+
+  // Extract workflows from thread
+  const workflows = extractWorkflowsFromThread(thread);
+  
+  // Special handling for workflow-based categories
+  if (workflows.has('workflow-travel-agent')) {
+    return 'Inspiration/Reiseberatung';
+  }
+  
+  if (workflows.has('workflow-contact-customer-service')) {
+    return 'Kundenberatung/Customer Support';
+  }
+
+  // Get the first user message
+  const firstUserMessage = thread.messages
+    ?.filter(m => m.role === 'user')
+    ?.sort((a, b) => {
+      const timeA = new Date(a.sentAt).getTime();
+      const timeB = new Date(b.sentAt).getTime();
+      return timeA - timeB;
+    })[0];
+
+  if (!firstUserMessage) return null;
+
+  const messageText = firstUserMessage?.content
+    ?.map(content => content.text || content.content || '')
+    .join(' ')
+    .trim() || '';
+
+  if (!messageText) return null;
+
+  const messageTextLower = messageText.toLowerCase();
+
+  // Check for exact message matches for Inspiration/Reiseberatung (even without workflow)
+  for (const exactMessage of INSPIRATION_EXACT_MESSAGES) {
+    if (messageText.toLowerCase() === exactMessage.toLowerCase()) {
+      return 'Inspiration/Reiseberatung';
+    }
+  }
+
+  // Check for pattern-based messages for Inspiration/Reiseberatung (even without workflow)
+  for (const pattern of INSPIRATION_PATTERN_MESSAGES) {
+    if (pattern.test(messageText)) {
+      return 'Inspiration/Reiseberatung';
+    }
+  }
+
+  // Check against all categories (excluding workflow-based ones) - first match wins
+  for (const [categoryName, keywords] of Object.entries(TOPIC_KEYWORDS)) {
+    // Skip workflow-based categories as they're handled above
+    if (categoryName === 'Inspiration/Reiseberatung' || categoryName === 'Kundenberatung/Customer Support') {
+      continue;
+    }
+
+    const hasKeyword = keywords.some(keyword => 
+      messageTextLower.includes(keyword.toLowerCase())
+    );
+    
+    if (hasKeyword) {
+      return categoryName;
+    }
+  }
+
+  return 'Others/Sonstiges';
+}
+
+// Helper function to extract workflows from a thread
+function extractWorkflowsFromThread(thread: Thread): Set<string> {
+  const threadWorkflows = new Set<string>();
+  
+  thread.messages.forEach(message => {
+    // Look for workflows in system/status messages
+    if (message.role === 'system' || (message as any).role === 'status') {
+      message.content.forEach(content => {
+        if (content.text || content.content) {
+          const text = content.text || content.content || '';
+          
+          // Look for "Workflows ausgewählt" pattern
+          if (text.includes('Workflows ausgewählt')) {
+            // Look for "* **Workflows:** `workflow-name1, workflow-name2`" pattern
+            const workflowPattern = /\*\s*\*\*Workflows:\*\*\s*`([^`]+)`/gi;
+            const matches = text.matchAll(workflowPattern);
+            
+            for (const match of matches) {
+              const workflowsString = match[1];
+              if (workflowsString) {
+                // Split by comma and clean up workflow names
+                const workflows = workflowsString.split(',').map(w => w.trim()).filter(w => w.length > 0);
+                workflows.forEach(workflowName => {
+                  if (workflowName.length > 1) {
+                    threadWorkflows.add(workflowName);
+                  }
+                });
+              }
+            }
+          }
+          
+          // Also look for standalone workflow mentions in system messages
+          const standaloneWorkflowPattern = /workflow-[\w-]+/gi;
+          const standaloneMatches = text.matchAll(standaloneWorkflowPattern);
+          
+          for (const match of standaloneMatches) {
+            const workflowName = match[0];
+            if (workflowName && workflowName.length > 1) {
+              threadWorkflows.add(workflowName);
+            }
+          }
+        }
+      });
+    }
+  });
+  
+  return threadWorkflows;
+}
+
+export function IntentAnalysis({ threads, onTopicClick }: IntentAnalysisProps) {
   const [showKeywords, setShowKeywords] = useState(false);
   
   // Prevent background scrolling when modal is open
@@ -55,8 +192,14 @@ export function IntentAnalysis({ threads }: IntentAnalysisProps) {
   const topicAnalysis = useMemo(() => {
     if (!threads || threads.length === 0) return [];
 
-    // Extract first user messages
-    const firstUserMessages = threads.map(thread => {
+    // Use the shared categorization function for consistency
+    const topicCounts: { [key: string]: { count: number; examples: string[] } } = {};
+
+    threads.forEach(thread => {
+      const category = categorizeThread(thread);
+      if (!category) return;
+
+      // Get first user message for examples
       const firstUserMessage = thread.messages
         ?.filter(m => m.role === 'user')
         ?.sort((a, b) => {
@@ -70,62 +213,22 @@ export function IntentAnalysis({ threads }: IntentAnalysisProps) {
         .join(' ')
         .trim() || '';
 
-      return {
-        threadId: thread.id,
-        text: messageText,
-        conversationId: thread.conversationId
-      };
-    }).filter(msg => msg.text.length > 0);
-
-    // Count topic frequencies
-    const topicCounts: { [key: string]: { count: number; examples: string[] } } = {};
-    const uncategorizedMessages: string[] = [];
-
-    firstUserMessages.forEach(message => {
-      const messageText = message.text.toLowerCase();
-      let messageMatched = false;
-
-      Object.entries(TOPIC_KEYWORDS).forEach(([topicName, keywords]) => {
-        const hasKeyword = keywords.some(keyword => 
-          messageText.includes(keyword.toLowerCase())
-        );
-
-        if (hasKeyword) {
-          messageMatched = true;
-          if (!topicCounts[topicName]) {
-            topicCounts[topicName] = { count: 0, examples: [] };
-          }
-          topicCounts[topicName].count++;
+      if (!topicCounts[category]) {
+        topicCounts[category] = { count: 0, examples: [] };
+      }
+      topicCounts[category].count++;
           
           // Store up to 2 examples per topic
-          if (topicCounts[topicName].examples.length < 2) {
-            const truncatedText = message.text.length > 60 
-              ? message.text.substring(0, 60) + '...' 
-              : message.text;
-            topicCounts[topicName].examples.push(truncatedText);
-          }
-        }
-      });
-
-      // If message didn't match any category, add to uncategorized
-      if (!messageMatched) {
-        const truncatedText = message.text.length > 60 
-          ? message.text.substring(0, 60) + '...' 
-          : message.text;
-        uncategorizedMessages.push(truncatedText);
+      if (topicCounts[category].examples.length < 2 && messageText) {
+        const truncatedText = messageText.length > 60 
+          ? messageText.substring(0, 60) + '...' 
+          : messageText;
+        topicCounts[category].examples.push(truncatedText);
       }
     });
 
-    // Add "Others/Sonstiges" category if there are uncategorized messages
-    if (uncategorizedMessages.length > 0) {
-      topicCounts['Others/Sonstiges'] = {
-        count: uncategorizedMessages.length,
-        examples: uncategorizedMessages.slice(0, 2) // Take first 2 examples
-      };
-    }
-
     // Calculate percentages and create results
-    const totalMessages = firstUserMessages.length;
+    const totalMessages = threads.length;
     const results: TopicFrequency[] = Object.entries(topicCounts)
       .map(([topic, data]) => ({
         topic,
@@ -184,11 +287,20 @@ export function IntentAnalysis({ threads }: IntentAnalysisProps) {
       <CardContent className="pt-0">
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {topicAnalysis.map((topic) => (
-            <div key={topic.topic} className="text-center p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors group relative">
+            <div 
+              key={topic.topic} 
+              className={`text-center p-3 bg-gray-50 rounded-lg hover:bg-blue-100 transition-colors group relative ${onTopicClick ? 'cursor-pointer hover:shadow-md' : ''}`}
+              onClick={() => onTopicClick?.(topic.topic)}
+              title={onTopicClick ? `Click to filter conversations by "${topic.topic}"` : undefined}
+            >
               <div className="text-lg font-bold text-gray-900">{topic.count}</div>
               <div className="text-xs text-gray-600 leading-tight">{topic.topic}</div>
               <div className="text-xs text-gray-500 mt-1">{topic.percentage}%</div>
-              
+              {onTopicClick && (
+                <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                </div>
+              )}
             </div>
           ))}
         </div>

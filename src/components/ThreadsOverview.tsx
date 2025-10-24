@@ -48,7 +48,45 @@ import {
 } from '../lib/api';
 import { parseThreadId, calculateThreadAnalytics, formatTimestamp, debounce } from '../lib/utils';
 import { IntentAnalysis } from './IntentAnalysis';
-import { AllConversationsManager, LoadProgress, ConversationSearchResult } from '../lib/conversationManager';
+
+// Topic categorization keywords (same as IntentAnalysis)
+const TOPIC_KEYWORDS = {
+  'Parkplätze/Parking': ['parkplatz', 'parkplätze', 'parken', 'auto', 'fahrzeug', 'stellplatz', 'garage', 'tiefgarage', 'wo kann ich parken', 'parkgebühren', 'kostenpflichtig parken', 'parkschein', 'parkuhr'],
+  'Frühstück/Breakfast': ['frühstück', 'morgenbuffet', 'buffet', 'morgen', 'kaffee', 'brötchen', 'gibt es frühstück', 'frühstückszeiten', 'kontinentales frühstück', 'müsli', 'marmelade', 'butter', 'eier', 'speck'],
+  'Check-in/Öffnungszeiten': ['öffnungszeit', 'öffnungszeiten', 'geöffnet', 'öffnen', 'schließen', 'geschlossen', 'wann', 'uhrzeit', 'bis wann', 'ab wann', 'wie lange geöffnet', 'öffnungszeiten heute', 'wann macht auf', 'wann macht zu', 'check-in', 'check-out', 'checkin', 'checkout', 'anreise', 'abreise', 'einchecken', 'auschecken', 'eingecheckt', 'ankunft', 'schlüssel', 'zimmerschlüssel', 'keycard', 'rezeption', 'empfang', 'wann kann ich einchecken'],
+  'Preise/Prices': ['preis', 'preise', 'kosten', 'wie viel', 'was kostet', 'teuer', 'günstig', 'euro', 'geld', 'wie teuer', 'preiswert', 'bezahlen', 'zahlung', 'gebühr', 'tarif'],
+  'Reservierung/Booking': ['reservierung', 'buchen', 'buchung', 'verfügbar', 'frei', 'belegt', 'termin', 'platz', 'reservieren', 'vorbestellen', 'tisch reservieren', 'platz buchen', 'halbpension', 'kulanzgutschein', 'kulanzguthaben', 'gutschein', 'wie kann ich nach kostenloser stornierung filtern'],
+  'WLAN/WiFi': ['wlan', 'wifi', 'wi-fi', 'internet', 'netzwerk', 'verbindung', 'online', 'zugang', 'internetverbindung', 'wlan passwort', 'wifi passwort', 'wie komme ich ins internet', 'netz', 'empfang'],
+  'Restaurant/Essen': ['restaurant', 'essen', 'abendessen', 'mittagessen', 'küche', 'speisekarte', 'bestellen', 'trinken', 'bar', 'café', 'kaffee', 'gastronomie', 'verpflegung', 'mahlzeit', 'getränke', 'alkohol', 'bier', 'wein'],
+  'Transport/Anfahrt': ['anfahrt', 'transport', 'bus', 'bahn', 'zug', 'taxi', 'weg', 'fahren', 'gehen', 'entfernung', 'wie komme ich', 'flughafen', 'bahnhof', 'öffentliche verkehrsmittel', 'u-bahn', 's-bahn', 'straßenbahn', 'bushaltestelle', 'fahrplan', 'verbindung'],
+  'Stornierung/Cancellation': ['stornierung', 'stornieren', 'absagen', 'rückgängig', 'zurück', 'ändern', 'umbuchen', 'stornogebühr', 'kostenlos stornieren', 'buchung ändern', 'termin verschieben'],
+  'Zimmer/Room': ['zimmer', 'bett', 'schlafzimmer', 'bad', 'dusche', 'balkon', 'aussicht', 'etage', 'doppelzimmer', 'einzelzimmer', 'familienzimmer', 'klimaanlage', 'heizung', 'fernseher', 'minibar', 'safe', 'handtücher'],
+  'Wellness/Spa': ['wellness', 'spa', 'sauna', 'pool', 'schwimmbad', 'massage', 'entspannung', 'fitness', 'sport', 'schwimmen', 'baden', 'wellnessbereich', 'fitnessraum', 'dampfbad', 'whirlpool', 'jacuzzi', 'kosmetik'],
+  'Events/Veranstaltungen': ['veranstaltung', 'feier', 'hochzeit', 'tagung', 'seminar', 'workshop', 'fest', 'festival', 'konferenz', 'geschäftlich', 'firmenfeier', 'geburtstag', 'jubiläum'],
+  'Fahrrad/Bicycle': ['fahrrad', 'rad', 'fahrräder', 'abstellen', 'parken', 'garage', 'fahrradgarage', 'fahrradkeller', 'fahrradständer', 'radfahren', 'mountainbike', 'e-bike', 'pedelec', 'fahrradverleih', 'fahrradtour', 'radweg'],
+  'Inspiration/Reiseberatung': ['urlaub', 'reise', 'hotel', 'ziel', 'wohin', 'zeig mir', 'schöner urlaub', 'reiseberatung', 'reiseziel', 'urlaubsziel', 'ausflug', 'sehenswürdigkeiten', 'gibt es wälder', 'natur', 'landschaft', 'berge', 'seen', 'wandern', 'spazieren', 'umgebung', 'nähe', 'in der nähe', 'was gibt es hier zu sehen', 'lohnenswert', 'schön', 'empfehlung', 'empfehlungen', 'vorschlag', 'tipp', 'tipps', 'was können sie empfehlen', 'beste', 'gut', 'aktivitäten', 'was kann man machen', 'was gibt es hier', 'lohnt sich', 'interessant', 'besichtigen'],
+  'Kundenberatung/Customer Support': ['hilfe', 'kundenservice', 'beratung', 'beraten', 'rückruf', 'zurückrufen', 'anrufen', 'ruf mich an', 'nachricht', 'kontakt', 'sprechen', 'problem', 'beschwerde', 'frage', 'können sie mir helfen', 'ich brauche hilfe', 'unterstützung', 'mitarbeiter', 'personal', 'ich hätte gerne', 'könnten sie', 'wäre es möglich'],
+  'Haustiere/Pets': ['haustiere', 'haustier', 'hund', 'hunde', 'katze', 'katzen', 'tier', 'tiere', 'mit hund', 'mit katze', 'erlaubt', 'mitbringen', 'tierfrei', 'hundefrei', 'katzenfrei']
+};
+
+// Exact message patterns for Inspiration/Reiseberatung category
+const INSPIRATION_EXACT_MESSAGES = [
+  'Beliebte Ziele für einen Wellnesstrip',
+  'Welche Städte sind bekannt für ihr lebendiges Nachtleben?',
+  'Reiseziele für einen Städtetrip',
+  'Kinderfreundliche All-Inclusive-Resorts',
+  'Rückzugsorte in den Bergen',
+  'Reiseziele für Outdoor-Aktivitäten'
+];
+
+// Pattern-based messages for Inspiration/Reiseberatung (X = variable placeholder)
+const INSPIRATION_PATTERN_MESSAGES = [
+  /^Welche gut bewerteten Hotels in .+ kannst du mir empfehlen\?$/i,
+  /^Welche Hotels in .+ haben einen Parkplatz\?$/i,
+  /^Welche Veranstaltungen gibt es in .+ während meiner Reise\?$/i,
+  /^Wie ist das Klima in .+ während meiner Reise\?$/i,
+  /^Welche Hotels in .+ haben gut bewertetes Frühstück\?$/i
+];
 
 interface ThreadsOverviewProps {
   uploadedThreads?: Thread[];
@@ -73,9 +111,6 @@ export function ThreadsOverview({
   onThreadsChange,
   savedConversationIds = new Set()
 }: ThreadsOverviewProps) {
-  // IndexedDB Manager for large datasets
-  const [conversationManager] = useState(() => new AllConversationsManager());
-  
   const [threads, setThreads] = useState<Thread[]>(() => {
     // If we have uploaded threads, use them
     if (uploadedThreads && uploadedThreads.length > 0) {
@@ -88,21 +123,7 @@ export function ThreadsOverview({
   const [loading, setLoading] = useState(false);
   const [buttonClicked, setButtonClicked] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loadingProgress, setLoadingProgress] = useState<LoadProgress>({ 
-    current: 0, 
-    total: 0, 
-    phase: 'fetching',
-    message: '' 
-  });
-  
-  // Search functionality
-  const [searchKeyword, setSearchKeyword] = useState('');
-  const [searchResults, setSearchResults] = useState<ConversationSearchResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchProgress, setSearchProgress] = useState({ current: 0, total: 0 });
-  const [totalStoredConversations, setTotalStoredConversations] = useState(0);
-  const [storageInfo, setStorageInfo] = useState({ usedBytes: 0, availableBytes: 0 });
-  const [useIndexedDB, setUseIndexedDB] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState({ current: 0, total: 0, currentDate: '' });
   const [selectedThreads, setSelectedThreads] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkResults, setBulkResults] = useState<any>(null);
@@ -195,8 +216,12 @@ export function ThreadsOverview({
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set());
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const toolDropdownRef = useRef<HTMLDivElement>(null);
+  const [selectedWorkflows, setSelectedWorkflows] = useState<Set<string>>(new Set());
+  const [workflowDropdownOpen, setWorkflowDropdownOpen] = useState(false);
+  const workflowDropdownRef = useRef<HTMLDivElement>(null);
   const [showErrorsOnly, setShowErrorsOnly] = useState(false);
   const [showTimeoutsOnly, setShowTimeoutsOnly] = useState(false);
+  const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
 
   // Advanced filters
   const [minMessages, setMinMessages] = useState<number | ''>('');
@@ -213,16 +238,19 @@ export function ThreadsOverview({
       if (toolDropdownRef.current && !toolDropdownRef.current.contains(event.target as Node)) {
         setToolDropdownOpen(false);
       }
+      if (workflowDropdownRef.current && !workflowDropdownRef.current.contains(event.target as Node)) {
+        setWorkflowDropdownOpen(false);
+      }
     }
 
-    if (toolDropdownOpen) {
+    if (toolDropdownOpen || workflowDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [toolDropdownOpen]);
+  }, [toolDropdownOpen, workflowDropdownOpen]);
 
 
   // Function to check if a thread has errors
@@ -256,6 +284,130 @@ export function ThreadsOverview({
 
   // Function to check if a thread has timeouts (30+ second gaps between consecutive messages)
   // Excludes user-initiated gaps (session restarts) where the gap is followed by a user message
+  // Helper function to extract workflows from a thread (same as IntentAnalysis)
+  const extractWorkflowsFromThread = useCallback((thread: any): Set<string> => {
+    const threadWorkflows = new Set<string>();
+    
+    thread.messages.forEach((message: any) => {
+      // Look for workflows in system/status messages
+      if (message.role === 'system' || message.role === 'status') {
+        message.content.forEach((content: any) => {
+          if (content.text || content.content) {
+            const text = content.text || content.content || '';
+            
+            // Look for "Workflows ausgewählt" pattern
+            if (text.includes('Workflows ausgewählt')) {
+              // Look for "* **Workflows:** `workflow-name1, workflow-name2`" pattern
+              const workflowPattern = /\*\s*\*\*Workflows:\*\*\s*`([^`]+)`/gi;
+              const matches = text.matchAll(workflowPattern);
+              
+              for (const match of matches) {
+                const workflowsString = match[1];
+                if (workflowsString) {
+                  // Split by comma and clean up workflow names
+                  const workflows = workflowsString.split(',').map(w => w.trim()).filter(w => w.length > 0);
+                  workflows.forEach(workflowName => {
+                    if (workflowName.length > 1) {
+                      threadWorkflows.add(workflowName);
+                    }
+                  });
+                }
+              }
+            }
+            
+            // Also look for standalone workflow mentions in system messages
+            const standaloneWorkflowPattern = /workflow-[\w-]+/gi;
+            const standaloneMatches = text.matchAll(standaloneWorkflowPattern);
+            
+            for (const match of standaloneMatches) {
+              const workflowName = match[0];
+              if (workflowName && workflowName.length > 1) {
+                threadWorkflows.add(workflowName);
+              }
+            }
+          }
+        });
+      }
+    });
+    
+    return threadWorkflows;
+  }, []);
+
+  // Helper function to categorize a thread (same as IntentAnalysis for consistency)
+  const categorizeThread = useCallback((thread: any): string | null => {
+    if (!thread.messages || thread.messages.length === 0) return null;
+
+    // Extract workflows from thread
+    const workflows = extractWorkflowsFromThread(thread);
+    
+    // Special handling for workflow-based categories
+    if (workflows.has('workflow-travel-agent')) {
+      return 'Inspiration/Reiseberatung';
+    }
+    
+    if (workflows.has('workflow-contact-customer-service')) {
+      return 'Kundenberatung/Customer Support';
+    }
+
+    // Get the first user message
+    const firstUserMessage = thread.messages
+      ?.filter((m: any) => m.role === 'user')
+      ?.sort((a: any, b: any) => {
+        const timeA = new Date(a.sentAt).getTime();
+        const timeB = new Date(b.sentAt).getTime();
+        return timeA - timeB;
+      })[0];
+
+    if (!firstUserMessage) return null;
+
+    const messageText = firstUserMessage?.content
+      ?.map((content: any) => content.text || content.content || '')
+      .join(' ')
+      .trim() || '';
+
+    if (!messageText) return null;
+
+    const messageTextLower = messageText.toLowerCase();
+
+    // Check for exact message matches for Inspiration/Reiseberatung (even without workflow)
+    for (const exactMessage of INSPIRATION_EXACT_MESSAGES) {
+      if (messageText.toLowerCase() === exactMessage.toLowerCase()) {
+        return 'Inspiration/Reiseberatung';
+      }
+    }
+
+    // Check for pattern-based messages for Inspiration/Reiseberatung (even without workflow)
+    for (const pattern of INSPIRATION_PATTERN_MESSAGES) {
+      if (pattern.test(messageText)) {
+        return 'Inspiration/Reiseberatung';
+      }
+    }
+
+    // Check against all categories (excluding workflow-based ones) - first match wins
+    for (const [categoryName, keywords] of Object.entries(TOPIC_KEYWORDS)) {
+      // Skip workflow-based categories as they're handled above
+      if (categoryName === 'Inspiration/Reiseberatung' || categoryName === 'Kundenberatung/Customer Support') {
+        continue;
+      }
+
+      const hasKeyword = keywords.some(keyword => 
+        messageTextLower.includes(keyword.toLowerCase())
+      );
+      
+      if (hasKeyword) {
+        return categoryName;
+      }
+    }
+
+    return 'Others/Sonstiges';
+  }, [extractWorkflowsFromThread]);
+
+  // Helper function to check if a thread matches a specific topic
+  const threadMatchesTopic = useCallback((thread: any, topicName: string) => {
+    const threadCategory = categorizeThread(thread);
+    return threadCategory === topicName;
+  }, [categorizeThread]);
+
   const threadHasTimeouts = useCallback((thread: any) => {
     if (!thread.messages || thread.messages.length < 2) return false;
     
@@ -418,6 +570,93 @@ export function ThreadsOverview({
     return availableToolsWithCounts.map(tool => tool.name);
   }, [availableToolsWithCounts]);
 
+  // Extract all available workflows from system messages with counts (counting unique threads, not total occurrences)
+  const availableWorkflowsWithCounts = useMemo(() => {
+    const workflowThreadCounts = new Map<string, Set<string>>(); // Map workflow name to set of thread IDs
+    
+    console.log('🔄 Extracting workflows from threads:', {
+      threadsCount: threads.length,
+      sampleThread: threads[0] ? {
+        id: threads[0].id,
+        messagesCount: threads[0].messages?.length,
+        hasSystemMessages: threads[0].messages?.some(m => m.role === 'system'),
+      } : null
+    });
+    
+    // Extracting workflows from threads - count unique threads per workflow
+    threads.forEach(thread => {
+      const threadWorkflows = new Set<string>(); // Workflows found in this specific thread
+      
+      thread.messages.forEach(message => {
+        // Look for workflows in system/status messages
+        if (message.role === 'system' || message.role === 'status') {
+          message.content.forEach(content => {
+            if (content.text || content.content) {
+              const text = content.text || content.content || '';
+              
+              // Look for "Workflows ausgewählt" pattern
+              if (text.includes('Workflows ausgewählt')) {
+                // Look for "* **Workflows:** `workflow-name1, workflow-name2`" pattern
+                const workflowPattern = /\*\s*\*\*Workflows:\*\*\s*`([^`]+)`/gi;
+                const matches = text.matchAll(workflowPattern);
+                
+                for (const match of matches) {
+                  const workflowsString = match[1];
+                  if (workflowsString) {
+                    // Split by comma and clean up workflow names
+                    const workflows = workflowsString.split(',').map(w => w.trim()).filter(w => w.length > 0);
+                    workflows.forEach(workflowName => {
+                      if (workflowName.length > 1) {
+                        threadWorkflows.add(workflowName);
+                      }
+                    });
+                  }
+                }
+              }
+              
+              // Also look for standalone workflow mentions in system messages
+              const standaloneWorkflowPattern = /workflow-[\w-]+/gi;
+              const standaloneMatches = text.matchAll(standaloneWorkflowPattern);
+              
+              for (const match of standaloneMatches) {
+                const workflowName = match[0];
+                if (workflowName && workflowName.length > 1) {
+                  threadWorkflows.add(workflowName);
+                }
+              }
+            }
+          });
+        }
+      });
+      
+      // Add this thread ID to each workflow it contains
+      threadWorkflows.forEach(workflowName => {
+        if (!workflowThreadCounts.has(workflowName)) {
+          workflowThreadCounts.set(workflowName, new Set());
+        }
+        workflowThreadCounts.get(workflowName)!.add(thread.id);
+      });
+    });
+
+    // Convert to array and sort by name (count = number of unique threads)
+    const workflowsWithCounts = Array.from(workflowThreadCounts.entries())
+      .map(([name, threadSet]) => ({ name, count: threadSet.size }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    
+    console.log('🔄 Available workflows extracted:', {
+      workflowsCount: workflowsWithCounts.length,
+      workflows: workflowsWithCounts.map(w => `${w.name} (${w.count})`),
+      threadsCount: threads.length,
+    });
+    
+    return workflowsWithCounts;
+  }, [threads]);
+
+  // For backwards compatibility, extract just the workflow names
+  const availableWorkflows = useMemo(() => {
+    return availableWorkflowsWithCounts.map(workflow => workflow.name);
+  }, [availableWorkflowsWithCounts]);
+
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
@@ -552,88 +791,6 @@ export function ThreadsOverview({
     }
   }, [searchTerm]);
 
-  // Load all conversations using IndexedDB manager
-  const loadAllConversations = async () => {
-    if (!startDate || !endDate) {
-      setError('Please select start and end dates');
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    setUseIndexedDB(true);
-
-    try {
-      const totalCount = await conversationManager.loadAllConversations(
-        startDate,
-        endDate,
-        (progress: LoadProgress) => {
-          setLoadingProgress(progress);
-        }
-      );
-
-      setTotalStoredConversations(totalCount);
-      
-      // Update storage info
-      const storageInfo = await conversationManager.getStorageInfo();
-      setStorageInfo(storageInfo);
-      
-      console.log(`✅ Successfully loaded ${totalCount} conversations into IndexedDB`);
-      
-    } catch (error) {
-      console.error('Error loading conversations:', error);
-      setError(error instanceof Error ? error.message : 'Failed to load conversations');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Search through all stored conversations
-  const searchStoredConversations = async () => {
-    if (!searchKeyword.trim()) {
-      setError('Please enter a search keyword');
-      return;
-    }
-
-    if (!conversationManager.isLoaded) {
-      setError('Please load conversations first');
-      return;
-    }
-
-    setIsSearching(true);
-    setError(null);
-    setSearchResults([]);
-
-    try {
-      const results = await conversationManager.searchAllConversations(
-        searchKeyword,
-        (current: number, total: number) => {
-          setSearchProgress({ current, total });
-        }
-      );
-
-      setSearchResults(results);
-      
-      // Convert search results to threads format for display
-      const threadsFromSearch = results.map(conv => ({
-        id: conv.threadId || conv.id,
-        conversationId: conv.conversationId || conv.id,
-        messages: conv.messages || [],
-        createdAt: conv.created_at || conv.createdAt,
-        updatedAt: conv.updated_at || conv.updatedAt
-      }));
-      
-      setThreads(threadsFromSearch);
-      console.log(`🔍 Found ${results.length} conversations matching "${searchKeyword}"`);
-      
-    } catch (error) {
-      console.error('Search failed:', error);
-      setError(error instanceof Error ? error.message : 'Search failed');
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
   const fetchThreads = async () => {
     if (!startDate || !endDate) {
       setError('Please select start and end dates');
@@ -666,50 +823,88 @@ export function ThreadsOverview({
       
       const apiBaseUrl = getApiBaseUrl();
       
-      // Calculate time difference - use 6-hour chunking for optimal balance
+      // Calculate time difference for smart chunking
       const timeDiff = new Date(endTimestamp).getTime() - new Date(startTimestamp).getTime();
       const hoursDiff = Math.ceil(timeDiff / (1000 * 60 * 60));
-      const chunksDiff = Math.ceil(hoursDiff / 6);
       
       let allThreads: any[] = [];
       
-      // Use 6-hour chunking to balance speed and reliability
-      console.log(`📊 Processing ${hoursDiff} hours (${chunksDiff} chunks) with 6-hour chunking...`);
+      // Smart chunking strategy based on typical usage patterns
+      // 00:00-11:59 (12h), 12:00-16:59 (5h), 17:00-18:59 (2h), 19:00-20:59 (2h), 21:00-23:59 (3h)
+      console.log(`📊 Processing ${hoursDiff} hours with smart chunking strategy...`);
       
       const chunks: Array<{start: Date, end: Date, dateStr: string}> = [];
       
-      // Create 6-hour chunks
-      let currentDate = new Date(startTimestamp);
-      const endDateObj = new Date(endTimestamp);
-      while (currentDate < endDateObj) {
-        let nextDate = new Date(currentDate);
-        nextDate.setHours(nextDate.getHours() + 6);
+      // Smart chunking function for a single day
+      const createDayChunks = (dayStart: Date) => {
+        const dayChunks: Array<{start: Date, end: Date, dateStr: string}> = [];
+        const year = dayStart.getFullYear();
+        const month = dayStart.getMonth();
+        const date = dayStart.getDate();
         
-        // Don't go past the end date
-        if (nextDate > endDateObj) {
-          nextDate = new Date(endDateObj);
-        }
+        // Define smart chunk periods for each day
+        const periods = [
+          { start: 0, end: 11, label: '00:00-11:59' },   // 12 hours - low activity
+          { start: 12, end: 16, label: '12:00-16:59' },  // 5 hours - moderate activity
+          { start: 17, end: 18, label: '17:00-18:59' },  // 2 hours - peak activity
+          { start: 19, end: 20, label: '19:00-20:59' },  // 2 hours - peak activity
+          { start: 21, end: 23, label: '21:00-23:59' }   // 3 hours - moderate activity
+        ];
         
-        const startHour = currentDate.getHours();
-        const endHour = nextDate.getHours();
-        chunks.push({
-          start: new Date(currentDate),
-          end: new Date(nextDate),
-          dateStr: `${currentDate.toLocaleDateString()} ${startHour}:00-${endHour}:00`
+        periods.forEach(period => {
+          const chunkStart = new Date(year, month, date, period.start, 0, 0);
+          const chunkEnd = new Date(year, month, date, period.end, 59, 59, 999);
+          
+          dayChunks.push({
+            start: chunkStart,
+            end: chunkEnd,
+            dateStr: `${chunkStart.toLocaleDateString()} ${period.label}`
+          });
         });
         
-        currentDate.setHours(currentDate.getHours() + 6);
+        return dayChunks;
+      };
+      
+      // Generate chunks for each day in the range
+      let currentDate = new Date(startTimestamp);
+      currentDate.setHours(0, 0, 0, 0); // Start at beginning of day
+      
+      const endDateObj = new Date(endTimestamp);
+      
+      while (currentDate <= endDateObj) {
+        const dayChunks = createDayChunks(currentDate);
+        
+        // Filter chunks to only include those that overlap with our time range
+        dayChunks.forEach(chunk => {
+          const chunkStart = new Date(Math.max(chunk.start.getTime(), new Date(startTimestamp).getTime()));
+          const chunkEnd = new Date(Math.min(chunk.end.getTime(), new Date(endTimestamp).getTime()));
+          
+          // Only add chunk if it has a valid time range
+          if (chunkStart < chunkEnd) {
+            chunks.push({
+              start: chunkStart,
+              end: chunkEnd,
+              dateStr: `${chunkStart.toLocaleDateString()} ${chunkStart.getHours()}:${chunkStart.getMinutes().toString().padStart(2, '0')}-${chunkEnd.getHours()}:${chunkEnd.getMinutes().toString().padStart(2, '0')}`
+            });
+          }
+        });
+        
+        // Move to next day
+        currentDate.setDate(currentDate.getDate() + 1);
       }
       
-      console.log(`📦 Processing ${chunks.length} 6-hour chunks`);
-      setLoadingProgress({ current: 0, total: chunks.length, currentDate: '' });
+      // Parallel processing with concurrency control (like ThreadPoolExecutor)
+      // Get concurrency setting from localStorage or use default
+      const savedConcurrency = localStorage.getItem('chatbot-dashboard-concurrency');
+      const CONCURRENT_REQUESTS = savedConcurrency ? parseInt(savedConcurrency, 10) : 5; // Number of parallel requests
       
-      // Process chunks with progress tracking
-      for (let i = 0; i < chunks.length; i++) {
-        const chunk = chunks[i];
-        setLoadingProgress({ current: i + 1, total: chunks.length, currentDate: chunk.dateStr });
-        
-        console.log(`📅 Chunk ${i + 1}/${chunks.length}: ${chunk.dateStr}`);
+      console.log(`📦 Processing ${chunks.length} smart chunks with parallel fetching (concurrency: ${CONCURRENT_REQUESTS})`);
+      setLoadingProgress({ current: 0, total: chunks.length, currentDate: '' });
+      let completedChunks = 0;
+      
+      // Function to process a single chunk
+      const processChunk = async (chunk: any, index: number) => {
+        console.log(`📅 Starting chunk ${index + 1}/${chunks.length}: ${chunk.dateStr}`);
         
         try {
           const response = await fetch(`${apiBaseUrl}/thread`, {
@@ -725,28 +920,66 @@ export function ThreadsOverview({
           });
 
           if (!response.ok) {
-            console.warn(`⚠️ Chunk ${i + 1} (${chunk.dateStr}) failed: HTTP ${response.status}`);
-            continue; // Skip failed chunks but continue with others
+            console.warn(`⚠️ Chunk ${index + 1} (${chunk.dateStr}) failed: HTTP ${response.status}`);
+            // Update progress even for failed chunks
+            completedChunks++;
+            setLoadingProgress({ 
+              current: completedChunks, 
+              total: chunks.length, 
+              currentDate: `Failed: ${chunk.dateStr}` 
+            });
+            return { threads: [], index, chunk };
           }
 
           const chunkData = await response.json();
           const chunkThreads = chunkData.threads?.map((item: any) => item.thread) || [];
           
-          allThreads.push(...chunkThreads);
-          console.log(`✅ Chunk ${i + 1}/${chunks.length} (${chunk.dateStr}): +${chunkThreads.length} threads (total: ${allThreads.length})`);
+          // Update progress immediately when chunk completes
+          completedChunks++;
+          setLoadingProgress({ 
+            current: completedChunks, 
+            total: chunks.length, 
+            currentDate: `Completed: ${chunk.dateStr}` 
+          });
           
-          // Small delay to be nice to the server
-          if (i < chunks.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-          }
+          console.log(`✅ Chunk ${index + 1}/${chunks.length} (${chunk.dateStr}): +${chunkThreads.length} threads`);
+          return { threads: chunkThreads, index, chunk };
           
         } catch (chunkError) {
-          console.warn(`⚠️ Chunk ${i + 1} (${chunk.dateStr}) error:`, chunkError);
-          // Continue with other chunks
+          console.warn(`⚠️ Chunk ${index + 1} (${chunk.dateStr}) error:`, chunkError);
+          // Update progress even for errored chunks
+          completedChunks++;
+          setLoadingProgress({ 
+            current: completedChunks, 
+            total: chunks.length, 
+            currentDate: `Error: ${chunk.dateStr}` 
+          });
+          return { threads: [], index, chunk };
         }
+      };
+
+      // Process chunks in parallel batches
+      const results: any[] = [];
+      for (let i = 0; i < chunks.length; i += CONCURRENT_REQUESTS) {
+        const batch = chunks.slice(i, i + CONCURRENT_REQUESTS);
+        const batchPromises = batch.map((chunk, batchIndex) => 
+          processChunk(chunk, i + batchIndex)
+        );
+        
+        // Wait for current batch to complete
+        const batchResults = await Promise.all(batchPromises);
+        results.push(...batchResults);
+        
+        console.log(`🔄 Completed batch ${Math.floor(i / CONCURRENT_REQUESTS) + 1}: ${completedChunks}/${chunks.length} chunks done`);
       }
       
-      console.log(`🎉 6-hour chunking complete: ${allThreads.length} total threads from ${chunks.length} chunks`);
+      // Sort results by original index to maintain order and collect all threads
+      results.sort((a, b) => a.index - b.index);
+      results.forEach(result => {
+        allThreads.push(...result.threads);
+      });
+      
+      console.log(`🎉 Smart chunking complete: ${allThreads.length} total threads from ${chunks.length} chunks`);
       setLoadingProgress({ current: 0, total: 0, currentDate: '' });
       
       // No more caching - just set the threads directly
@@ -786,7 +1019,7 @@ export function ThreadsOverview({
   );
 
   const filteredThreads = useMemo(() => {
-    return threads.filter(thread => {
+    const filtered = threads.filter(thread => {
       const parsed = parseThreadId(thread.id);
       
       // Search filter
@@ -800,9 +1033,13 @@ export function ThreadsOverview({
         }
       }
 
-      // Message content search filter - now using thread messages directly
+      // Message content search filter - comprehensive search through all message content
       if (messageSearchEnabled && messageSearchTerm) {
-        const searchLower = messageSearchTerm.toLowerCase();
+        const searchLower = messageSearchTerm.toLowerCase().trim();
+        
+        // Debug mode - enable this to troubleshoot search issues
+        // You can also enable by typing "debug-search" in the search box
+        const debugSearch = messageSearchTerm.includes('debug-search') || false;
         
         // Search through thread messages directly (threads now contain all messages)
         // EXCLUDE system messages - only search user and assistant messages
@@ -813,28 +1050,123 @@ export function ThreadsOverview({
               return false;
             }
             
-            // Search in message content
-            if (message.content && Array.isArray(message.content)) {
-              const matchFound = message.content.some((content: any) => {
-                try {
-                  if (content.text && typeof content.text === 'string' && content.text.toLowerCase().includes(searchLower)) {
-                    return true;
-                  }
-                  if (content.content && typeof content.content === 'string' && content.content.toLowerCase().includes(searchLower)) {
-                    return true;
-                  }
-                } catch (e) {
-                  console.warn('Error processing content item:', e);
-                }
-                return false;
+            if (debugSearch) {
+              console.log('🔍 Searching message:', {
+                threadId: thread.id,
+                messageRole: message.role,
+                messageId: message.id,
+                searchTerm: searchLower,
+                contentType: typeof message.content,
+                isArray: Array.isArray(message.content),
+                contentSample: Array.isArray(message.content) 
+                  ? message.content.slice(0, 2).map(c => ({ 
+                      kind: c.kind, 
+                      hasText: !!c.text, 
+                      hasContent: !!c.content,
+                      textSample: (c.text || c.content || '').substring(0, 50) + '...'
+                    }))
+                  : typeof message.content === 'string' 
+                    ? message.content.substring(0, 50) + '...'
+                    : 'object'
               });
-              return matchFound;
             }
+            
+            // Handle different content structures
+            if (message.content) {
+              // Case 1: content is a direct string
+              if (typeof message.content === 'string') {
+                const found = message.content.toLowerCase().includes(searchLower);
+                if (debugSearch && found) {
+                  console.log('✅ Match found in direct string:', {
+                    threadId: thread.id,
+                    messageRole: message.role,
+                    searchTerm: searchLower,
+                    matchedText: message.content.substring(0, 100) + '...'
+                  });
+                }
+                return found;
+              }
+              
+              // Case 2: content is an array of content objects
+              if (Array.isArray(message.content)) {
+                const matchFound = message.content.some((content: any) => {
+                  try {
+                    // Search in text field
+                    if (content.text && typeof content.text === 'string') {
+                      if (content.text.toLowerCase().includes(searchLower)) {
+                        if (debugSearch) {
+                          console.log('✅ Match found in content.text:', {
+                            threadId: thread.id,
+                            messageRole: message.role,
+                            searchTerm: searchLower,
+                            matchedText: content.text.substring(0, 100) + '...'
+                          });
+                        }
+                        return true;
+                      }
+                    }
+                    
+                    // Search in content field
+                    if (content.content && typeof content.content === 'string') {
+                      if (content.content.toLowerCase().includes(searchLower)) {
+                        if (debugSearch) {
+                          console.log('✅ Match found in content.content:', {
+                            threadId: thread.id,
+                            messageRole: message.role,
+                            searchTerm: searchLower,
+                            matchedText: content.content.substring(0, 100) + '...'
+                          });
+                        }
+                        return true;
+                      }
+                    }
+                    
+                    // Search in tool_use content (for assistant messages with tool calls)
+                    if (content.tool_use && content.tool_use.input) {
+                      const toolInput = JSON.stringify(content.tool_use.input).toLowerCase();
+                      if (toolInput.includes(searchLower)) {
+                        return true;
+                      }
+                    }
+                    
+                    // Search in any other string fields within content
+                    if (typeof content === 'object' && content !== null) {
+                      const contentStr = JSON.stringify(content).toLowerCase();
+                      if (contentStr.includes(searchLower)) {
+                        return true;
+                      }
+                    }
+                    
+                  } catch (e) {
+                    console.warn('Error processing content item:', e);
+                  }
+                  return false;
+                });
+                return matchFound;
+              }
+              
+              // Case 3: content is an object (not array)
+              if (typeof message.content === 'object' && message.content !== null) {
+                const contentStr = JSON.stringify(message.content).toLowerCase();
+                return contentStr.includes(searchLower);
+              }
+            }
+            
           } catch (e) {
             console.warn('Error processing message:', e);
           }
           return false;
         }) || false;
+        
+        if (debugSearch) {
+          console.log('🔍 Search result for thread:', {
+            threadId: thread.id,
+            searchTerm: searchLower,
+            hasMatch: hasMatchingMessage,
+            messageCount: thread.messages?.length || 0,
+            userAssistantMessages: thread.messages?.filter(m => m.role === 'user' || m.role === 'assistant').length || 0
+          });
+        }
         
         if (!hasMatchingMessage) return false;
       }
@@ -911,6 +1243,58 @@ export function ThreadsOverview({
         if (!hasSelectedTool) return false;
       }
 
+      // Workflow filter - using same logic as workflow counting for consistency
+      if (selectedWorkflows.size > 0) {
+        const threadWorkflows = new Set<string>();
+        
+        // Extract workflows from this thread using the same patterns as availableWorkflowsWithCounts
+        thread.messages.forEach(message => {
+          // Check system/status messages
+          if ((message.role === 'system' || message.role === 'status') && message.content) {
+            message.content.forEach((content: any) => {
+              if (content.text || content.content) {
+                const text = content.text || content.content || '';
+                
+                // Look for "Workflows ausgewählt" pattern
+                if (text.includes('Workflows ausgewählt')) {
+                  // Look for "* **Workflows:** `workflow-name1, workflow-name2`" pattern
+                  const workflowPattern = /\*\s*\*\*Workflows:\*\*\s*`([^`]+)`/gi;
+                  const matches = text.matchAll(workflowPattern);
+                  
+                  for (const match of matches) {
+                    const workflowsString = match[1];
+                    if (workflowsString) {
+                      // Split by comma and clean up workflow names
+                      const workflows = workflowsString.split(',').map(w => w.trim()).filter(w => w.length > 0);
+                      workflows.forEach(workflowName => {
+                        if (workflowName.length > 1) {
+                          threadWorkflows.add(workflowName);
+                        }
+                      });
+                    }
+                  }
+                }
+                
+                // Also look for standalone workflow mentions in system messages
+                const standaloneWorkflowPattern = /workflow-[\w-]+/gi;
+                const standaloneMatches = text.matchAll(standaloneWorkflowPattern);
+                
+                for (const match of standaloneMatches) {
+                  const workflowName = match[0];
+                  if (workflowName && workflowName.length > 1) {
+                    threadWorkflows.add(workflowName);
+                  }
+                }
+              }
+            });
+          }
+        });
+        
+        // Check if thread has any of the selected workflows
+        const hasSelectedWorkflow = Array.from(selectedWorkflows).some(workflow => threadWorkflows.has(workflow));
+        if (!hasSelectedWorkflow) return false;
+      }
+
       // Simple error filter - show only threads with errors if checkbox is checked
       if (showErrorsOnly) {
         if (!threadHasErrors(thread)) return false;
@@ -919,6 +1303,12 @@ export function ThreadsOverview({
       // Timeout filter - show only threads with timeouts if checkbox is checked
       if (showTimeoutsOnly) {
         if (!threadHasTimeouts(thread)) return false;
+      }
+
+      // Topic filter - show only threads matching the selected topic
+      if (selectedTopic) {
+        const matches = threadMatchesTopic(thread, selectedTopic);
+        if (!matches) return false;
       }
 
       // Advanced filters - calculate metrics for this thread
@@ -978,7 +1368,9 @@ export function ThreadsOverview({
       const timeB = new Date(b.createdAt).getTime();
       return timeB - timeA; // Most recent first
     });
-  }, [threads, searchTerm, hasUiFilter, selectedTools, showErrorsOnly, showTimeoutsOnly, messageSearchEnabled, messageSearchTerm, threadHasErrors, threadHasTimeouts, minMessages, maxMessages, minDuration, maxDuration, minResponseTime, maxResponseTime]);
+    
+    return filtered;
+  }, [threads, searchTerm, hasUiFilter, selectedTools, selectedWorkflows, showErrorsOnly, showTimeoutsOnly, selectedTopic, messageSearchEnabled, messageSearchTerm, threadHasErrors, threadHasTimeouts, threadMatchesTopic, minMessages, maxMessages, minDuration, maxDuration, minResponseTime, maxResponseTime]);
 
   // Update thread order whenever filtered threads change to keep navigation in sync
   useEffect(() => {
@@ -999,7 +1391,7 @@ export function ThreadsOverview({
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, hasUiFilter, selectedTools, showErrorsOnly, showTimeoutsOnly, minMessages, maxMessages, minDuration, maxDuration, minResponseTime, maxResponseTime]);
+  }, [searchTerm, hasUiFilter, selectedTools, selectedWorkflows, showErrorsOnly, showTimeoutsOnly, selectedTopic, minMessages, maxMessages, minDuration, maxDuration, minResponseTime, maxResponseTime]);
 
   const analytics = useMemo(() => calculateThreadAnalytics(filteredThreads), [filteredThreads]);
 
@@ -1309,7 +1701,7 @@ export function ThreadsOverview({
                   {loading ? (
                     <>
                       <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                      {loadingProgress.total > 0 ? `Day ${loadingProgress.current}/${loadingProgress.total}` : 'Searching...'}
+                      {loadingProgress.total > 0 ? `Chunk ${loadingProgress.current}/${loadingProgress.total}` : 'Fetching in progress...'}
                     </>
                   ) : (
                     <>
@@ -1340,153 +1732,8 @@ export function ThreadsOverview({
             </div>
           </div>
 
-          {/* IndexedDB Large Dataset Mode */}
-          <div className="border-t pt-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-sm font-medium">Large Dataset Mode (IndexedDB)</Label>
-                <p className="text-xs text-muted-foreground mt-1">
-                  For 10k+ conversations. Loads all data into local storage for fast searching.
-                </p>
-              </div>
-              <Button
-                onClick={loadAllConversations}
-                disabled={loading || !startDate || !endDate}
-                variant="secondary"
-                size="sm"
-              >
-                {loading && useIndexedDB ? (
-                  <>
-                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                    Loading...
-                  </>
-                ) : (
-                  <>
-                    📦 Load All Data
-                  </>
-                )}
-              </Button>
-            </div>
-
-            {/* IndexedDB Status */}
-            {conversationManager.isLoaded && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                <div className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2 text-green-700">
-                    <Activity className="h-4 w-4" />
-                    <span>✅ {totalStoredConversations.toLocaleString()} conversations loaded</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-green-600">
-                    <span>Storage: {(storageInfo.usedBytes / 1024 / 1024).toFixed(1)}MB</span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={async () => {
-                        if (confirm('Clear all stored conversation data? This cannot be undone.')) {
-                          await conversationManager.clearAllData();
-                          setTotalStoredConversations(0);
-                          setSearchResults([]);
-                          setSearchKeyword('');
-                          setUseIndexedDB(false);
-                          const newStorageInfo = await conversationManager.getStorageInfo();
-                          setStorageInfo(newStorageInfo);
-                        }
-                      }}
-                      className="text-xs h-6 px-2 text-red-600 border-red-200 hover:bg-red-50"
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Search Interface */}
-                <div className="flex gap-2 items-end mt-3">
-                  <div className="flex-1">
-                    <Label htmlFor="search-keyword" className="text-sm font-medium text-green-700">
-                      Search All Conversations
-                    </Label>
-                    <Input
-                      id="search-keyword"
-                      type="text"
-                      placeholder="Enter keyword to search through all conversations..."
-                      value={searchKeyword}
-                      onChange={(e) => setSearchKeyword(e.target.value)}
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
-                          searchStoredConversations();
-                        }
-                      }}
-                      className="mt-1"
-                      disabled={isSearching}
-                    />
-                  </div>
-                  <Button
-                    onClick={searchStoredConversations}
-                    disabled={isSearching || !searchKeyword.trim()}
-                    className="bg-green-600 hover:bg-green-700"
-                  >
-                    {isSearching ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 animate-spin mr-2" />
-                        Searching...
-                      </>
-                    ) : (
-                      '🔍 Search'
-                    )}
-                  </Button>
-                </div>
-
-                {/* Search Progress */}
-                {isSearching && (
-                  <div className="text-sm text-green-600 mt-2">
-                    Searching: {searchProgress.current.toLocaleString()} / {searchProgress.total.toLocaleString()} conversations
-                    <div className="w-full bg-green-200 rounded-full h-2 mt-1">
-                      <div 
-                        className="bg-green-600 h-2 rounded-full transition-all duration-300" 
-                        style={{ width: `${(searchProgress.current / searchProgress.total) * 100}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Search Results */}
-                {searchResults.length > 0 && (
-                  <div className="text-sm text-green-700 mt-2">
-                    <strong>Found {searchResults.length} conversations matching "{searchKeyword}"</strong>
-                    <div className="mt-1 text-xs text-green-600">
-                      Results are displayed in the table below.
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Loading Progress for IndexedDB */}
-            {loading && useIndexedDB && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <div className="text-sm text-blue-700 mb-2">
-                  {loadingProgress.message}
-                </div>
-                {loadingProgress.total > 0 && (
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm text-blue-600">
-                      <span>Phase: {loadingProgress.phase}</span>
-                      <span>{loadingProgress.current.toLocaleString()} / {loadingProgress.total.toLocaleString()}</span>
-                    </div>
-                    <div className="w-full bg-blue-200 rounded-full h-2">
-                      <div 
-                        className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
-                        style={{ width: `${loadingProgress.total > 0 ? (loadingProgress.current / loadingProgress.total) * 100 : 0}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
           {/* Message Search - only show after thread search results */}
-          {threads.length > 0 && !uploadedThreads?.length && !useIndexedDB && (
+          {threads.length > 0 && !uploadedThreads?.length && (
             <div className="border-t pt-4 space-y-3 mt-4">
               <div className="flex items-center space-x-2">
                 <Checkbox
@@ -1694,18 +1941,22 @@ export function ThreadsOverview({
               </div>
               
               <p className="text-xs text-muted-foreground">
-                Processing data in 6-hour chunks for optimal speed and reliability...
+                Processing data with smart chunking for optimal speed and reliability...
               </p>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Intent Analysis - Show when we have threads */}
-      {threads.length > 0 && hasSearched && (
-        <div className="mb-6">
-          <IntentAnalysis threads={filteredThreads} />
-        </div>
+
+      {/* Topic Analysis */}
+      {threads.length > 0 && (
+        <IntentAnalysis 
+          threads={threads} 
+          onTopicClick={(topicName) => {
+            setSelectedTopic(topicName);
+          }}
+        />
       )}
 
       {/* Threads Table (only show when threads are available) */}
@@ -1847,6 +2098,88 @@ export function ThreadsOverview({
                     </div>
                   )}
 
+                  {/* Workflow Filter Dropdown */}
+                  {availableWorkflows.length > 0 && (
+                    <div className="relative" ref={workflowDropdownRef}>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="h-8 border-dashed"
+                        onClick={() => setWorkflowDropdownOpen(!workflowDropdownOpen)}
+                      >
+                        <Filter className="mr-2 h-3 w-3" />
+                        Workflows
+                        {selectedWorkflows.size > 0 && (
+                          <Badge variant="secondary" className="ml-2 px-1 py-0 text-xs">
+                            {selectedWorkflows.size}
+                          </Badge>
+                        )}
+                        <ChevronDown className="ml-2 h-3 w-3" />
+                      </Button>
+                      
+                      {workflowDropdownOpen && (
+                        <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-md shadow-lg z-50 backdrop-blur-sm flex flex-col" style={{ backgroundColor: 'white', height: '320px', maxHeight: '320px' }}>
+                          <div className="p-2 flex flex-col h-full">
+                            <div className="flex items-center justify-between mb-2">
+                              <Label className="text-xs font-medium text-gray-600">Filter by Workflows</Label>
+                              {selectedWorkflows.size > 0 && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-5 px-1 text-xs"
+                                  onClick={() => setSelectedWorkflows(new Set())}
+                                >
+                                  Clear
+                                </Button>
+                              )}
+                            </div>
+                            <div className="space-y-1 flex-1 overflow-y-auto">
+                              {availableWorkflowsWithCounts.length > 0 ? (
+                                availableWorkflowsWithCounts.map((workflowInfo) => (
+                                  <div key={workflowInfo.name} className="flex items-center space-x-2 py-1">
+                                    <Checkbox
+                                      id={`workflow-${workflowInfo.name}`}
+                                      checked={selectedWorkflows.has(workflowInfo.name)}
+                                      onCheckedChange={(checked) => {
+                                        const newSelected = new Set(selectedWorkflows);
+                                        if (checked) {
+                                          newSelected.add(workflowInfo.name);
+                                        } else {
+                                          newSelected.delete(workflowInfo.name);
+                                        }
+                                        setSelectedWorkflows(newSelected);
+                                      }}
+                                      className="h-3 w-3"
+                                    />
+                                    <div className="flex-1 flex items-center justify-between min-w-0">
+                                      <Label 
+                                        htmlFor={`workflow-${workflowInfo.name}`} 
+                                        className="text-xs font-mono cursor-pointer truncate flex-1 mr-2"
+                                        title={workflowInfo.name}
+                                      >
+                                        {workflowInfo.name}
+                                      </Label>
+                                      <Badge variant="secondary" className="text-xs px-1 py-0 h-4 min-w-0 shrink-0">
+                                        {workflowInfo.count}
+                                      </Badge>
+                                    </div>
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="text-xs text-muted-foreground text-center py-3">
+                                  <div>No workflows found in system messages</div>
+                                  <div className="text-xs mt-1 opacity-75">
+                                    Workflows will appear here after searching threads
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Error Filter Dropdown */}
                   {totalThreadsWithErrors > 0 && (
                     <div className="flex items-center space-x-2">
@@ -1882,6 +2215,23 @@ export function ThreadsOverview({
                           {totalThreadsWithTimeouts}
                         </Badge>
                       </Label>
+                    </div>
+                  )}
+
+                  {/* Topic Filter */}
+                  {selectedTopic && (
+                    <div className="flex items-center space-x-2">
+                      <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 border border-blue-200 rounded-lg">
+                        <Filter className="h-3 w-3 text-blue-600" />
+                        <span className="text-sm text-blue-700">Topic: {selectedTopic}</span>
+                        <button
+                          onClick={() => setSelectedTopic(null)}
+                          className="text-blue-600 hover:text-blue-800 ml-1"
+                          title="Clear topic filter"
+                        >
+                          ×
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
