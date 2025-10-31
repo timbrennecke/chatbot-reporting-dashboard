@@ -193,7 +193,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
     setError(null);
 
     try {
-      const apiKey = getEnvironmentSpecificItem('chatbot-dashboard-api-key');
+      const apiKey = await getEnvironmentSpecificItem('chatbot-dashboard-api-key');
       if (!apiKey?.trim()) {
         throw new Error('API key is required');
       }
@@ -334,40 +334,64 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
           return { conversations: chunkConversations, index, chunk };
           
         } catch (chunkError) {
-          console.warn(`⚠️ Chunk ${index + 1} (${chunk.dateStr}) error:`, chunkError);
+          const errorMessage = chunkError instanceof Error ? chunkError.message : 'Unknown error';
+          const isTimeout = errorMessage.includes('504') || errorMessage.includes('timeout');
+          
+          if (isTimeout) {
+            console.warn(`⚠️ Chunk ${index + 1} (${chunk.dateStr}) failed: HTTP 504 Gateway Timeout - Server overloaded or chunk too large`);
+          } else {
+            console.warn(`⚠️ Chunk ${index + 1} (${chunk.dateStr}) failed:`, errorMessage);
+          }
+          
           // Update progress even for errored chunks
           completedChunks++;
           setLoadingProgress({ 
             current: completedChunks, 
             total: chunks.length, 
-            currentDate: `Error: ${chunk.dateStr}` 
+            currentDate: `⚠️ ${isTimeout ? 'Timeout' : 'Error'}: ${chunk.dateStr}` 
           });
-          return { conversations: [], index, chunk };
+          return { conversations: [], index, chunk, error: errorMessage };
         }
       };
 
-      // Process chunks in parallel batches
+      // Process chunks sequentially to avoid overwhelming the server
       const results: any[] = [];
-      for (let i = 0; i < chunks.length; i += CONCURRENT_REQUESTS) {
-        const batch = chunks.slice(i, i + CONCURRENT_REQUESTS);
-        const batchPromises = batch.map((chunk, batchIndex) => 
-          processChunk(chunk, i + batchIndex)
-        );
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        console.log(`📅 Processing chunk ${i + 1}/${chunks.length} sequentially: ${chunk.dateStr}`);
         
-        // Wait for current batch to complete
-        const batchResults = await Promise.all(batchPromises);
-        results.push(...batchResults);
+        const result = await processChunk(chunk, i);
+        results.push(result);
         
-        console.log(`🔄 Completed batch ${Math.floor(i / CONCURRENT_REQUESTS) + 1}: ${completedChunks}/${chunks.length} chunks done`);
+        // Small delay between requests to be gentle on the server
+        if (i < chunks.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 100)); // 100ms delay
+        }
+        
+        console.log(`✅ Completed chunk ${i + 1}/${chunks.length}`);
       }
       
       // Sort results by original index to maintain order and collect all conversations
       results.sort((a, b) => a.index - b.index);
+      
+      const failedChunks = results.filter(result => result.error);
+      const successfulChunks = results.filter(result => !result.error);
+      
       results.forEach(result => {
         allConversations.push(...result.conversations);
       });
       
-      console.log(`🎉 Smart chunking complete: ${allConversations.length} total conversations from ${chunks.length} chunks`);
+      if (failedChunks.length > 0) {
+        console.warn(`⚠️ Smart chunking completed with ${failedChunks.length} failed chunks:`);
+        failedChunks.forEach(failed => {
+          const isTimeout = failed.error?.includes('504') || failed.error?.includes('timeout');
+          console.warn(`   - ${failed.chunk.dateStr}: ${isTimeout ? 'Server timeout (504)' : failed.error}`);
+        });
+        console.log(`✅ Successfully loaded ${allConversations.length} conversations from ${successfulChunks.length}/${chunks.length} chunks`);
+      } else {
+        console.log(`🎉 Sequential chunking complete: ${allConversations.length} total conversations from ${chunks.length} chunks`);
+      }
+      
       setLoadingProgress({ current: 0, total: 0, currentDate: '' });
       
       setFetchedConversations(allConversations);
@@ -571,11 +595,9 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       : 0;
 
     // Calculate Kontaktquote (conversations with contact tools)
-    // Base contact tool patterns (without prefixes)
+    // Base contact tool patterns (without prefixes) - only the two tools we want to track
     const baseContactTools = [
-      'hotline-availability',
       'send-message-to-customer-service', 
-      'show-enter-phone-number',
       'callback'
     ];
     
@@ -628,6 +650,24 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
     
     // Debug: Comprehensive tool search across ALL messages and content types
     const allToolNames = new Set<string>();
+
+    // Local helper to normalize and validate tool names
+    const normalizeToolName = (raw: string | undefined | null): string | null => {
+      if (!raw) return null;
+      let name = String(raw).trim();
+      // Strip backticks/quotes/parentheses and trailing punctuation
+      name = name.replace(/^['"`(\s]+|[)\s'"`.:;,]+$/g, '');
+      name = name.replace(/`/g, '');
+      // Replace spaces with hyphens
+      name = name.replace(/\s+/g, '-');
+      // Allow only safe chars
+      name = name.replace(/[^A-Za-z0-9._-]/g, '-');
+      // Collapse multiple hyphens
+      name = name.replace(/-{2,}/g, '-');
+      if (!name || name.length < 2) return null;
+      if (!/[A-Za-z0-9]/.test(name)) return null;
+      return name;
+    };
     let contactToolsFound = new Set<string>();
     let totalMessagesChecked = 0;
     let messagesWithContent = 0;
@@ -646,53 +686,55 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
               // FIRST: Use the WORKING logic from ThreadsOverview
               if (message.role === 'system' || message.role === 'status') {
                 if (content.text || content.content) {
-                  const text = content.text || content.content || '';
+                  const text = (content.text || content.content || '').toString();
                   
-                  // Look specifically for "**Tool Name:**" pattern in system messages
-                  const toolNamePattern = /\*\*Tool Name:\*\*\s*`([^`]+)`/gi;
-                  const matches = text.matchAll(toolNamePattern);
-                  
-                  for (const match of matches) {
-                    const toolName = match[1];
-                    if (toolName && toolName.length > 1) {
-                      allToolNames.add(toolName);
-                    }
+                  // Look for "**Tool Name:** `name`" pattern
+                  for (const match of text.matchAll(/\*\*Tool Name:\*\*\s*`([^`]+)`/gi)) {
+                    const normalized = normalizeToolName(match[1]);
+                    if (normalized) allToolNames.add(normalized);
                   }
+                  // Also support messages like: Tool Call Initiated (`name`) / (name) / : name
+                  const initiatedPatterns = [
+                    /Tool\s*Call\s*Initiated[^`\w]*`([^`]+)`/gi,
+                    /Tool\s*Call\s*(?:Initiated|Completed)[:\s]*([A-Za-z0-9_\-.]+)/gi,
+                    /Calling\s+tool[:\s]*`([^`]+)`/gi,
+                    /Using\s+tool[:\s]*`([^`]+)`/gi
+                  ];
+                  initiatedPatterns.forEach((pattern) => {
+                    for (const m of text.matchAll(pattern)) {
+                      const normalized = normalizeToolName(m[1]);
+                      if (normalized) allToolNames.add(normalized);
+                    }
+                  });
                 }
               }
               
               // SECOND: Check for assistant message tool usage (SAME as ThreadsOverview)
               if (message.role === 'assistant' && content.tool_use) {
-                const toolName = content.tool_use.name;
-                if (toolName && toolName.length > 1) {
-                  allToolNames.add(toolName);
-                }
+                const normalized = normalizeToolName(content.tool_use.name);
+                if (normalized) allToolNames.add(normalized);
               }
               
               // THIRD: Check for other tool storage patterns
               if (content.kind === 'tool_use' && content.tool_name) {
-                allToolNames.add(content.tool_name);
+                const normalized = normalizeToolName(content.tool_name);
+                if (normalized) allToolNames.add(normalized);
               }
               if (content.type === 'tool_use' && content.name) {
-                allToolNames.add(content.name);
+                const normalized = normalizeToolName(content.name);
+                if (normalized) allToolNames.add(normalized);
               }
               if (content.tool && content.tool.name) {
-                allToolNames.add(content.tool.name);
+                const normalized = normalizeToolName(content.tool.name);
+                if (normalized) allToolNames.add(normalized);
               }
               if (content.function_call && content.function_call.name) {
-                allToolNames.add(content.function_call.name);
+                const normalized = normalizeToolName(content.function_call.name);
+                if (normalized) allToolNames.add(normalized);
               }
               
               // NEW: Check if tools are mentioned in the text content itself
-              if (content.text && typeof content.text === 'string') {
-                baseContactTools.forEach(tool => {
-                  if (content.text.toLowerCase().includes(tool.toLowerCase()) ||
-                      content.text.toLowerCase().includes(tool.replace(/-/g, '_').toLowerCase()) ||
-                      content.text.toLowerCase().includes(tool.replace(/-/g, ' ').toLowerCase())) {
-                    allToolNames.add(`text-mention:${tool}`);
-                  }
-                });
-              }
+              // Do not add loose text mentions into tool list (avoids odd names in details view)
             });
           }
           
@@ -747,11 +789,130 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       travelAgent: foundTravelAgentTools
     });
     
-    // WORKFLOW-BASED APPROACH: Check for specific workflows instead of tools
-    const conversationsWithContactTools = fetchedConversations.filter(conversation => {
-      const workflows = extractWorkflowsFromConversation(conversation);
-      return workflows.has('workflow-contact-customer-service');
+    // TOOL-BASED APPROACH: Check for specific contact tools
+    console.log('🔍 Kontaktquote Debug: Starting tool-based contact analysis...');
+    const conversationsWithContactTools = fetchedConversations.filter((conversation, idx) => {
+      if (!conversation.messages) return false;
+      
+      // Look for specific contact tools
+      let hasContactTool = false;
+      const foundTools = new Set<string>();
+      
+      conversation.messages.forEach((message: any) => {
+        if (message.role === 'system' || message.role === 'status') {
+          if (message.content) {
+            message.content.forEach((content: any) => {
+              if (content.text || content.content) {
+                const text = content.text || content.content || '';
+                
+                // Look for "**Tool Name:**" pattern with specific tools
+                const toolNamePattern = /\*\*Tool Name:\*\*\s*`([^`]+)`/gi;
+                const matches = text.matchAll(toolNamePattern);
+                
+                for (const match of matches) {
+                  const toolNameRaw = match[1];
+                  const toolName = normalizeToolName(toolNameRaw) || toolNameRaw;
+                  foundTools.add(toolName);
+                  
+                  // Check for specific contact tools using flexible pattern matching
+                  if (isContactTool(toolName)) {
+                    hasContactTool = true;
+                    if (idx < 3) {
+                      console.log(`✅ Found contact tool in conversation ${idx}: ${toolName}`);
+                    }
+                    break;
+                  }
+                }
+
+                // Also support text patterns like Tool Call Initiated/Completed and Calling/Using tool
+                if (!hasContactTool) {
+                  const initiatedPatterns = [
+                    /Tool\s*Call\s*(?:Initiated|Completed)[^`\w]*`([^`]+)`/gi,
+                    /Tool\s*Call\s*(?:Initiated|Completed)[^A-Za-z0-9_-]*\(([^)]+)\)/gi,
+                    /Tool\s*Call\s*(?:Initiated|Completed)[:\s]*([A-Za-z0-9_\-.]+)/gi,
+                    /Calling\s+tool[:\s]*`([^`]+)`/gi,
+                    /Using\s+tool[:\s]*`([^`]+)`/gi
+                  ];
+                  for (let p = 0; p < initiatedPatterns.length && !hasContactTool; p++) {
+                    const re = initiatedPatterns[p];
+                    for (const m of text.matchAll(re)) {
+                      const raw = m[1];
+                      const name = normalizeToolName(raw) || raw;
+                      foundTools.add(name);
+                      if (isContactTool(name)) {
+                        hasContactTool = true;
+                        if (idx < 3) console.log(`✅ Found contact tool (initiated pattern) in conversation ${idx}: ${name}`);
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+            });
+          }
+        }
+        
+        // Also check assistant message tool usage
+        if (message.role === 'assistant' && message.content) {
+          message.content.forEach((content: any) => {
+            if (content.tool_use && content.tool_use.name) {
+              const toolName = normalizeToolName(content.tool_use.name) || content.tool_use.name;
+              foundTools.add(toolName);
+              
+              if (isContactTool(toolName)) {
+                hasContactTool = true;
+                if (idx < 3) {
+                  console.log(`✅ Found contact tool in assistant message ${idx}: ${toolName}`);
+                }
+              }
+            }
+
+            // Assistant text-based mentions
+            if ((content.text || content.content) && !hasContactTool) {
+              const text = (content.text || content.content || '').toString();
+              const initiatedPatterns = [
+                /Tool\s*Call\s*(?:Initiated|Completed)[^`\w]*`([^`]+)`/gi,
+                /Tool\s*Call\s*(?:Initiated|Completed)[^A-Za-z0-9_-]*\(([^)]+)\)/gi,
+                /Tool\s*Call\s*(?:Initiated|Completed)[:\s]*([A-Za-z0-9_\-.]+)/gi,
+                /Calling\s+tool[:\s]*`([^`]+)`/gi,
+                /Using\s+tool[:\s]*`([^`]+)`/gi
+              ];
+              for (let p = 0; p < initiatedPatterns.length && !hasContactTool; p++) {
+                const re = initiatedPatterns[p];
+                for (const m of text.matchAll(re)) {
+                  const raw = m[1];
+                  const name = normalizeToolName(raw) || raw;
+                  foundTools.add(name);
+                  if (isContactTool(name)) {
+                    hasContactTool = true;
+                    if (idx < 3) console.log(`✅ Found contact tool (assistant text) in conversation ${idx}: ${name}`);
+                    break;
+                  }
+                }
+              }
+            }
+
+            // Assistant tool_use in alt schema
+            if (content.kind === 'tool_use' && content.tool_name) {
+              const name = normalizeToolName(content.tool_name) || content.tool_name;
+              foundTools.add(name);
+              if (isContactTool(name)) {
+                hasContactTool = true;
+                if (idx < 3) console.log(`✅ Found contact tool (assistant tool_use.kind) in conversation ${idx}: ${name}`);
+              }
+            }
+          });
+        }
+      });
+      
+      if (idx < 3 && foundTools.size > 0) {
+        console.log(`🔧 Conversation ${idx} tools found:`, Array.from(foundTools));
+      }
+      
+      return hasContactTool;
     });
+    
+    console.log(`📊 Kontaktquote Result: ${conversationsWithContactTools.length}/${fetchedConversations.length} conversations with contact tools`);
     
     const conversationsWithTravelAgentTools = fetchedConversations.filter(conversation => {
       const workflows = extractWorkflowsFromConversation(conversation);
@@ -866,6 +1027,55 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
     }));
     
     combinedThreads.push(...threadsFromFetched);
+
+    // Normalizer available before any mapping logic
+    function normalizeTool(raw: string): string | null {
+      if (!raw) return null;
+      let name = String(raw).trim();
+      name = name.replace(/^['"`(\s]+|[)\s'"`.:;,]+$/g, '');
+      name = name.replace(/`/g, '');
+      name = name.replace(/\s+/g, '-');
+      name = name.replace(/[^A-Za-z0-9._-]/g, '-');
+      name = name.replace(/-{2,}/g, '-');
+      if (!name || name.length < 2) return null;
+      if (!/[A-Za-z0-9]/.test(name)) return null;
+      return name;
+    }
+
+    // Pre-scan: Build ToolCallID -> ToolName map from status/assistant texts
+    const toolCallIdToName = new Map<string, string>();
+    const mapToolId = (id: string | null | undefined, name: string | null | undefined) => {
+      const normName = normalizeTool(name || '') || null;
+      if (id && normName) toolCallIdToName.set(id, normName);
+    };
+    const idNamePatterns: RegExp[] = [
+      /\*\*Tool Name:\*\*\s*`([^`]+)`[\s\S]*?\*\*Tool Call ID:\*\*\s*`([^`]+)`/gi,
+      /\*\*Tool Call ID:\*\*\s*`([^`]+)`[\s\S]*?\*\*Tool Name:\*\*\s*`([^`]+)`/gi,
+      /Tool\s*Call\s*(?:Initiated|Completed)[^`]*`([^`]+)`[\s\S]*?(?:ID|Id|id)[:\s]*`([^`]+)`/gi,
+      /Tool\s*Call\s*(?:Initiated|Completed)[^)]*\(([^)]+)\)[\s\S]*?(?:ID|Id|id)[:\s]*`([^`]+)`/gi
+    ];
+    combinedThreads.forEach(t => {
+      (t.messages || []).forEach((m: any) => {
+        (m.content || []).forEach((c: any) => {
+          const text = (c?.text || c?.content || '').toString();
+          if (!text) return;
+          for (let r = 0; r < idNamePatterns.length; r++) {
+            const re = idNamePatterns[r];
+            const matches = Array.from(text.matchAll(re));
+            for (let k = 0; k < matches.length; k++) {
+              const a = matches[k][1];
+              const b = matches[k][2];
+              // Patterns may be (name,id) or (id,name); try both
+              if (r === 0 || r === 2 || r === 3) {
+                mapToolId(b, a);
+              } else {
+                mapToolId(a, b);
+              }
+            }
+          }
+        });
+      });
+    });
     
     const toolAnalysis: { [toolName: string]: { count: number; responseTimes: number[] } } = {};
     let totalToolCalls = 0;
@@ -904,7 +1114,8 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
           message.content.forEach((content: any, contentIndex: number) => {
             // Check if it's a tool_call object
             if (content.kind === 'tool_call' && content.tool_name) {
-              const toolName = content.tool_name;
+              const normalizedName = normalizeTool(content.tool_name);
+              const toolName = normalizedName || content.tool_name;
               console.log(`🔧 Found tool call (object): ${toolName}`);
               totalToolCalls++;
               
@@ -959,10 +1170,11 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                   totalToolCalls++;
                   foundToolName = true;
                   
-                  if (!toolAnalysis[toolName]) {
-                    toolAnalysis[toolName] = { count: 0, responseTimes: [] };
+                  const normalizedName = normalizeTool(toolName) || toolName;
+                  if (!toolAnalysis[normalizedName]) {
+                    toolAnalysis[normalizedName] = { count: 0, responseTimes: [] };
                   }
-                  toolAnalysis[toolName].count++;
+                  toolAnalysis[normalizedName].count++;
                   
                   // Calculate response time
                   const toolCallTime = new Date(message.created_at || message.createdAt || message.sentAt).getTime();
@@ -974,7 +1186,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                       const timeDiff = (responseTime - toolCallTime) / 1000;
                       
                       if (timeDiff > 0) {
-                        toolAnalysis[toolName].responseTimes.push(timeDiff);
+                        toolAnalysis[normalizedName].responseTimes.push(timeDiff);
                         console.log(`🔧 Tool ${toolName} response time: ${timeDiff}s`);
                       }
                       break;
@@ -985,34 +1197,75 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
               
               // Try alternative patterns if Tool Name pattern didn't work
               if (!foundToolName) {
-                // Pattern 1: Look for tool_use objects mentioned in text
-                const toolUsePattern = /"name":\s*"([^"]+)"/gi;
-                const toolUseMatches = textContent.matchAll(toolUsePattern);
-                
-                for (const match of toolUseMatches) {
-                  const toolName = match[1];
-                  if (toolName && toolName.length > 1) {
-                    console.log(`🔧 Found tool: ${toolName} (from tool_use name pattern)`);
-                    totalToolCalls++;
-                    foundToolName = true;
-                    
-                    if (!toolAnalysis[toolName]) {
-                      toolAnalysis[toolName] = { count: 0, responseTimes: [] };
+                // 1) Text-based initiated/completed patterns
+                const initiatedPatterns = [
+                  /Tool\s*Call\s*(?:Initiated|Completed)[^`\w]*`([^`]+)`/gi,
+                  /Tool\s*Call\s*(?:Initiated|Completed)[^A-Za-z0-9_-]*\(([^)]+)\)/gi,
+                  /Tool\s*Call\s*(?:Initiated|Completed)[:\s]*([A-Za-z0-9_\-.]+)/gi,
+                  /Calling\s+tool[:\s]*`([^`]+)`/gi,
+                  /Using\s+tool[:\s]*`([^`]+)`/gi
+                ];
+                for (let p = 0; p < initiatedPatterns.length && !foundToolName; p++) {
+                  const pat = initiatedPatterns[p];
+                  const matches = Array.from(textContent.matchAll(pat));
+                  for (let m = 0; m < matches.length; m++) {
+                    const toolName = matches[m][1];
+                    if (toolName && toolName.length > 1) {
+                      totalToolCalls++;
+                      foundToolName = true;
+                      const normalizedName = normalizeTool(toolName) || toolName;
+                      if (!toolAnalysis[normalizedName]) {
+                        toolAnalysis[normalizedName] = { count: 0, responseTimes: [] };
+                      }
+                      toolAnalysis[normalizedName].count++;
+                      const toolCallTime = new Date(message.created_at || message.createdAt || message.sentAt).getTime();
+                      for (let j = i + 1; j < messages.length; j++) {
+                        const nextMessage = messages[j];
+                        if (nextMessage.role === 'assistant') {
+                          const responseTime = new Date(nextMessage.created_at || nextMessage.createdAt || nextMessage.sentAt).getTime();
+                          const timeDiff = (responseTime - toolCallTime) / 1000;
+                          if (timeDiff > 0 && timeDiff < 300) {
+                            toolAnalysis[normalizedName].responseTimes.push(timeDiff);
+                          }
+                          break;
+                        }
+                      }
+                      break;
                     }
-                    toolAnalysis[toolName].count++;
-                    
-                    // Calculate response time
-                    const toolCallTime = new Date(message.created_at || message.createdAt || message.sentAt).getTime();
-                    
-                    for (let j = i + 1; j < messages.length; j++) {
-                      const nextMessage = messages[j];
-                      if (nextMessage.role === 'assistant') {
-                        const responseTime = new Date(nextMessage.created_at || nextMessage.createdAt || nextMessage.sentAt).getTime();
-                        const timeDiff = (responseTime - toolCallTime) / 1000;
-                        
-                        if (timeDiff > 0 && timeDiff < 300) {
-                          toolAnalysis[toolName].responseTimes.push(timeDiff);
-                          console.log(`🔧 Tool ${toolName} response time: ${timeDiff}s`);
+                  }
+                }
+
+                // 2) Safer JSON-ish blocks: ensure name is within tool_use/tool_call/function_call
+                if (!foundToolName) {
+                  const patternList = [
+                    /"tool_use"\s*:\s*\{[\s\S]*?"name"\s*:\s*"([^"]+)"/gi,
+                    /"tool_call"\s*:\s*\{[\s\S]*?"name"\s*:\s*"([^"]+)"/gi,
+                    /"function_call"\s*:\s*\{[\s\S]*?"name"\s*:\s*"([^"]+)"/gi
+                  ];
+                  for (let p = 0; p < patternList.length && !foundToolName; p++) {
+                    const pat = patternList[p];
+                    const matches = Array.from(textContent.matchAll(pat));
+                    for (let m = 0; m < matches.length; m++) {
+                      const toolName = matches[m][1];
+                      if (toolName && toolName.length > 1) {
+                        totalToolCalls++;
+                        foundToolName = true;
+                        const normalizedName = normalizeTool(toolName) || toolName;
+                        if (!toolAnalysis[normalizedName]) {
+                          toolAnalysis[normalizedName] = { count: 0, responseTimes: [] };
+                        }
+                        toolAnalysis[normalizedName].count++;
+                        const toolCallTime = new Date(message.created_at || message.createdAt || message.sentAt).getTime();
+                        for (let j = i + 1; j < messages.length; j++) {
+                          const nextMessage = messages[j];
+                          if (nextMessage.role === 'assistant') {
+                            const responseTime = new Date(nextMessage.created_at || nextMessage.createdAt || nextMessage.sentAt).getTime();
+                            const timeDiff = (responseTime - toolCallTime) / 1000;
+                            if (timeDiff > 0 && timeDiff < 300) {
+                              toolAnalysis[normalizedName].responseTimes.push(timeDiff);
+                            }
+                            break;
+                          }
                         }
                         break;
                       }
@@ -1023,35 +1276,34 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
               
               // Fallback: If no Tool Name pattern found, look for Tool Call ID as backup
               if (!foundToolName && textContent.includes('**Tool Call ID:**')) {
-                const toolCallIdMatches = textContent.match(/\*\*Tool Call ID:\*\*\s*`([^`]+)`/g);
-                if (toolCallIdMatches) {
-                  toolCallIdMatches.forEach((match, index) => {
-                    const toolName = `Generic Tool Call ${totalToolCalls + 1}`;
-                    console.log(`🔧 Found generic tool call: ${toolName}`);
-                    totalToolCalls++;
-                    
-                    if (!toolAnalysis[toolName]) {
-                      toolAnalysis[toolName] = { count: 0, responseTimes: [] };
+                const idMatches = Array.from(textContent.matchAll(/\*\*Tool Call ID:\*\*\s*`([^`]+)`/gi));
+                if (idMatches.length > 0) {
+                  for (let idx = 0; idx < idMatches.length; idx++) {
+                    const callId = idMatches[idx][1];
+                    const mappedName = toolCallIdToName.get(callId);
+                    // If we cannot resolve the ID to a tool name anywhere, skip adding an unknown bucket
+                    if (!mappedName) {
+                      continue;
                     }
-                    toolAnalysis[toolName].count++;
-                    
-                    // Calculate response time
+                    totalToolCalls++;
+                    if (!toolAnalysis[mappedName]) {
+                      toolAnalysis[mappedName] = { count: 0, responseTimes: [] };
+                    }
+                    toolAnalysis[mappedName].count++;
                     const toolCallTime = new Date(message.created_at || message.createdAt || message.sentAt).getTime();
-                    
                     for (let j = i + 1; j < messages.length; j++) {
                       const nextMessage = messages[j];
                       if (nextMessage.role === 'assistant') {
                         const responseTime = new Date(nextMessage.created_at || nextMessage.createdAt || nextMessage.sentAt).getTime();
                         const timeDiff = (responseTime - toolCallTime) / 1000;
-                        
                         if (timeDiff > 0 && timeDiff < 300) {
-                          toolAnalysis[toolName].responseTimes.push(timeDiff);
-                          console.log(`🔧 Tool ${toolName} response time: ${timeDiff}s`);
+                          toolAnalysis[mappedName].responseTimes.push(timeDiff);
+                          console.log(`🔧 Tool ${mappedName} response time: ${timeDiff}s`);
                         }
                         break;
                       }
                     }
-                  });
+                  }
                 }
               }
             }

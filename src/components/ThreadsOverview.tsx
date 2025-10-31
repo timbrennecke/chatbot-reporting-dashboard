@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
@@ -100,6 +101,213 @@ interface ThreadsOverviewProps {
   savedConversationIds?: Set<string>;
 }
 
+// Memoized ThreadRow component for better performance
+const ThreadRow = React.memo(({ 
+  thread, 
+  // actualIndex is used in the component rendering
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  actualIndex,
+  isSelected,
+  isThreadViewed,
+  isConversationViewed,
+  hasConversationData,
+  isSaved,
+  hasError,
+  onToggleSelection,
+  onConversationView
+}: {
+  thread: Thread;
+  actualIndex: number;
+  isSelected: boolean;
+  isThreadViewed: boolean;
+  isConversationViewed: boolean;
+  hasConversationData: boolean;
+  isSaved: boolean;
+  hasError: boolean;
+  onToggleSelection: () => void;
+  onConversationView: () => void;
+}) => {
+  // Memoize expensive calculations
+  const threadData = useMemo(() => {
+    const parsed = parseThreadId(thread.id);
+    const uiCount = thread.messages.reduce(
+      (acc, msg) => acc + msg.content.filter(c => c.kind === 'ui').length, 
+      0
+    );
+    const messageCount = thread.messages.filter(
+      msg => msg.role === 'user' || msg.role === 'assistant'
+    ).length;
+
+    // Calculate conversation duration
+    const allTimestamps = thread.messages
+      .map((m: any) => {
+        const msg = m as any;
+        return new Date(msg.created_at || msg.createdAt || msg.sentAt);
+      })
+      .filter(date => !isNaN(date.getTime()))
+      .sort((a, b) => a.getTime() - b.getTime());
+    
+    const conversationDuration = allTimestamps.length > 1 
+      ? allTimestamps[allTimestamps.length - 1].getTime() - allTimestamps[0].getTime()
+      : 0;
+    const durationMinutes = Math.round(conversationDuration / (1000 * 60));
+    const durationSeconds = Math.round(conversationDuration / 1000);
+
+    // Calculate time to first assistant response
+    const userMessages = thread.messages.filter((m: any) => m.role === 'user');
+    const assistantMessages = thread.messages.filter((m: any) => m.role === 'assistant');
+    
+    let timeToFirstResponse = 0;
+    if (userMessages.length > 0 && assistantMessages.length > 0) {
+      const firstUserMessage = userMessages
+        .map((m: any) => ({ ...m, timestamp: new Date((m as any).created_at || (m as any).createdAt || (m as any).sentAt) }))
+        .filter((m: any) => !isNaN(m.timestamp.getTime()))
+        .sort((a: any, b: any) => a.timestamp.getTime() - b.timestamp.getTime())[0];
+      
+      const firstAssistantMessage = assistantMessages
+        .map((m: any) => ({ ...m, timestamp: new Date((m as any).created_at || (m as any).createdAt || (m as any).sentAt) }))
+        .filter((m: any) => !isNaN(m.timestamp.getTime()))
+        .sort((a: any, b: any) => a.timestamp.getTime() - b.timestamp.getTime())[0];
+      
+      if (firstUserMessage && firstAssistantMessage && firstAssistantMessage.timestamp > firstUserMessage.timestamp) {
+        timeToFirstResponse = firstAssistantMessage.timestamp.getTime() - firstUserMessage.timestamp.getTime();
+      }
+    }
+    const responseTimeSeconds = Math.round(timeToFirstResponse / 1000);
+
+    // Extract first user message content
+    const firstUserMessage = thread.messages
+      .filter((m: any) => m.role === 'user')
+      .sort((a: any, b: any) => {
+        const msgA = a as any;
+        const msgB = b as any;
+        const timeA = new Date(msgA.created_at || msgA.createdAt || msgA.sentAt).getTime();
+        const timeB = new Date(msgB.created_at || msgB.createdAt || msgB.sentAt).getTime();
+        return timeA - timeB;
+      })[0];
+
+    const firstUserMessageText = firstUserMessage?.content
+      ?.map((content: any) => content.text || content.content || '')
+      .join(' ')
+      .trim()
+      .substring(0, 100) + (firstUserMessage?.content?.some((c: any) => (c.text || c.content || '').length > 100) ? '...' : '') || '';
+
+    return {
+      parsed,
+      uiCount,
+      messageCount,
+      durationMinutes,
+      durationSeconds,
+      responseTimeSeconds,
+      firstUserMessageText,
+      conversationDuration
+    };
+  }, [thread]);
+
+  const isAnyViewed = isThreadViewed || isConversationViewed;
+
+  return (
+    <TableRow 
+      key={thread.id} 
+      className={`thread-row cursor-pointer hover:bg-muted/50 ${isAnyViewed ? 'bg-gray-50' : ''} ${hasError ? 'bg-red-50 border-l-4 border-l-red-500' : ''} min-h-16`}
+    >
+      <TableCell onClick={(e) => e.stopPropagation()} className="py-4">
+        <Checkbox
+          checked={isSelected}
+          onCheckedChange={onToggleSelection}
+        />
+      </TableCell>
+      <TableCell 
+        onClick={onConversationView}
+        className="cursor-pointer py-2"
+        title={threadData.firstUserMessageText || 'No user message found'}
+        style={{ width: '200px', maxWidth: '200px', minWidth: '200px' }}
+      >
+        <div className="flex items-start gap-2">
+          <div 
+            className={`text-xs leading-tight flex-1 ${!isAnyViewed ? 'font-bold text-foreground' : 'text-gray-600'}`}
+            style={{ 
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+              wordBreak: 'break-word',
+              lineHeight: '1.3',
+              maxHeight: '2.6em',
+              height: '2.6em'
+            }}
+          >
+            {threadData.firstUserMessageText || '-'}
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {isAnyViewed && (
+              <Badge variant="outline" className="text-xs text-green-600 border-green-300">
+                Viewed
+              </Badge>
+            )}
+            {isSaved && (
+              <div className="flex items-center" title="Saved chat">
+                <Bookmark className="h-3 w-3 text-blue-600 fill-blue-600" />
+              </div>
+            )}
+          </div>
+        </div>
+      </TableCell>
+      <TableCell onClick={onConversationView} className="py-4" style={{ width: '150px', minWidth: '150px', maxWidth: '150px' }}>
+        <div className="text-foreground text-sm font-mono overflow-hidden text-ellipsis whitespace-nowrap">
+          {threadData.parsed.id}
+        </div>
+      </TableCell>
+      <TableCell 
+        onClick={onConversationView}
+        className="cursor-pointer py-4"
+        title={thread.conversationId}
+        style={{ width: '200px', minWidth: '200px', maxWidth: '200px' }}
+      >
+        <div className={`text-sm font-mono overflow-hidden text-ellipsis whitespace-nowrap ${hasConversationData ? "text-blue-600 hover:underline" : "text-foreground"}`}>
+          {thread.conversationId}
+        </div>
+      </TableCell>
+      <TableCell onClick={onConversationView} className="py-4" style={{ width: '140px', minWidth: '140px', maxWidth: '140px' }}>
+        <div className="text-sm overflow-hidden text-ellipsis whitespace-nowrap">
+          {formatTimestamp(thread.createdAt)}
+        </div>
+      </TableCell>
+      <TableCell onClick={onConversationView} className="py-4 text-center" style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
+        {threadData.uiCount > 0 ? (
+          <Badge variant="outline">{threadData.uiCount}</Badge>
+        ) : (
+          '-'
+        )}
+      </TableCell>
+      <TableCell onClick={onConversationView} className="py-4 text-center" style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
+        {threadData.messageCount > 0 ? (
+          <Badge variant="outline">{threadData.messageCount}</Badge>
+        ) : (
+          '-'
+        )}
+      </TableCell>
+      <TableCell onClick={onConversationView} className="py-4 text-center" style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
+        {threadData.conversationDuration > 0 ? (
+          <Badge variant="outline">
+            {threadData.durationMinutes > 0 ? `${threadData.durationMinutes}m` : `${threadData.durationSeconds}s`}
+          </Badge>
+        ) : (
+          '-'
+        )}
+      </TableCell>
+      <TableCell onClick={onConversationView} className="py-4 text-center" style={{ width: '110px', minWidth: '110px', maxWidth: '110px' }}>
+        {threadData.responseTimeSeconds > 0 ? (
+          <Badge variant="outline">{threadData.responseTimeSeconds}s</Badge>
+        ) : (
+          '-'
+        )}
+      </TableCell>
+    </TableRow>
+  );
+});
+// Note: Removed custom comparison function to ensure immediate updates for viewed status
+
 export function ThreadsOverview({ 
   uploadedThreads, 
   uploadedConversations = [],
@@ -111,12 +319,22 @@ export function ThreadsOverview({
   onThreadsChange,
   savedConversationIds = new Set()
 }: ThreadsOverviewProps) {
+  
   const [threads, setThreads] = useState<Thread[]>(() => {
     // If we have uploaded threads, use them
     if (uploadedThreads && uploadedThreads.length > 0) {
+      console.log('🔄 Initializing with uploaded threads:', {
+        count: uploadedThreads.length,
+        sampleThreadIds: uploadedThreads.slice(0, 3).map(t => t.id),
+        hasMessages: uploadedThreads[0]?.messages?.length > 0,
+        environment: localStorage.getItem('chatbot-dashboard-environment')
+      });
       return uploadedThreads;
     }
     
+    console.log('🔄 Initializing with empty threads array', {
+      environment: localStorage.getItem('chatbot-dashboard-environment')
+    });
     // Start with empty array - no more caching
     return [];
   });
@@ -131,59 +349,82 @@ export function ThreadsOverview({
   const [lastSearchDates, setLastSearchDates] = useState<{startDate: string, endDate: string} | null>(null);
   
   // Viewed threads tracking
-  const [viewedThreads, setViewedThreads] = useState<Set<string>>(() => {
-    try {
-      const saved = getEnvironmentSpecificItem('chatbot-dashboard-viewed-threads');
-      return saved ? new Set(JSON.parse(saved)) : new Set();
-    } catch (error) {
-      console.error('Failed to load environment-specific viewed threads:', error);
-      return new Set();
-    }
-  });
+  const [viewedThreads, setViewedThreads] = useState<Set<string>>(new Set());
   
   // Viewed conversations tracking
-  const [viewedConversations, setViewedConversations] = useState<Set<string>>(() => {
-    try {
-      const saved = getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
-      return saved ? new Set(JSON.parse(saved)) : new Set();
-    } catch (error) {
-      console.error('Failed to load environment-specific viewed conversations:', error);
-      return new Set();
-    }
-  });
+  const [viewedConversations, setViewedConversations] = useState<Set<string>>(new Set());
 
-  // Effect to re-read viewed conversations from localStorage when onConversationViewed is called
+  // Flag to prevent saving during initial load
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+
+  // Load viewed data on mount
   useEffect(() => {
-    const handleConversationViewed = (event: CustomEvent) => {
+    const loadViewedData = async () => {
       try {
-        const saved = getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
-        const newViewedConversations = saved ? new Set(JSON.parse(saved)) : new Set();
-        setViewedConversations(newViewedConversations);
-        // Refreshed viewed conversations from localStorage
+        // Load viewed threads
+        const savedThreads = await getEnvironmentSpecificItem('chatbot-dashboard-viewed-threads');
+        if (savedThreads) {
+          setViewedThreads(new Set(JSON.parse(savedThreads)));
+        }
+
+        // Load viewed conversations
+        const savedConversations = await getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
+        if (savedConversations) {
+          setViewedConversations(new Set(JSON.parse(savedConversations)));
+        }
+
+        // Load search filters
+        const savedStartDate = await getEnvironmentSpecificItem('threads-search-start-date');
+        if (savedStartDate && typeof savedStartDate === 'string') {
+          console.log('📋 Loaded saved start date:', savedStartDate);
+          setStartDate(savedStartDate);
+        }
+
+        const savedEndDate = await getEnvironmentSpecificItem('threads-search-end-date');
+        if (savedEndDate && typeof savedEndDate === 'string') {
+          setEndDate(savedEndDate);
+        }
+
+        const savedSearchTerm = await getEnvironmentSpecificItem('threads-search-term');
+        if (savedSearchTerm && typeof savedSearchTerm === 'string') {
+          setSearchTerm(savedSearchTerm);
+        }
       } catch (error) {
-        console.error('Failed to refresh viewed conversations:', error);
+        console.error('Failed to load viewed data:', error);
+      } finally {
+        // Mark initial load as complete
+        setIsInitialLoad(false);
       }
+    };
+    loadViewedData();
+  }, []);
+
+  // Effect to update viewed conversations immediately when onConversationViewed is called
+  useEffect(() => {
+    const handleConversationViewed = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const { conversationId } = customEvent.detail;
+      
+      // Update local state immediately without waiting for storage
+      setViewedConversations(prev => {
+        const newSet = new Set(prev);
+        newSet.add(conversationId);
+        return newSet;
+      });
     };
 
     // Listen for custom conversationViewed events
-    window.addEventListener('conversationViewed', handleConversationViewed as EventListener);
+    window.addEventListener('conversationViewed', handleConversationViewed);
 
     return () => {
-      window.removeEventListener('conversationViewed', handleConversationViewed as EventListener);
+      window.removeEventListener('conversationViewed', handleConversationViewed);
     };
   }, []);
+
+  // Removed spamming debug log
   
   // Filters with localStorage persistence
   const [startDate, setStartDate] = useState<string>(() => {
-    try {
-      const saved = getEnvironmentSpecificItem('threads-search-start-date');
-      if (saved) {
-        console.log('📋 Loaded saved start date:', saved);
-        return saved;
-      }
-    } catch (error) {
-      console.warn('Failed to load saved start date:', error);
-    }
     // Default to 1 hour ago
     const date = new Date();
     date.setHours(date.getHours() - 1);
@@ -192,33 +433,23 @@ export function ThreadsOverview({
     return defaultValue; // Format for datetime-local input
   });
   const [endDate, setEndDate] = useState<string>(() => {
-    try {
-      const saved = getEnvironmentSpecificItem('threads-search-end-date');
-      if (saved) return saved;
-    } catch (error) {
-      console.warn('Failed to load saved end date:', error);
-    }
     // Default to current system time
     return new Date().toISOString().slice(0, 16); // Format for datetime-local input
   });
-  const [searchTerm, setSearchTerm] = useState<string>(() => {
-    try {
-      const saved = getEnvironmentSpecificItem('threads-search-term');
-      return saved || '';
-    } catch (error) {
-      console.warn('Failed to load saved search term:', error);
-      return '';
-    }
-  });
+  const [searchTerm, setSearchTerm] = useState<string>('');
 
   const [hasUiFilter, setHasUiFilter] = useState(false);
   const [hasLinkoutFilter, setHasLinkoutFilter] = useState(false);
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set());
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const toolDropdownRef = useRef<HTMLDivElement>(null);
+  const toolButtonRef = useRef<HTMLButtonElement>(null);
+  const [toolDropdownPosition, setToolDropdownPosition] = useState({ top: 0, left: 0 });
   const [selectedWorkflows, setSelectedWorkflows] = useState<Set<string>>(new Set());
   const [workflowDropdownOpen, setWorkflowDropdownOpen] = useState(false);
   const workflowDropdownRef = useRef<HTMLDivElement>(null);
+  const workflowButtonRef = useRef<HTMLButtonElement>(null);
+  const [workflowDropdownPosition, setWorkflowDropdownPosition] = useState({ top: 0, left: 0 });
   const [showErrorsOnly, setShowErrorsOnly] = useState(false);
   const [showTimeoutsOnly, setShowTimeoutsOnly] = useState(false);
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
@@ -232,23 +463,58 @@ export function ThreadsOverview({
   const [maxResponseTime, setMaxResponseTime] = useState<number | ''>('');
   const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
 
-  // Close dropdown when clicking outside
+  // Close dropdown when clicking outside and update position on scroll
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (toolDropdownRef.current && !toolDropdownRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      
+      // For tool dropdown: close if clicking outside both the dropdown AND the button
+      if (toolDropdownOpen && 
+          toolDropdownRef.current && 
+          !toolDropdownRef.current.contains(target) &&
+          toolButtonRef.current &&
+          !toolButtonRef.current.contains(target)) {
         setToolDropdownOpen(false);
       }
-      if (workflowDropdownRef.current && !workflowDropdownRef.current.contains(event.target as Node)) {
+      
+      // For workflow dropdown: close if clicking outside both the dropdown AND the button
+      if (workflowDropdownOpen && 
+          workflowDropdownRef.current && 
+          !workflowDropdownRef.current.contains(target) &&
+          workflowButtonRef.current &&
+          !workflowButtonRef.current.contains(target)) {
         setWorkflowDropdownOpen(false);
+      }
+    }
+
+    function handleScroll() {
+      // Update dropdown positions when scrolling the main page to keep them aligned with their buttons
+      if (toolDropdownOpen && toolButtonRef.current) {
+        const rect = toolButtonRef.current.getBoundingClientRect();
+        setToolDropdownPosition({
+          top: rect.bottom + 4,
+          left: rect.left
+        });
+      }
+      
+      if (workflowDropdownOpen && workflowButtonRef.current) {
+        const rect = workflowButtonRef.current.getBoundingClientRect();
+        setWorkflowDropdownPosition({
+          top: rect.bottom + 4,
+          left: rect.left
+        });
       }
     }
 
     if (toolDropdownOpen || workflowDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
+      // Only listen to scroll on the main document, not all elements
+      document.addEventListener('scroll', handleScroll, false);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('scroll', handleScroll, false);
     };
   }, [toolDropdownOpen, workflowDropdownOpen]);
 
@@ -458,80 +724,129 @@ export function ThreadsOverview({
   const availableToolsWithCounts = useMemo(() => {
     const toolThreadCounts = new Map<string, Set<string>>(); // Map tool name to set of thread IDs
     
-    console.log('🔧 Extracting tools from threads:', {
-      threadsCount: threads.length,
-      sampleThread: threads[0] ? {
-        id: threads[0].id,
-        messagesCount: threads[0].messages?.length,
-        hasSystemMessages: threads[0].messages?.some(m => m.role === 'system'),
-        sampleMessageRoles: threads[0].messages?.slice(0, 5).map(m => m.role),
-        sampleMessageIds: threads[0].messages?.slice(0, 3).map(m => m.id),
-        isDummyMessages: threads[0].messages?.every(m => 
-          m.id === 'placeholder' || 
-          m.id.startsWith('ui-') || 
-          m.id.startsWith('linkout-') || 
-          m.id.startsWith('error-msg')
-        )
-      } : null
-    });
     
     // Extracting tools from threads - count unique threads per tool
     threads.forEach(thread => {
       const threadTools = new Set<string>(); // Tools found in this specific thread
+      
       
       thread.messages.forEach(message => {
         // Look for tools in system/status messages
         if (message.role === 'system' || message.role === 'status') {
           message.content.forEach(content => {
             if (content.text || content.content) {
-              const text = content.text || content.content || '';
+              const text = (content.text || content.content || '').toString();
               
               // Look specifically for "**Tool Name:**" pattern in system messages
               const toolNamePattern = /\*\*Tool Name:\*\*\s*`([^`]+)`/gi;
-              const matches = text.matchAll(toolNamePattern);
-              
-              for (const match of matches) {
+              for (const match of text.matchAll(toolNamePattern)) {
                 const toolName = match[1];
                 if (toolName && toolName.length > 1) {
                   threadTools.add(toolName);
                 }
               }
-            }
-          });
-        }
-        
-        // Also look for tools in assistant messages (tool usage)
-        if (message.role === 'assistant') {
-          message.content.forEach(content => {
-            // Look for tool usage patterns in assistant messages
-            if (content.tool_use) {
-              const toolName = content.tool_use.name;
-              if (toolName && toolName.length > 1) {
-                threadTools.add(toolName);
-              }
-            }
-            
-            // Also check text content for tool mentions
-            if (content.text || content.content) {
-              const text = content.text || content.content || '';
               
-              // Look for tool usage patterns like "I'll use the X tool"
-              const toolUsagePatterns = [
-                /I'll use the (\w+) tool/gi,
-                /Using the (\w+) tool/gi,
-                /I'll call the (\w+) function/gi,
-                /Calling the (\w+) function/gi
+              // Also support messages like: "Tool Call Initiated (`tool-name`)" or without backticks
+              const initiatedPatterns = [
+                /Tool\s*Call\s*Initiated[^`\w]*`([^`]+)`/gi,               // backticked name
+                /Tool\s*Call\s*Initiated[^A-Za-z0-9_-]*\(([^)]+)\)/gi,    // inside parentheses
+                /Tool\s*Call\s*(?:Initiated|Completed)[:\s]*([A-Za-z0-9_\-.]+)/gi, // plain name
+                /Calling\s+tool[:\s]*`([^`]+)`/gi,
+                /Using\s+tool[:\s]*`([^`]+)`/gi
               ];
-              
-              toolUsagePatterns.forEach(pattern => {
-                const matches = text.matchAll(pattern);
-                for (const match of matches) {
-                  const toolName = match[1];
+              initiatedPatterns.forEach((pattern) => {
+                for (const m of text.matchAll(pattern)) {
+                  const candidate = (m[1] || '').trim();
+                  // Clean wrappers like quotes/backticks if any remained
+                  const toolName = candidate.replace(/^['"`]+|['"`]+$/g, '');
                   if (toolName && toolName.length > 1) {
                     threadTools.add(toolName);
                   }
                 }
               });
+            }
+          });
+        }
+        
+        // Look for tools in ALL message types using comprehensive patterns
+        message.content.forEach(content => {
+          // 1. Check for tool_use patterns (assistant messages)
+          if (content.tool_use) {
+            const toolName = content.tool_use.name;
+            if (toolName && toolName.length > 1) {
+              threadTools.add(toolName);
+            }
+          }
+          
+          // 2. Check for tool_call patterns
+          if (content.tool_call) {
+            const toolName = content.tool_call.name;
+            if (toolName && toolName.length > 1) {
+              threadTools.add(toolName);
+            }
+          }
+          
+          // 3. Check for tool_name when kind is tool_use
+          if (content.kind === 'tool_use' && (content as any).tool_name) {
+            const toolName = (content as any).tool_name;
+            if (toolName && toolName.length > 1) {
+              threadTools.add(toolName);
+            }
+          }
+          
+          // 4. Check for type === 'tool_use' pattern
+          if ((content as any).type === 'tool_use' && (content as any).name) {
+            const toolName = (content as any).name;
+            if (toolName && toolName.length > 1) {
+              threadTools.add(toolName);
+            }
+          }
+          
+          // 5. Check for nested tool.name pattern
+          if ((content as any).tool && (content as any).tool.name) {
+            const toolName = (content as any).tool.name;
+            if (toolName && toolName.length > 1) {
+              threadTools.add(toolName);
+            }
+          }
+          
+          // 6. Check for function_call pattern
+          if ((content as any).function_call && (content as any).function_call.name) {
+            const toolName = (content as any).function_call.name;
+            if (toolName && toolName.length > 1) {
+              threadTools.add(toolName);
+            }
+          }
+
+          // 7. Check assistant text for phrases like "Tool Call Initiated (`name`)"
+          if (content.text || (content as any).content) {
+            const text = (content.text || (content as any).content || '').toString();
+            const initiatedPatterns = [
+              /Tool\s*Call\s*Initiated[^`\w]*`([^`]+)`/gi,
+              /Tool\s*Call\s*(?:Initiated|Completed)[:\s]*([A-Za-z0-9_\-.]+)/gi,
+              /Calling\s+tool[:\s]*`([^`]+)`/gi,
+              /Using\s+tool[:\s]*`([^`]+)`/gi
+            ];
+            initiatedPatterns.forEach((pattern) => {
+              for (const m of text.matchAll(pattern)) {
+                const candidate = (m[1] || '').trim();
+                const toolName = candidate.replace(/^['"`]+|['"`]+$/g, '');
+                if (toolName && toolName.length > 1) {
+                  threadTools.add(toolName);
+                }
+              }
+            });
+          }
+        });
+        
+        // 7. Check for message-level tool_calls
+        if ((message as any).tool_calls) {
+          (message as any).tool_calls.forEach((tool: any) => {
+            if (tool.function && tool.function.name) {
+              const toolName = tool.function.name;
+              if (toolName && toolName.length > 1) {
+                threadTools.add(toolName);
+              }
             }
           });
         }
@@ -552,14 +867,6 @@ export function ThreadsOverview({
       .map(([name, threadSet]) => ({ name, count: threadSet.size }))
       .sort((a, b) => a.name.localeCompare(b.name));
     
-    console.log('🔧 Available tools extracted:', {
-      toolsCount: toolsWithCounts.length,
-      tools: toolsWithCounts.map(t => `${t.name} (${t.count})`),
-      threadsCount: threads.length,
-      toolThreadCountsMap: Object.fromEntries(
-        Array.from(toolThreadCounts.entries()).map(([name, threadSet]) => [name, Array.from(threadSet)])
-      )
-    });
     
     // Available tools extracted
     return toolsWithCounts;
@@ -763,33 +1070,52 @@ export function ThreadsOverview({
     }
   }, [threads, onThreadsChange]);
 
-  // Save search state to localStorage when it changes
+  // Save search state to localStorage when it changes (but not during initial load)
   useEffect(() => {
-    try {
-      if (startDate) {
-        console.log('💾 Saving start date:', startDate);
-        setEnvironmentSpecificItem('threads-search-start-date', startDate);
+    if (isInitialLoad) return;
+    
+    const saveStartDate = async () => {
+      try {
+        if (startDate && typeof startDate === 'string') {
+          console.log('💾 Saving start date:', startDate);
+          await setEnvironmentSpecificItem('threads-search-start-date', startDate);
+        }
+      } catch (error) {
+        console.warn('Failed to save start date:', error);
       }
-    } catch (error) {
-      console.warn('Failed to save start date:', error);
-    }
-  }, [startDate]);
+    };
+    saveStartDate();
+  }, [startDate, isInitialLoad]);
 
   useEffect(() => {
-    try {
-      setEnvironmentSpecificItem('threads-search-end-date', endDate);
-    } catch (error) {
-      console.warn('Failed to save end date:', error);
-    }
-  }, [endDate]);
+    if (isInitialLoad) return;
+    
+    const saveEndDate = async () => {
+      try {
+        if (endDate && typeof endDate === 'string') {
+          await setEnvironmentSpecificItem('threads-search-end-date', endDate);
+        }
+      } catch (error) {
+        console.warn('Failed to save end date:', error);
+      }
+    };
+    saveEndDate();
+  }, [endDate, isInitialLoad]);
 
   useEffect(() => {
-    try {
-      setEnvironmentSpecificItem('threads-search-term', searchTerm);
-    } catch (error) {
-      console.warn('Failed to save search term:', error);
-    }
-  }, [searchTerm]);
+    if (isInitialLoad) return;
+    
+    const saveSearchTerm = async () => {
+      try {
+        if (typeof searchTerm === 'string') {
+          await setEnvironmentSpecificItem('threads-search-term', searchTerm);
+        }
+      } catch (error) {
+        console.warn('Failed to save search term:', error);
+      }
+    };
+    saveSearchTerm();
+  }, [searchTerm, isInitialLoad]);
 
   const fetchThreads = async () => {
     if (!startDate || !endDate) {
@@ -798,7 +1124,7 @@ export function ThreadsOverview({
     }
 
     // Get API key from environment-specific localStorage
-    const apiKey = getEnvironmentSpecificItem('chatbot-dashboard-api-key');
+    const apiKey = await getEnvironmentSpecificItem('chatbot-dashboard-api-key');
     if (!apiKey?.trim()) {
       setError('API key is required. Please set it in the dashboard header.');
       return;
@@ -958,19 +1284,21 @@ export function ThreadsOverview({
         }
       };
 
-      // Process chunks in parallel batches
+      // Process chunks sequentially to avoid overwhelming the server
       const results: any[] = [];
-      for (let i = 0; i < chunks.length; i += CONCURRENT_REQUESTS) {
-        const batch = chunks.slice(i, i + CONCURRENT_REQUESTS);
-        const batchPromises = batch.map((chunk, batchIndex) => 
-          processChunk(chunk, i + batchIndex)
-        );
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        console.log(`📅 Processing chunk ${i + 1}/${chunks.length} sequentially: ${chunk.dateStr}`);
         
-        // Wait for current batch to complete
-        const batchResults = await Promise.all(batchPromises);
-        results.push(...batchResults);
+        const result = await processChunk(chunk, i);
+        results.push(result);
         
-        console.log(`🔄 Completed batch ${Math.floor(i / CONCURRENT_REQUESTS) + 1}: ${completedChunks}/${chunks.length} chunks done`);
+        // Small delay between requests to be gentle on the server
+        if (i < chunks.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 100)); // 100ms delay
+        }
+        
+        console.log(`✅ Completed chunk ${i + 1}/${chunks.length}`);
       }
       
       // Sort results by original index to maintain order and collect all threads
@@ -979,11 +1307,27 @@ export function ThreadsOverview({
         allThreads.push(...result.threads);
       });
       
-      console.log(`🎉 Smart chunking complete: ${allThreads.length} total threads from ${chunks.length} chunks`);
+      console.log(`🎉 Sequential chunking complete: ${allThreads.length} total threads from ${chunks.length} chunks`);
       setLoadingProgress({ current: 0, total: 0, currentDate: '' });
       
-      // No more caching - just set the threads directly
+      // Enhanced logging for production debugging
+      console.log('📊 Threads fetch complete - detailed analysis:', {
+        totalThreads: allThreads.length,
+        environment: localStorage.getItem('chatbot-dashboard-environment'),
+        timeRange: { startDate, endDate },
+        sampleThreads: allThreads.slice(0, 3).map(t => ({
+          id: t.id,
+          conversationId: t.conversationId,
+          messageCount: t.messages?.length || 0,
+          hasSystemMessages: t.messages?.some(m => m.role === 'system'),
+          createdAt: t.createdAt
+        })),
+        uniqueConversationIds: new Set(allThreads.map(t => t.conversationId)).size,
+        chunksProcessed: chunks.length,
+        dateRangeHours: Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60))
+      });
       
+      // No more caching - just set the threads directly
       setThreads(allThreads);
       setCurrentPage(1); // Reset pagination when new data is loaded
       setHasSearched(true); // Mark that a search has been completed
@@ -1019,11 +1363,25 @@ export function ThreadsOverview({
   );
 
   const filteredThreads = useMemo(() => {
+    console.log('🔍 Filtering threads:', {
+      totalThreads: threads.length,
+      searchTerm,
+      messageSearchEnabled,
+      messageSearchTerm,
+      hasUiFilter,
+      selectedTools: Array.from(selectedTools),
+      selectedWorkflows: Array.from(selectedWorkflows),
+      showErrorsOnly,
+      showTimeoutsOnly,
+      selectedTopic,
+      environment: localStorage.getItem('chatbot-dashboard-environment')
+    });
+    
     const filtered = threads.filter(thread => {
       const parsed = parseThreadId(thread.id);
       
       // Search filter
-      if (searchTerm) {
+      if (searchTerm && typeof searchTerm === 'string') {
         const searchLower = searchTerm.toLowerCase();
         if (
           !thread.id.toLowerCase().includes(searchLower) &&
@@ -1200,6 +1558,23 @@ export function ThreadsOverview({
                     threadTools.add(toolName);
                   }
                 }
+
+                // Also support messages like: Tool Call Initiated (`name`) / (name) / : name
+                const initiatedPatterns = [
+                  /Tool\s*Call\s*Initiated[^`\w]*`([^`]+)`/gi,
+                  /Tool\s*Call\s*(?:Initiated|Completed)[:\s]*([A-Za-z0-9_\-.]+)/gi,
+                  /Calling\s+tool[:\s]*`([^`]+)`/gi,
+                  /Using\s+tool[:\s]*`([^`]+)`/gi
+                ];
+                initiatedPatterns.forEach((pattern) => {
+                  for (const m of text.matchAll(pattern)) {
+                    const candidate = (m[1] || '').trim();
+                    const toolName = candidate.replace(/^[\'"`]+|[\'"`]+$/g, '');
+                    if (toolName && toolName.length > 1) {
+                      threadTools.add(toolName);
+                    }
+                  }
+                });
               }
             });
           }
@@ -1233,6 +1608,35 @@ export function ThreadsOverview({
                     }
                   }
                 });
+
+                // Also include initiated patterns in assistant text like counting logic
+                const initiatedPatterns = [
+                  /Tool\s*Call\s*Initiated[^`\w]*`([^`]+)`/gi,
+                  /Tool\s*Call\s*(?:Initiated|Completed)[:\s]*([A-Za-z0-9_\-.]+)/gi,
+                  /Calling\s+tool[:\s]*`([^`]+)`/gi,
+                  /Using\s+tool[:\s]*`([^`]+)`/gi
+                ];
+                initiatedPatterns.forEach((pattern) => {
+                  for (const m of text.matchAll(pattern)) {
+                    const candidate = (m[1] || '').trim();
+                    const toolName = candidate.replace(/^[\'"`]+|[\'"`]+$/g, '');
+                    if (toolName && toolName.length > 1) {
+                      threadTools.add(toolName);
+                    }
+                  }
+                });
+              }
+            });
+          }
+
+          // Check for message-level tool_calls (same as counting logic)
+          if ((message as any).tool_calls) {
+            (message as any).tool_calls.forEach((tool: any) => {
+              if (tool.function && tool.function.name) {
+                const toolName = tool.function.name;
+                if (toolName && toolName.length > 1) {
+                  threadTools.add(toolName);
+                }
               }
             });
           }
@@ -1367,6 +1771,24 @@ export function ThreadsOverview({
       const timeA = new Date(a.createdAt).getTime();
       const timeB = new Date(b.createdAt).getTime();
       return timeB - timeA; // Most recent first
+    });
+    
+    console.log('🔍 Filtering complete:', {
+      totalThreads: threads.length,
+      filteredThreads: filtered.length,
+      removedThreads: threads.length - filtered.length,
+      environment: localStorage.getItem('chatbot-dashboard-environment'),
+      filtersApplied: {
+        searchTerm: !!searchTerm,
+        messageSearch: messageSearchEnabled && !!messageSearchTerm,
+        hasUiFilter,
+        toolFilter: selectedTools.size > 0,
+        workflowFilter: selectedWorkflows.size > 0,
+        errorFilter: showErrorsOnly,
+        timeoutFilter: showTimeoutsOnly,
+        topicFilter: !!selectedTopic,
+        advancedFilters: minMessages !== '' || maxMessages !== '' || minDuration !== '' || maxDuration !== '' || minResponseTime !== '' || maxResponseTime !== ''
+      }
     });
     
     return filtered;
@@ -1505,20 +1927,16 @@ export function ThreadsOverview({
 
   // Mark conversation as viewed (can be called externally)
   const markConversationAsViewed = (conversationId: string) => {
+    // Update local state immediately for instant visual feedback
     const newViewedConversations = new Set(viewedConversations);
     newViewedConversations.add(conversationId);
     setViewedConversations(newViewedConversations);
     
-    // Persist to localStorage
-    try {
-      setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(newViewedConversations)));
-      // Marked conversation as viewed
-    } catch (error) {
-      console.error('Failed to save viewed conversations:', error);
-    }
-    
-    // Notify parent component
+    // Notify parent component (App.tsx will handle localStorage persistence)
     onConversationViewed?.(conversationId);
+    
+    // Dispatch custom event for other listeners
+    window.dispatchEvent(new CustomEvent('conversationViewed', { detail: { conversationId } }));
   };
 
   // Handle conversation viewing
@@ -2018,12 +2436,35 @@ export function ThreadsOverview({
                   
                   {/* Tool Filter Dropdown */}
                   {availableTools.length > 0 && (
-                    <div className="relative" ref={toolDropdownRef}>
+                    <div className="relative">
                       <Button 
+                        ref={toolButtonRef}
                         variant="outline" 
                         size="sm" 
                         className="h-8 border-dashed"
-                        onClick={() => setToolDropdownOpen(!toolDropdownOpen)}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          console.log('🔧 Tool filter button clicked', { 
+                            currentState: toolDropdownOpen,
+                            availableToolsCount: availableTools.length 
+                          });
+                          
+                          if (!toolDropdownOpen && toolButtonRef.current) {
+                            const rect = toolButtonRef.current.getBoundingClientRect();
+                            const position = {
+                              top: rect.bottom + 4,
+                              left: rect.left
+                            };
+                            console.log('🔧 Tool dropdown position:', {
+                              rect: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+                              viewport: { width: window.innerWidth, height: window.innerHeight },
+                              finalPosition: position
+                            });
+                            setToolDropdownPosition(position);
+                          }
+                          setToolDropdownOpen(prev => !prev);
+                        }}
                       >
                         <Filter className="mr-2 h-3 w-3" />
                         Tools
@@ -2035,10 +2476,24 @@ export function ThreadsOverview({
                         <ChevronDown className="ml-2 h-3 w-3" />
                       </Button>
                       
-                      {toolDropdownOpen && (
-                        <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-md shadow-lg z-50 backdrop-blur-sm flex flex-col" style={{ backgroundColor: 'white', height: '320px', maxHeight: '320px' }}>
-                          <div className="p-2 flex flex-col h-full">
-                            <div className="flex items-center justify-between mb-2">
+                      {toolDropdownOpen && createPortal(
+                        <div 
+                          ref={toolDropdownRef}
+                          data-dropdown="tool"
+                          className="fixed w-96 bg-white border-2 border-gray-400 rounded-md shadow-2xl flex flex-col"
+                          style={{
+                            backgroundColor: '#ffffff',
+                            opacity: 1,
+                            zIndex: 999999,
+                            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05)',
+                            top: `${toolDropdownPosition.top}px`,
+                            left: `${toolDropdownPosition.left}px`,
+                            maxHeight: '300px'
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="p-3 flex-shrink-0 border-b border-gray-200">
+                            <div className="flex items-center justify-between">
                               <Label className="text-xs font-medium text-gray-600">Filter by Tools</Label>
                               {selectedTools.size > 0 && (
                                 <Button
@@ -2051,7 +2506,10 @@ export function ThreadsOverview({
                                 </Button>
                               )}
                             </div>
-                            <div className="space-y-1 flex-1 overflow-y-auto">
+                          </div>
+                          <div className="flex-1 overflow-y-auto" style={{ maxHeight: '240px' }}>
+                            <div className="p-3">
+                              <div className="space-y-1">
                               {availableToolsWithCounts.length > 0 ? (
                                 availableToolsWithCounts.map((toolInfo) => (
                                   <div key={toolInfo.name} className="flex items-center space-x-2 py-1">
@@ -2072,7 +2530,7 @@ export function ThreadsOverview({
                                     <div className="flex-1 flex items-center justify-between min-w-0">
                                       <Label 
                                         htmlFor={`tool-${toolInfo.name}`} 
-                                        className="text-xs font-mono cursor-pointer truncate flex-1 mr-2"
+                                        className="text-xs cursor-pointer flex-1 mr-2 break-all"
                                         title={toolInfo.name}
                                       >
                                         {toolInfo.name}
@@ -2091,21 +2549,46 @@ export function ThreadsOverview({
                                   </div>
                                 </div>
                               )}
+                              </div>
                             </div>
                           </div>
-                        </div>
+                        </div>,
+                        document.body
                       )}
                     </div>
                   )}
 
                   {/* Workflow Filter Dropdown */}
                   {availableWorkflows.length > 0 && (
-                    <div className="relative" ref={workflowDropdownRef}>
+                    <div className="relative">
                       <Button 
+                        ref={workflowButtonRef}
                         variant="outline" 
                         size="sm" 
                         className="h-8 border-dashed"
-                        onClick={() => setWorkflowDropdownOpen(!workflowDropdownOpen)}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          console.log('🔄 Workflow filter button clicked', { 
+                            currentState: workflowDropdownOpen,
+                            availableWorkflowsCount: availableWorkflows.length 
+                          });
+                          
+                          if (!workflowDropdownOpen && workflowButtonRef.current) {
+                            const rect = workflowButtonRef.current.getBoundingClientRect();
+                            const position = {
+                              top: rect.bottom + 4,
+                              left: rect.left
+                            };
+                            console.log('🔄 Workflow dropdown position:', {
+                              rect: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+                              viewport: { width: window.innerWidth, height: window.innerHeight },
+                              finalPosition: position
+                            });
+                            setWorkflowDropdownPosition(position);
+                          }
+                          setWorkflowDropdownOpen(prev => !prev);
+                        }}
                       >
                         <Filter className="mr-2 h-3 w-3" />
                         Workflows
@@ -2117,10 +2600,24 @@ export function ThreadsOverview({
                         <ChevronDown className="ml-2 h-3 w-3" />
                       </Button>
                       
-                      {workflowDropdownOpen && (
-                        <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-md shadow-lg z-50 backdrop-blur-sm flex flex-col" style={{ backgroundColor: 'white', height: '320px', maxHeight: '320px' }}>
-                          <div className="p-2 flex flex-col h-full">
-                            <div className="flex items-center justify-between mb-2">
+                      {workflowDropdownOpen && createPortal(
+                        <div 
+                          ref={workflowDropdownRef}
+                          data-dropdown="workflow"
+                          className="fixed w-96 bg-white border-2 border-gray-400 rounded-md shadow-2xl flex flex-col"
+                          style={{
+                            backgroundColor: '#ffffff',
+                            opacity: 1,
+                            zIndex: 999999,
+                            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05)',
+                            top: `${workflowDropdownPosition.top}px`,
+                            left: `${workflowDropdownPosition.left}px`,
+                            maxHeight: '300px'
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="p-3 flex-shrink-0 border-b border-gray-200">
+                            <div className="flex items-center justify-between">
                               <Label className="text-xs font-medium text-gray-600">Filter by Workflows</Label>
                               {selectedWorkflows.size > 0 && (
                                 <Button
@@ -2133,7 +2630,10 @@ export function ThreadsOverview({
                                 </Button>
                               )}
                             </div>
-                            <div className="space-y-1 flex-1 overflow-y-auto">
+                          </div>
+                          <div className="flex-1 overflow-y-auto" style={{ maxHeight: '240px' }}>
+                            <div className="p-3">
+                              <div className="space-y-1">
                               {availableWorkflowsWithCounts.length > 0 ? (
                                 availableWorkflowsWithCounts.map((workflowInfo) => (
                                   <div key={workflowInfo.name} className="flex items-center space-x-2 py-1">
@@ -2154,7 +2654,7 @@ export function ThreadsOverview({
                                     <div className="flex-1 flex items-center justify-between min-w-0">
                                       <Label 
                                         htmlFor={`workflow-${workflowInfo.name}`} 
-                                        className="text-xs font-mono cursor-pointer truncate flex-1 mr-2"
+                                        className="text-xs cursor-pointer flex-1 mr-2 break-all"
                                         title={workflowInfo.name}
                                       >
                                         {workflowInfo.name}
@@ -2173,9 +2673,11 @@ export function ThreadsOverview({
                                   </div>
                                 </div>
                               )}
+                              </div>
                             </div>
                           </div>
-                        </div>
+                        </div>,
+                        document.body
                       )}
                     </div>
                   )}
@@ -2358,189 +2860,38 @@ export function ThreadsOverview({
                       }}
                     />
                   </TableHead>
-                  <TableHead style={{ width: '200px' }}>First User Message</TableHead>
-                  <TableHead style={{ width: '120px' }}>Thread ID</TableHead>
-                  <TableHead style={{ width: '150px' }}>Conversation ID</TableHead>
-                  <TableHead style={{ width: '120px' }}>Created</TableHead>
-                  <TableHead style={{ width: '80px' }}>UI Events</TableHead>
-                  <TableHead style={{ width: '80px' }}>Messages</TableHead>
-                  <TableHead style={{ width: '80px' }}>Duration</TableHead>
-                  <TableHead style={{ width: '100px' }}>Response Time</TableHead>
+                  <TableHead style={{ width: '200px', minWidth: '200px' }}>First User Message</TableHead>
+                  <TableHead style={{ width: '150px', minWidth: '150px' }}>Thread ID</TableHead>
+                  <TableHead style={{ width: '200px', minWidth: '200px' }}>Conversation ID</TableHead>
+                  <TableHead style={{ width: '140px', minWidth: '140px' }}>Created</TableHead>
+                  <TableHead style={{ width: '90px', minWidth: '90px', textAlign: 'center' }}>UI Events</TableHead>
+                  <TableHead style={{ width: '90px', minWidth: '90px', textAlign: 'center' }}>Messages</TableHead>
+                  <TableHead style={{ width: '90px', minWidth: '90px', textAlign: 'center' }}>Duration</TableHead>
+                  <TableHead style={{ width: '110px', minWidth: '110px', textAlign: 'center' }}>Response Time</TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
+              <TableBody key={`tbody-${viewedConversations.size}-${currentPage}`}>
                 {paginatedThreads.map((thread, paginatedIndex) => {
-                  // Calculate the actual index in filteredThreads
                   const actualIndex = (currentPage - 1) * itemsPerPage + paginatedIndex;
-                  const parsed = parseThreadId(thread.id);
-                  const uiCount = thread.messages.reduce(
-                    (acc, msg) => acc + msg.content.filter(c => c.kind === 'ui').length, 
-                    0
-                  );
-                  const messageCount = thread.messages.filter(
-                    msg => msg.role === 'user' || msg.role === 'assistant'
-                  ).length;
-
-                  // Calculate conversation duration (first to last message)
-                  const allTimestamps = thread.messages
-                    .map((m: any) => new Date(m.created_at || m.createdAt || m.sentAt))
-                    .filter(date => !isNaN(date.getTime()))
-                    .sort((a, b) => a.getTime() - b.getTime());
-                  
-                  const conversationDuration = allTimestamps.length > 1 
-                    ? allTimestamps[allTimestamps.length - 1].getTime() - allTimestamps[0].getTime()
-                    : 0;
-                  const durationMinutes = Math.round(conversationDuration / (1000 * 60));
-                  const durationSeconds = Math.round(conversationDuration / 1000);
-
-                  // Calculate time to first assistant response
-                  const userMessages = thread.messages.filter((m: any) => m.role === 'user');
-                  const assistantMessages = thread.messages.filter((m: any) => m.role === 'assistant');
-                  
-                  let timeToFirstResponse = 0;
-                  if (userMessages.length > 0 && assistantMessages.length > 0) {
-                    const firstUserMessage = userMessages
-                      .map(m => ({ ...m, timestamp: new Date(m.created_at || m.createdAt || m.sentAt) }))
-                      .filter(m => !isNaN(m.timestamp.getTime()))
-                      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())[0];
-                    
-                    const firstAssistantMessage = assistantMessages
-                      .map(m => ({ ...m, timestamp: new Date(m.created_at || m.createdAt || m.sentAt) }))
-                      .filter(m => !isNaN(m.timestamp.getTime()))
-                      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())[0];
-                    
-                    if (firstUserMessage && firstAssistantMessage && firstAssistantMessage.timestamp > firstUserMessage.timestamp) {
-                      timeToFirstResponse = firstAssistantMessage.timestamp.getTime() - firstUserMessage.timestamp.getTime();
-                    }
-                  }
-                  const responseTimeSeconds = Math.round(timeToFirstResponse / 1000);
-
-                  // Extract first user message content
-                  const firstUserMessage = thread.messages
-                    .filter((m: any) => m.role === 'user')
-                    .sort((a: any, b: any) => {
-                      const timeA = new Date(a.created_at || a.createdAt || a.sentAt).getTime();
-                      const timeB = new Date(b.created_at || b.createdAt || b.sentAt).getTime();
-                      return timeA - timeB;
-                    })[0];
-
-                  const firstUserMessageText = firstUserMessage?.content
-                    ?.map((content: any) => content.text || content.content || '')
-                    .join(' ')
-                    .trim()
-                    .substring(0, 100) + (firstUserMessage?.content?.some((c: any) => (c.text || c.content || '').length > 100) ? '...' : '') || '';
-
-                  // Check if this conversation ID exists in uploaded conversations
                   const hasConversationData = uploadedConversations.some(c => c.id === thread.conversationId);
-
                   const isThreadViewed = viewedThreads.has(thread.id);
                   const isConversationViewed = viewedConversations.has(thread.conversationId);
-                  const isAnyViewed = isThreadViewed || isConversationViewed;
+                  const hasError = threadHasErrors(thread);
                   
                   return (
-                    <TableRow 
-                      key={thread.id} 
-                      className={`cursor-pointer hover:bg-muted/50 ${isAnyViewed ? 'bg-gray-50' : ''} ${threadHasErrors(thread) ? 'bg-red-50 border-l-4 border-l-red-500' : ''} min-h-16`}
-                    >
-                      <TableCell onClick={(e) => e.stopPropagation()} className="py-4">
-                        <Checkbox
-                          checked={selectedThreads.has(thread.id)}
-                          onCheckedChange={() => toggleThreadSelection(thread.id)}
-                        />
-                      </TableCell>
-                      <TableCell 
-                        onClick={() => handleConversationView(thread.conversationId, actualIndex)}
-                        className="cursor-pointer py-2"
-                        title={firstUserMessageText || 'No user message found'}
-                        style={{ width: '200px', maxWidth: '200px', minWidth: '200px' }}
-                      >
-                        <div 
-                          className={`text-xs leading-tight ${!isAnyViewed ? 'font-bold text-foreground' : 'text-gray-600'}`}
-                          style={{ 
-                            display: '-webkit-box',
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: 'vertical',
-                            overflow: 'hidden',
-                            wordBreak: 'break-word',
-                            lineHeight: '1.3',
-                            maxHeight: '2.6em',
-                            height: '2.6em'
-                          }}
-                        >
-                          {firstUserMessageText || '-'}
-                        </div>
-                      </TableCell>
-                      <TableCell onClick={() => handleConversationView(thread.conversationId, actualIndex)} className="py-4">
-                        <div className="flex items-center gap-2">
-                          <div>
-                            <div className="text-foreground">{parsed.id}</div>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            {isAnyViewed && (
-                              <Badge variant="outline" className="text-xs text-green-600 border-green-300">
-                                Viewed
-                              </Badge>
-                            )}
-                            {savedConversationIds.has(thread.conversationId) && (
-                              <div className="flex items-center" title="Saved chat">
-                                <Bookmark className="h-3 w-3 text-blue-600 fill-blue-600" />
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell 
-                        onClick={() => handleConversationView(thread.conversationId, actualIndex)}
-                        className="cursor-pointer py-4"
-                        title={hasConversationData ? "Click to view conversation details" : "Conversation data not available - referenced from thread only"}
-                      >
-                        <div className="flex items-center gap-2">
-                          <div>
-                            <div className={`${hasConversationData ? "text-blue-600 hover:underline" : "text-foreground"}`}>
-                              {thread.conversationId}
-                            </div>
-                          </div>
-                          {!hasConversationData && uploadedConversations.length > 0 && (
-                            <Badge variant="outline" className="text-xs text-gray-500">
-                              ref only
-                            </Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell onClick={() => handleConversationView(thread.conversationId, actualIndex)} className="py-4">
-                        {formatTimestamp(thread.createdAt)}
-                      </TableCell>
-                      <TableCell onClick={() => handleConversationView(thread.conversationId, actualIndex)} className="py-4">
-                        {uiCount > 0 ? (
-                          <Badge variant="outline">{uiCount}</Badge>
-                        ) : (
-                          '-'
-                        )}
-                      </TableCell>
-                      <TableCell onClick={() => handleConversationView(thread.conversationId, actualIndex)} className="py-4">
-                        {messageCount > 0 ? (
-                          <Badge variant="outline">{messageCount}</Badge>
-                        ) : (
-                          '-'
-                        )}
-                      </TableCell>
-                      <TableCell onClick={() => handleConversationView(thread.conversationId, actualIndex)} className="py-4">
-                        {conversationDuration > 0 ? (
-                          <Badge variant="outline">
-                            {durationMinutes > 0 ? `${durationMinutes}m` : `${durationSeconds}s`}
-                          </Badge>
-                        ) : (
-                          '-'
-                        )}
-                      </TableCell>
-                      <TableCell onClick={() => handleConversationView(thread.conversationId, actualIndex)} className="py-4">
-                        {responseTimeSeconds > 0 ? (
-                          <Badge variant="outline">{responseTimeSeconds}s</Badge>
-                        ) : (
-                          '-'
-                        )}
-                      </TableCell>
-                    </TableRow>
+                    <ThreadRow
+                      key={`${thread.id}-viewed-${isConversationViewed}`}
+                      thread={thread}
+                      actualIndex={actualIndex}
+                      isSelected={selectedThreads.has(thread.id)}
+                      isThreadViewed={isThreadViewed}
+                      isConversationViewed={isConversationViewed}
+                      hasConversationData={hasConversationData}
+                      isSaved={savedConversationIds.has(thread.conversationId)}
+                      hasError={hasError}
+                      onToggleSelection={() => toggleThreadSelection(thread.id)}
+                      onConversationView={() => handleConversationView(thread.conversationId, actualIndex)}
+                    />
                   );
                 })}
               </TableBody>

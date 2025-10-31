@@ -19,9 +19,7 @@ export function useAppState() {
     return localStorage.getItem('chatbot-dashboard-environment') || 'staging';
   });
   
-  const [apiKey, setApiKey] = useState(() => {
-    return getEnvironmentSpecificItem('chatbot-dashboard-api-key') || '';
-  });
+  const [apiKey, setApiKey] = useState('');
   
   const [showApiKey, setShowApiKey] = useState(false);
 
@@ -41,34 +39,43 @@ export function useAppState() {
   const currentSavedChatPositionRef = useRef<number>(-1);
 
   // Saved chats state
-  const [savedChats, setSavedChats] = useState<Set<string>>(() => {
-    try {
-      const saved = getEnvironmentSpecificItem('chatbot-dashboard-saved-chats');
-      return saved ? new Set(JSON.parse(saved)) : new Set();
-    } catch (error) {
-      console.error('Failed to load saved chats:', error);
-      return new Set();
-    }
-  });
+  const [savedChats, setSavedChats] = useState<Set<string>>(new Set());
 
   // Load environment-specific data on mount
   useEffect(() => {
-    try {
-      const savedData = getEnvironmentSpecificItem('chatbot-dashboard-data');
-      if (savedData) {
-        const parsedData = JSON.parse(savedData);
-        setUploadedData(parsedData);
-        
-        const hasAnyData = (parsedData.conversations?.length || 0) > 0 || 
-                          !!parsedData.threadsResponse || 
-                          (parsedData.attributesResponses?.length || 0) > 0 || 
-                          (parsedData.bulkAttributesResponses?.length || 0) > 0;
-        setGlobalOfflineMode(hasAnyData);
+    const loadEnvironmentData = async () => {
+      try {
+        // Load API key
+        const savedApiKey = await getEnvironmentSpecificItem('chatbot-dashboard-api-key');
+        if (savedApiKey) {
+          setApiKey(savedApiKey);
+        }
+
+        // Load saved chats
+        const savedChatsData = await getEnvironmentSpecificItem('chatbot-dashboard-saved-chats');
+        if (savedChatsData) {
+          setSavedChats(new Set(JSON.parse(savedChatsData)));
+        }
+
+        // Load saved data (fallback to localStorage for now)
+        const savedData = localStorage.getItem(`chatbot-dashboard-data-${environment}`);
+        if (savedData) {
+          const parsedData = JSON.parse(savedData);
+          setUploadedData(parsedData);
+          
+          const hasAnyData = (parsedData.conversations?.length || 0) > 0 || 
+                            !!parsedData.threadsResponse || 
+                            (parsedData.attributesResponses?.length || 0) > 0 || 
+                            (parsedData.bulkAttributesResponses?.length || 0) > 0;
+          setGlobalOfflineMode(hasAnyData);
+        }
+      } catch (error) {
+        console.error('Failed to load environment-specific saved data:', error);
       }
-    } catch (error) {
-      console.error('Failed to load environment-specific saved data:', error);
-    }
-  }, []);
+    };
+
+    loadEnvironmentData();
+  }, [environment]);
 
   // Update global offline mode when uploaded data changes
   useEffect(() => {

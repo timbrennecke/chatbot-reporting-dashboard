@@ -4812,3 +4812,89 @@ html {
     opacity: 0;
   }
 }
+
+/* ============================================
+   UI OPTIMIZATIONS & FIXES
+   ============================================ */
+
+/* Fix Radix UI dropdowns/portals */
+[data-radix-popper-content-wrapper] {
+  z-index: 9999 !important;
+  position: fixed !important;
+  transform: translateZ(0); /* Force GPU acceleration */
+  will-change: transform;
+}
+
+[data-radix-select-viewport] {
+  max-height: 400px !important;
+  overflow-y: auto;
+  /* Smooth scrolling for dropdowns */
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+[data-radix-select-content] {
+  z-index: 9999 !important;
+  position: fixed !important;
+  transform: translateZ(0);
+  /* Prevent blur/flicker */
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Performance: Reduce repaints for large lists */
+.thread-row,
+.conversation-row {
+  will-change: auto;
+  contain: layout style paint;
+}
+
+/* Virtual scrolling container optimizations */
+.virtual-scroll-container {
+  will-change: scroll-position;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Optimize table rendering */
+table {
+  table-layout: fixed;
+  contain: layout style paint;
+}
+
+/* Prevent layout shift during loading */
+.skeleton-loader {
+  animation: skeleton-loading 1.5s infinite ease-in-out;
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-color: #f0f0f0;
+  }
+  50% {
+    background-color: #e0e0e0;
+  }
+  100% {
+    background-color: #f0f0f0;
+  }
+}
+
+/* Smooth transitions without causing reflow */
+.smooth-transition {
+  transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+  will-change: opacity, transform;
+}
+
+/* Memory-efficient image rendering */
+img {
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+
+/* Prevent text selection during rapid scrolling (performance) */
+.no-select-on-scroll {
+  user-select: none;
+  -webkit-user-select: none;
+}
+

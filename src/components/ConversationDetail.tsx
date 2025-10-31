@@ -578,10 +578,7 @@ export function ConversationDetail({
   const [fetchError, setFetchError] = useState<string>('');
   const [fetchedConversation, setFetchedConversation] = useState<any>(null);
   const [showJsonOutput, setShowJsonOutput] = useState(false);
-  const [apiKey, setApiKey] = useState(() => {
-    // Load API key from environment-specific localStorage on component mount
-    return getEnvironmentSpecificItem('chatbot-dashboard-api-key') || '';
-  });
+  const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   
@@ -594,6 +591,21 @@ export function ConversationDetail({
   const [contextLoading, setContextLoading] = useState(false);
   const [contextError, setContextError] = useState<string>('');
   const [showContextPopup, setShowContextPopup] = useState(false);
+
+  // Load API key on mount
+  useEffect(() => {
+    const loadApiKey = async () => {
+      try {
+        const savedApiKey = await getEnvironmentSpecificItem('chatbot-dashboard-api-key');
+        if (savedApiKey) {
+          setApiKey(savedApiKey);
+        }
+      } catch (error) {
+        console.error('Failed to load API key:', error);
+      }
+    };
+    loadApiKey();
+  }, []);
 
   // Handle notes changes
   const handleNotesChange = (newNotes: string) => {
@@ -663,7 +675,69 @@ export function ConversationDetail({
       }
 
       const data = await response.json();
-      setContextData(data);
+      
+      // Extract actual context data from response
+      let contextToStore = data;
+      
+      // Handle the nested response structure: response.data.results[0].attributes
+      if (data?.data?.results && Array.isArray(data.data.results) && data.data.results.length > 0) {
+        const firstResult = data.data.results[0];
+        if (firstResult?.attributes) {
+          contextToStore = firstResult.attributes;
+          
+          // If there's a PageContext field, try to extract the structured JSON from it
+          if (contextToStore.PageContext && typeof contextToStore.PageContext === 'string') {
+            try {
+              // PageContext format: "[SYSTEM] ... <structured>{...JSON...}</structured> ..."
+              const structuredMatch = contextToStore.PageContext.match(/<structured>(.*?)<\/structured>/);
+              if (structuredMatch && structuredMatch[1]) {
+                const structuredJson = JSON.parse(structuredMatch[1]);
+                // Merge structured data with other attributes
+                contextToStore = { ...contextToStore, ...structuredJson };
+              }
+            } catch (e) {
+              // If parsing fails, keep the original attributes
+              console.log('Could not parse PageContext structured data');
+            }
+          }
+        }
+      } else if (data?.results && Array.isArray(data.results) && data.results.length > 0) {
+        // Fallback: try direct results (in case API response structure differs)
+        const firstResult = data.results[0];
+        if (firstResult?.attributes) {
+          contextToStore = firstResult.attributes;
+        }
+      }
+      
+      // Also try to extract from messages if it's a thread context response
+      if (!contextToStore || Object.keys(contextToStore).length === 0) {
+        // Try to find context in system/status messages
+        const systemMessages = selectedThread?.messages?.filter(m => m.role === 'system' || m.role === 'status') || [];
+        if (systemMessages.length > 0) {
+          const contextFromMessages = {};
+          systemMessages.forEach(msg => {
+            if (msg.content && Array.isArray(msg.content)) {
+              msg.content.forEach(c => {
+                if (c.content && typeof c.content === 'string') {
+                  try {
+                    const parsed = JSON.parse(c.content);
+                    Object.assign(contextFromMessages, parsed);
+                  } catch (e) {
+                    // Not JSON, skip
+                  }
+                }
+              });
+            }
+          });
+          if (Object.keys(contextFromMessages).length > 0) {
+            contextToStore = contextFromMessages;
+          }
+        }
+      }
+      
+      // Single log showing what we're storing
+      console.log('✅ Context data ready for display:', contextToStore);
+      setContextData(contextToStore);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
       setContextError(`Failed to fetch context: ${errorMessage}`);
@@ -729,6 +803,52 @@ export function ConversationDetail({
     }
   }, [conversationId, conversation?.id, selectedThread?.conversationId, paginationConversationId, fetchedConversation]);
 
+  // Helpers for rendering context summary on the right
+  const searchContextKeys = (obj: any, keys: string[]): any => {
+    if (!obj) return null;
+    const keySet = new Set(keys.map(k => k.toLowerCase()));
+    const visit = (node: any, depth = 0): any => {
+      if (node == null || depth > 10) return null;
+      if (Array.isArray(node)) {
+        for (const item of node) {
+          const v = visit(item, depth + 1);
+          if (v != null && v !== '') return v;
+        }
+        return null;
+      }
+      if (typeof node === 'object') {
+        for (const [k, v] of Object.entries(node)) {
+          if (keySet.has(String(k).toLowerCase())) {
+            if (v != null && v !== '') return v as any;
+          }
+          const inner = visit(v, depth + 1);
+          if (inner != null && inner !== '') return inner;
+        }
+      }
+      return null;
+    };
+    return visit(obj);
+  };
+
+  const displayContextValue = (val: any): string => {
+    return val === null || val === undefined || val === '' ? 'N/A' : String(val);
+  };
+
+  // Helper to show all keys available in context data for debugging
+  const getAllKeys = (obj: any, depth = 0, prefix = ''): string[] => {
+    if (!obj || depth > 5) return [];
+    if (Array.isArray(obj)) {
+      return obj.flatMap((item, i) => getAllKeys(item, depth + 1, `${prefix}[${i}]`));
+    }
+    if (typeof obj === 'object') {
+      return Object.entries(obj).flatMap(([k, v]) => {
+        const key = prefix ? `${prefix}.${k}` : k;
+        return [key, ...getAllKeys(v, depth + 1, key)];
+      });
+    }
+    return [];
+  };
+
   // Mark conversation as viewed when conversation ID changes or component mounts
   useEffect(() => {
     const currentConversationId = conversationId || conversation?.id || selectedThread?.conversationId || paginationConversationId;
@@ -748,6 +868,25 @@ export function ConversationDetail({
       fetchContextData(threadId);
     }
   }, [selectedThread?.id, apiKey]);
+
+  // Debug: Log all available keys in context data
+  useEffect(() => {
+    if (contextData) {
+      const allKeys = getAllKeys(contextData);
+      console.log('🔑 Available context keys:', allKeys);
+      
+      // Specific search for our target fields
+      const pageIdSearch = searchContextKeys(contextData, ['pageId', 'pageID', 'page_id', 'pageid']);
+      const deviceSearch = searchContextKeys(contextData, ['deviceOutput', 'device_output', 'deviceoutput', 'device']);
+      const appVersionSearch = searchContextKeys(contextData, ['appVersion', 'app_version', 'appversion', 'version']);
+      
+      console.log('🔍 Target fields:', {
+        pageId: pageIdSearch,
+        deviceOutput: deviceSearch,
+        appVersion: appVersionSearch
+      });
+    }
+  }, [contextData]);
 
 
   const analytics = useMemo((): ConversationAnalytics | null => {
@@ -853,7 +992,13 @@ export function ConversationDetail({
         },
       });
       const responseText = await response.text();
-      setFetchResponse(responseText);
+      let prettyResponse = responseText;
+      try {
+        prettyResponse = JSON.stringify(JSON.parse(responseText), null, 2);
+      } catch (_) {
+        // leave as-is if not valid JSON
+      }
+      setFetchResponse(prettyResponse);
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${responseText}`);
@@ -975,9 +1120,8 @@ export function ConversationDetail({
       {/* Thread-based Conversation Display - when activeConversation is created from selectedThread */}
       {(() => {
         const shouldShowThreadDisplay = activeConversation && !uploadedConversation && !fetchedConversation;
-        // Display section logic
-        return shouldShowThreadDisplay;
-      })() && (
+        if (!shouldShowThreadDisplay) return null;
+        return (
         <div className="space-y-6">
           {/* Conversation Header */}
           <Card className="border-slate-200 shadow-sm">
@@ -985,7 +1129,7 @@ export function ConversationDetail({
               <div className="flex justify-between items-start">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-1">
-                    <CardTitle className="text-slate-800">{activeConversation.title || `Thread ${selectedThread?.id}`}</CardTitle>
+                    <CardTitle className="text-slate-800">{(activeConversation.title && !activeConversation.title.startsWith('Thread ')) ? activeConversation.title : 'Conversation Details'}</CardTitle>
                     {(() => {
                       const category = categorizeConversation(activeConversation.messages || []);
                       if (category) {
@@ -1049,8 +1193,14 @@ export function ConversationDetail({
                   </div>
                 </div>
                 
-                {/* Navigation Arrows and Bookmark */}
-                <div className="flex items-center gap-3 mr-4">
+                {/* Context Summary & Attributes (right side) + Navigation */}
+                <div className="flex items-start gap-6 mr-4">
+                  <div className="hidden md:flex flex-col items-end gap-1">
+                    {/* REMOVED - Context data will be in CardContent below */}
+                  </div>
+
+                  {/* Navigation Arrows and Bookmark */}
+                  <div className="flex items-center gap-3">
                   <Button
                     variant="ghost"
                     size="sm"
@@ -1168,69 +1318,98 @@ export function ConversationDetail({
                   {countMessagesExcludingUI(activeConversation.messages || [])} messages
                 </Badge>
               </div>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-                <div>
-                  <Label>Created</Label>
-                  <p className="text-sm">{formatTimestamp(activeConversation.createdAt)}</p>
+              {/* Summary Section - Full Width */}
+              <div className="mb-6 pb-4 border-b border-slate-200">
+                <Label className="text-slate-600 text-sm font-medium mb-2 block">Summary</Label>
+                <p className="text-sm text-slate-700 font-semibold max-w-full break-words" title={displayContextValue(searchContextKeys(contextData, ['summary']))}>
+                  {displayContextValue(searchContextKeys(contextData, ['summary'])) || 'N/A'}
+                </p>
+              </div>
+
+              {/* Two Column Layout */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Left Column - Duration & Response Time + Timestamps */}
+                <div className="space-y-4">
+                  <div>
+                    <Label>Created</Label>
+                    <p className="text-sm">{formatTimestamp(activeConversation.createdAt)}</p>
+                  </div>
+                  <div>
+                    <Label>Last Message</Label>
+                    <p className="text-sm">{formatTimestamp(activeConversation.lastMessageAt)}</p>
+                  </div>
+                  <div>
+                    <Label>Duration</Label>
+                    <p className="text-sm">
+                      {(() => {
+                        const messages = activeConversation.messages || [];
+                        if (messages.length < 2) return 'N/A';
+                        
+                        const timestamps = messages
+                          .map(m => new Date(m.created_at || m.createdAt || m.sentAt))
+                          .filter(date => !isNaN(date.getTime()))
+                          .sort((a, b) => a.getTime() - b.getTime());
+                        
+                        if (timestamps.length < 2) return 'N/A';
+                        
+                        const duration = timestamps[timestamps.length - 1].getTime() - timestamps[0].getTime();
+                        const minutes = Math.round(duration / (1000 * 60));
+                        const seconds = Math.round(duration / 1000);
+                        return minutes > 0 ? `${minutes}m` : seconds > 0 ? `${seconds}s` : '<1s';
+                      })()}
+                    </p>
+                  </div>
+                  <div>
+                    <Label>Response Time</Label>
+                    <p className="text-sm">
+                      {(() => {
+                        const messages = activeConversation.messages || [];
+                        const userMessages = messages.filter(m => m.role === 'user');
+                        const assistantMessages = messages.filter(m => m.role === 'assistant');
+                        
+                        if (userMessages.length === 0 || assistantMessages.length === 0) return 'N/A';
+                        
+                        const firstUser = userMessages
+                          .map(m => ({ ...m, timestamp: new Date(m.created_at || m.createdAt || m.sentAt) }))
+                          .filter(m => !isNaN(m.timestamp.getTime()))
+                          .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())[0];
+                        
+                        const firstAssistant = assistantMessages
+                          .map(m => ({ ...m, timestamp: new Date(m.created_at || m.createdAt || m.sentAt) }))
+                          .filter(m => !isNaN(m.timestamp.getTime()))
+                          .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())[0];
+                        
+                        if (!firstUser || !firstAssistant || firstAssistant.timestamp <= firstUser.timestamp) return 'N/A';
+                        
+                        const responseTime = firstAssistant.timestamp.getTime() - firstUser.timestamp.getTime();
+                        const seconds = Math.round(responseTime / 1000);
+                        return seconds > 0 ? `${seconds}s` : '<1s';
+                      })()}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <Label>Last Message</Label>
-                  <p className="text-sm">{formatTimestamp(activeConversation.lastMessageAt)}</p>
-                </div>
-                <div>
-                  <Label>Thread Count</Label>
-                  <p className="text-sm">{activeConversation.threadIds?.length || 0} threads</p>
-                </div>
-                <div>
-                  <Label>Duration</Label>
-                  <p className="text-sm">
-                    {(() => {
-                      const messages = activeConversation.messages || [];
-                      if (messages.length < 2) return 'N/A';
-                      
-                      const timestamps = messages
-                        .map(m => new Date(m.created_at || m.createdAt || m.sentAt))
-                        .filter(date => !isNaN(date.getTime()))
-                        .sort((a, b) => a.getTime() - b.getTime());
-                      
-                      if (timestamps.length < 2) return 'N/A';
-                      
-                      const duration = timestamps[timestamps.length - 1].getTime() - timestamps[0].getTime();
-                      const minutes = Math.round(duration / (1000 * 60));
-                      const seconds = Math.round(duration / 1000);
-                      return minutes > 0 ? `${minutes}m` : seconds > 0 ? `${seconds}s` : '<1s';
-                    })()}
-                  </p>
-                </div>
-                <div>
-                  <Label>Response Time</Label>
-                  <p className="text-sm">
-                    {(() => {
-                      const messages = activeConversation.messages || [];
-                      const userMessages = messages.filter(m => m.role === 'user');
-                      const assistantMessages = messages.filter(m => m.role === 'assistant');
-                      
-                      if (userMessages.length === 0 || assistantMessages.length === 0) return 'N/A';
-                      
-                      const firstUser = userMessages
-                        .map(m => ({ ...m, timestamp: new Date(m.created_at || m.createdAt || m.sentAt) }))
-                        .filter(m => !isNaN(m.timestamp.getTime()))
-                        .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())[0];
-                      
-                      const firstAssistant = assistantMessages
-                        .map(m => ({ ...m, timestamp: new Date(m.created_at || m.createdAt || m.sentAt) }))
-                        .filter(m => !isNaN(m.timestamp.getTime()))
-                        .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())[0];
-                      
-                      if (!firstUser || !firstAssistant || firstAssistant.timestamp <= firstUser.timestamp) return 'N/A';
-                      
-                      const responseTime = firstAssistant.timestamp.getTime() - firstUser.timestamp.getTime();
-                      const seconds = Math.round(responseTime / 1000);
-                      return seconds > 0 ? `${seconds}s` : '<1s';
-                    })()}
-                  </p>
+
+                {/* Right Column - Context Data */}
+                <div className="space-y-3 border-l border-slate-200 pl-6">
+                  <div>
+                    <Label className="text-slate-600 text-xs font-medium">Page ID</Label>
+                    <p className="text-sm text-slate-700">{displayContextValue(searchContextKeys(contextData, ['pageId', 'pageID']))}</p>
+                  </div>
+                  <div>
+                    <Label className="text-slate-600 text-xs font-medium">SSO</Label>
+                    <p className="text-sm text-slate-700">{displayContextValue(searchContextKeys(contextData, ['SSO', 'sso']))}</p>
+                  </div>
+                  <div>
+                    <Label className="text-slate-600 text-xs font-medium">Device Output</Label>
+                    <p className="text-sm text-slate-700 break-words">{displayContextValue(searchContextKeys(contextData, ['deviceOutput', 'device_output', 'device']))}</p>
+                  </div>
+                  <div>
+                    <Label className="text-slate-600 text-xs font-medium">App Version</Label>
+                    <p className="text-sm text-slate-700">{displayContextValue(searchContextKeys(contextData, ['appVersion', 'version', 'app_version']))}</p>
+                  </div>
                 </div>
               </div>
             </CardContent>
@@ -1507,7 +1686,8 @@ export function ConversationDetail({
             </CardContent>
           </Card>
         </div>
-      )}
+        );
+      })()}
 
       {/* Uploaded Conversation Display */}
       {uploadedConversation && (
@@ -1582,8 +1762,14 @@ export function ConversationDetail({
                   </div>
                 </div>
                 
-                {/* Navigation Arrows and Bookmark */}
-                <div className="flex items-center gap-3 mr-4">
+                {/* Context Summary & Attributes (right side) + Navigation */}
+                <div className="flex items-start gap-6 mr-4">
+                  <div className="hidden md:flex flex-col items-end gap-1">
+                    {/* REMOVED - Context data will be in CardContent below */}
+                  </div>
+
+                  {/* Navigation Arrows and Bookmark */}
+                  <div className="flex items-center gap-3">
                   <Button
                     variant="ghost"
                     size="sm"
@@ -1694,7 +1880,7 @@ export function ConversationDetail({
                       )}
                     </div>
                   )}
-                  
+                  </div>
                 </div>
                 
                 <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-300">
@@ -1703,18 +1889,95 @@ export function ConversationDetail({
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <Label>Created</Label>
-                  <p className="text-sm">{formatTimestamp(uploadedConversation.createdAt)}</p>
+              {/* Summary Section - Full Width */}
+              <div className="mb-6 pb-4 border-b border-slate-200">
+                <Label className="text-slate-600 text-sm font-medium mb-2 block">Summary</Label>
+                <p className="text-sm text-slate-700 font-semibold max-w-full break-words" title={displayContextValue(searchContextKeys(contextData, ['summary']))}>
+                  {displayContextValue(searchContextKeys(contextData, ['summary'])) || 'N/A'}
+                </p>
+              </div>
+
+              {/* Two Column Layout */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Left Column - Duration & Response Time + Timestamps */}
+                <div className="space-y-4">
+                  <div>
+                    <Label>Created</Label>
+                    <p className="text-sm">{formatTimestamp(uploadedConversation.createdAt)}</p>
+                  </div>
+                  <div>
+                    <Label>Last Message</Label>
+                    <p className="text-sm">{formatTimestamp(uploadedConversation.lastMessageAt)}</p>
+                  </div>
+                  <div>
+                    <Label>Duration</Label>
+                    <p className="text-sm">
+                      {(() => {
+                        const messages = uploadedConversation?.messages || activeConversation?.messages || [];
+                        if (messages.length < 2) return 'N/A';
+                        
+                        const timestamps = messages
+                          .map(m => new Date(m.created_at || m.createdAt || m.sentAt))
+                          .filter(date => !isNaN(date.getTime()))
+                          .sort((a, b) => a.getTime() - b.getTime());
+                        
+                        if (timestamps.length < 2) return 'N/A';
+                        
+                        const duration = timestamps[timestamps.length - 1].getTime() - timestamps[0].getTime();
+                        const minutes = Math.round(duration / (1000 * 60));
+                        const seconds = Math.round(duration / 1000);
+                        return minutes > 0 ? `${minutes}m` : seconds > 0 ? `${seconds}s` : '<1s';
+                      })()}
+                    </p>
+                  </div>
+                  <div>
+                    <Label>Response Time</Label>
+                    <p className="text-sm">
+                      {(() => {
+                        const messages = uploadedConversation?.messages || activeConversation?.messages || [];
+                        const userMessages = messages.filter(m => m.role === 'user');
+                        const assistantMessages = messages.filter(m => m.role === 'assistant');
+                        
+                        if (userMessages.length === 0 || assistantMessages.length === 0) return 'N/A';
+                        
+                        const firstUser = userMessages
+                          .map(m => ({ ...m, timestamp: new Date(m.created_at || m.createdAt || m.sentAt) }))
+                          .filter(m => !isNaN(m.timestamp.getTime()))
+                          .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())[0];
+                        
+                        const firstAssistant = assistantMessages
+                          .map(m => ({ ...m, timestamp: new Date(m.created_at || m.createdAt || m.sentAt) }))
+                          .filter(m => !isNaN(m.timestamp.getTime()))
+                          .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())[0];
+                        
+                        if (!firstUser || !firstAssistant || firstAssistant.timestamp <= firstUser.timestamp) return 'N/A';
+                        
+                        const responseTime = firstAssistant.timestamp.getTime() - firstUser.timestamp.getTime();
+                        const seconds = Math.round(responseTime / 1000);
+                        return seconds > 0 ? `${seconds}s` : '<1s';
+                      })()}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <Label>Last Message</Label>
-                  <p className="text-sm">{formatTimestamp(uploadedConversation.lastMessageAt)}</p>
-                </div>
-                <div>
-                  <Label>Thread Count</Label>
-                  <p className="text-sm">{uploadedConversation.threadIds?.length || 0} threads</p>
+
+                {/* Right Column - Context Data */}
+                <div className="space-y-3 border-l border-slate-200 pl-6">
+                  <div>
+                    <Label className="text-slate-600 text-xs font-medium">Page ID</Label>
+                    <p className="text-sm text-slate-700">{displayContextValue(searchContextKeys(contextData, ['pageId', 'pageID']))}</p>
+                  </div>
+                  <div>
+                    <Label className="text-slate-600 text-xs font-medium">SSO</Label>
+                    <p className="text-sm text-slate-700">{displayContextValue(searchContextKeys(contextData, ['SSO', 'sso']))}</p>
+                  </div>
+                  <div>
+                    <Label className="text-slate-600 text-xs font-medium">Device Output</Label>
+                    <p className="text-sm text-slate-700 break-words">{displayContextValue(searchContextKeys(contextData, ['deviceOutput', 'device_output', 'device']))}</p>
+                  </div>
+                  <div>
+                    <Label className="text-slate-600 text-xs font-medium">App Version</Label>
+                    <p className="text-sm text-slate-700">{displayContextValue(searchContextKeys(contextData, ['appVersion', 'version', 'app_version']))}</p>
+                  </div>
                 </div>
               </div>
             </CardContent>
@@ -2125,8 +2388,60 @@ export function ConversationDetail({
                       </div>
                     </div>
                     
-                    {/* Navigation Arrows */}
-                    <div className="flex items-center gap-3 mr-4">
+                    {/* Context Summary & Attributes (right side) + Navigation */}
+                    <div className="flex items-start gap-6 mr-4">
+                      <div className="hidden md:flex flex-col items-end gap-1">
+                        {(() => {
+                          const searchKeys = (obj, keys) => {
+                            if (!obj) return null;
+                            const keySet = new Set(keys.map(k => k.toLowerCase()));
+                            const visit = (node, depth = 0) => {
+                              if (node == null || depth > 4) return null;
+                              if (Array.isArray(node)) {
+                                for (const item of node) {
+                                  const v = visit(item, depth + 1);
+                                  if (v != null && v !== '') return v;
+                                }
+                                return null;
+                              }
+                              if (typeof node === 'object') {
+                                for (const [k, v] of Object.entries(node)) {
+                                  if (keySet.has(String(k).toLowerCase())) {
+                                    if (v != null && v !== '') return v;
+                                  }
+                                  const inner = visit(v, depth + 1);
+                                  if (inner != null && inner !== '') return inner;
+                                }
+                              }
+                              return null;
+                            };
+                            return visit(obj);
+                          };
+
+                          const summary = searchKeys(contextData, ['summary']);
+                          const pageId = searchKeys(contextData, ['pageId', 'pageID']);
+                          const sso = searchKeys(contextData, ['SSO', 'sso']);
+                          const deviceOutput = searchKeys(contextData, ['deviceOutput', 'device_output', 'device']);
+                          const appVersion = searchKeys(contextData, ['appVersion', 'version', 'app_version']);
+
+                          const display = (val) => (val === null || val === undefined || val === '' ? 'N/A' : String(val));
+
+                          return (
+                            <>
+                              <div className="text-sm font-semibold text-slate-700 max-w-xs text-right truncate" title={display(summary)}>
+                                {display(summary)}
+                              </div>
+                              <div className="text-xs text-slate-600">pageID: {display(pageId)}</div>
+                              <div className="text-xs text-slate-600">SSO: {display(sso)}</div>
+                              <div className="text-xs text-slate-600">deviceOutput: {display(deviceOutput)}</div>
+                              <div className="text-xs text-slate-600">appVersion: {display(appVersion)}</div>
+                            </>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Navigation Arrows */}
+                      <div className="flex items-center gap-3">
                       <Button
                         variant="ghost"
                         size="sm"
@@ -2237,7 +2552,7 @@ export function ConversationDetail({
                           )}
                         </div>
                       )}
-                      
+                      </div>
                     </div>
                     
                     <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-300">
@@ -2246,18 +2561,16 @@ export function ConversationDetail({
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <Label>Created</Label>
-                      <p className="text-sm">{formatTimestamp(fetchedConversation.createdAt)}</p>
-                    </div>
-                    <div>
-                      <Label>Last Message</Label>
-                      <p className="text-sm">{formatTimestamp(fetchedConversation.lastMessageAt)}</p>
-                    </div>
-                    <div>
-                      <Label>Thread Count</Label>
-                      <p className="text-sm">{fetchedConversation.threadIds?.length || 0} threads</p>
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-2">
+                      <div>
+                        <Label>Created</Label>
+                        <p className="text-sm">{formatTimestamp(fetchedConversation.createdAt)}</p>
+                      </div>
+                      <div>
+                        <Label>Last Message</Label>
+                        <p className="text-sm">{formatTimestamp(fetchedConversation.lastMessageAt)}</p>
+                      </div>
                     </div>
                   </div>
                 </CardContent>

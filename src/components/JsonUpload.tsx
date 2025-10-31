@@ -214,6 +214,7 @@ export function JsonUpload({ onDataUploaded, onDataCleared, initialData }: JsonU
     onDataCleared?.();
   }, [onDataCleared]);
 
+
   const getTypeColor = (type: string | null) => {
     switch (type) {
       case 'conversation': return 'bg-blue-100 text-blue-800';

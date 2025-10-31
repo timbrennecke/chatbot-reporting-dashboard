@@ -90,7 +90,7 @@ export function SavedChats({
       const fetchPromises = missingConversationIds.map(async (conversationId) => {
         try {
           const baseUrl = getApiBaseUrl();
-          const apiKey = getEnvironmentSpecificItem('chatbot-dashboard-api-key');
+          const apiKey = await getEnvironmentSpecificItem('chatbot-dashboard-api-key');
           if (!apiKey?.trim()) {
             console.warn('⚠️ No API key available for fetching conversation:', conversationId);
             return;
@@ -123,24 +123,29 @@ export function SavedChats({
   }, [savedConversationIds, uploadedConversations, uploadedThreads, fetchedConversationsMap, onConversationFetched]);
   
   // Notes state - environment-specific
-  const [notes, setNotes] = useState<Map<string, string>>(() => {
-    try {
-      const savedNotes = getEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes');
-      if (savedNotes) {
-        const notesData = JSON.parse(savedNotes);
-        return new Map(Object.entries(notesData));
+  const [notes, setNotes] = useState<Map<string, string>>(new Map());
+
+  // Load notes on mount
+  useEffect(() => {
+    const loadNotes = async () => {
+      try {
+        const savedNotes = await getEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes');
+        if (savedNotes) {
+          const notesData = JSON.parse(savedNotes);
+          setNotes(new Map(Object.entries(notesData)));
+        }
+      } catch (error) {
+        console.error('Failed to load saved chat notes:', error);
       }
-    } catch (error) {
-      console.error('Failed to load saved chat notes:', error);
-    }
-    return new Map();
-  });
+    };
+    loadNotes();
+  }, []);
 
   // Save notes to localStorage
-  const saveNotesToStorage = (notesMap: Map<string, string>) => {
+  const saveNotesToStorage = async (notesMap: Map<string, string>) => {
     try {
       const notesObject = Object.fromEntries(notesMap);
-      setEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes', JSON.stringify(notesObject));
+      await setEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes', JSON.stringify(notesObject));
     } catch (error) {
       console.error('Failed to save notes to localStorage:', error);
     }
