@@ -23,7 +23,6 @@ export function useConversationSearch() {
     try {
       const conversationId = conversationSearchId.trim();
       
-      // No more cache checking - fetch directly from API
       console.log('🌐 Fetching conversation from API');
       
       // Fetch the conversation

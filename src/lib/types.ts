@@ -1,7 +1,7 @@
 // Core API response types based on the exact schemas provided
 
 export interface MessageContent {
-  kind: 'text' | 'ui' | 'linkout';
+  kind: 'text' | 'ui' | 'linkout' | 'tool_use' | 'tool_call';
   content?: string;
   ui?: {
     interactive: boolean;
@@ -15,13 +15,24 @@ export interface MessageContent {
   };
   url?: string;
   text?: string;
+  tool_use?: {
+    name: string;
+    input: Record<string, any>;
+  };
+  tool_name?: string;
+  tool_call?: {
+    name: string;
+    arguments: Record<string, any>;
+  };
 }
 
 export interface Message {
   id: string;
-  role: 'assistant' | 'user' | 'system';
+  role: 'assistant' | 'user' | 'system' | 'status';
   content: MessageContent[];
   sentAt: string;
+  created_at?: string;
+  createdAt?: string;
 }
 
 export interface Conversation {

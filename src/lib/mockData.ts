@@ -191,6 +191,78 @@ export const mockThreadsResponse: ThreadsResponse = {
           }
         ]
       }
+    },
+    {
+      "thread": {
+        "id": "tools/01990f50-31de-72fd-89a6-d08b5b3d9a8c",
+        "conversationId": "01990f50-2c0a-76ff-8d8d-d13648d6bb17",
+        "createdAt": "2025-09-03T15:20:00.000Z",
+        "messages": [
+          {
+            "id": "system-tool-msg-1",
+            "role": "system",
+            "content": [
+              {
+                "kind": "text",
+                "content": "**Tool Name:** `search_database`\n**Description:** Searching customer database for relevant information\n**Status:** Completed successfully"
+              }
+            ],
+            "sentAt": "2025-09-03T15:20:01.000Z"
+          },
+          {
+            "id": "assistant-tool-msg-1",
+            "role": "assistant",
+            "content": [
+              {
+                "kind": "text",
+                "content": "I'll use the search_database tool to find your account information."
+              },
+              {
+                "kind": "tool_use",
+                "tool_use": {
+                  "name": "search_database",
+                  "input": {
+                    "query": "customer_id:12345",
+                    "fields": ["name", "email", "plan"]
+                  }
+                }
+              }
+            ],
+            "sentAt": "2025-09-03T15:20:02.000Z"
+          },
+          {
+            "id": "system-tool-msg-2",
+            "role": "system",
+            "content": [
+              {
+                "kind": "text",
+                "content": "**Tool Name:** `email_validator`\n**Description:** Validating email address format\n**Status:** Validation passed"
+              }
+            ],
+            "sentAt": "2025-09-03T15:20:03.000Z"
+          },
+          {
+            "id": "assistant-tool-msg-2",
+            "role": "assistant",
+            "content": [
+              {
+                "kind": "text",
+                "content": "Using the email_validator function to verify your contact information."
+              },
+              {
+                "kind": "tool_use",
+                "tool_use": {
+                  "name": "email_validator",
+                  "input": {
+                    "email": "customer@example.com"
+                  }
+                }
+              }
+            ],
+            "sentAt": "2025-09-03T15:20:04.000Z"
+          }
+        ]
+      }
     }
   ]
 };

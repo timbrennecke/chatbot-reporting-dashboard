@@ -27,9 +27,9 @@
     };
   }
 
-  export default defineConfig({
-    plugins: [react(), shutdownPlugin()],
-    resolve: {
+export default defineConfig({
+  plugins: [react(), shutdownPlugin()],
+  resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
       alias: {
         'vaul@1.1.2': 'vaul',

@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { Button } from './components/ui/button';
 
 import { AppHeader } from './components/layout/AppHeader';
@@ -65,6 +65,34 @@ export default function App() {
     handleApiKeyKeyDown,
   } = useEnvironmentManager();
 
+  // Notes state for async loading
+  const [initialNotes, setInitialNotes] = useState<string>('');
+
+  // Load notes when selectedConversationId changes
+  useEffect(() => {
+    const loadNotes = async () => {
+      if (!selectedConversationId) {
+        setInitialNotes('');
+        return;
+      }
+      
+      try {
+        const savedNotes = await getEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes');
+        if (savedNotes) {
+          const notesData = JSON.parse(savedNotes);
+          setInitialNotes(notesData[selectedConversationId] || '');
+        } else {
+          setInitialNotes('');
+        }
+      } catch (error) {
+        console.error('Failed to load notes:', error);
+        setInitialNotes('');
+      }
+    };
+    
+    loadNotes();
+  }, [selectedConversationId]);
+
   // Reset app state function
   const resetAppState = useCallback(() => {
     setSelectedConversationId(undefined);
@@ -108,8 +136,8 @@ export default function App() {
     handleApiKeyKeyDown(e, apiKey, setApiKey);
   }, [handleApiKeyKeyDown, apiKey, setApiKey]);
 
-  // Data management
-  const handleDataUploaded = useCallback((data: UploadedData) => {
+  // Data management - merge data in memory
+  const handleDataUploaded = useCallback(async (data: UploadedData) => {
     setUploadedData(prevData => {
       const merged: UploadedData = {
         conversations: [
@@ -302,12 +330,12 @@ export default function App() {
                 setThreadOrder(order);
                 threadOrderRef.current = order;
               }}
-              onConversationViewed={(conversationId) => {
+              onConversationViewed={async (conversationId) => {
                 try {
-                  const existingViewed = getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
+                  const existingViewed = await getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
                   const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
                   viewedSet.add(conversationId);
-                  setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
+                  await setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
                 } catch (error) {
                   console.error('Failed to save viewed conversation:', error);
                 }
@@ -366,9 +394,9 @@ export default function App() {
                   console.error('Failed to clear all saved chats:', error);
                 }
               }}
-              onNotesChange={(conversationId, notes) => {
+              onNotesChange={async (conversationId, notes) => {
                 try {
-                  const savedNotes = getEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes') || '{}';
+                  const savedNotes = await getEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes') || '{}';
                   const notesData = JSON.parse(savedNotes);
                   
                   if (notes.trim()) {
@@ -377,7 +405,7 @@ export default function App() {
                     delete notesData[conversationId];
                   }
                   
-                  setEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes', JSON.stringify(notesData));
+                  await setEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes', JSON.stringify(notesData));
                 } catch (error) {
                   console.error('Failed to save notes:', error);
                 }
@@ -427,7 +455,7 @@ export default function App() {
                   setSelectedThread(thread);
                 }
               }}
-              onPreviousConversation={() => {
+              onPreviousConversation={async () => {
                 if (!selectedConversationId) return;
                 
                 if (navigationContext === 'saved-chats') {
@@ -441,10 +469,10 @@ export default function App() {
                     
                     // Mark the new conversation as viewed
                     try {
-                      const existingViewed = getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
+                      const existingViewed = await getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
                       const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
                       viewedSet.add(previousConversationId);
-                      setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
+                      await setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
                     } catch (error) {
                       console.error('Failed to save viewed conversation:', error);
                     }
@@ -465,10 +493,10 @@ export default function App() {
                     
                     // Mark the new conversation as viewed
                     try {
-                      const existingViewed = getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
+                      const existingViewed = await getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
                       const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
                       viewedSet.add(previousConversationId);
-                      setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
+                      await setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
                     } catch (error) {
                       console.error('Failed to save viewed conversation:', error);
                     }
@@ -481,7 +509,7 @@ export default function App() {
                   }
                 }
               }}
-              onNextConversation={() => {
+              onNextConversation={async () => {
                 if (!selectedConversationId) return;
                 
                 if (navigationContext === 'saved-chats') {
@@ -495,10 +523,10 @@ export default function App() {
                     
                     // Mark the new conversation as viewed
                     try {
-                      const existingViewed = getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
+                      const existingViewed = await getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
                       const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
                       viewedSet.add(nextConversationId);
-                      setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
+                      await setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
                     } catch (error) {
                       console.error('Failed to save viewed conversation:', error);
                     }
@@ -519,10 +547,10 @@ export default function App() {
                     
                     // Mark the new conversation as viewed
                     try {
-                      const existingViewed = getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
+                      const existingViewed = await getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
                       const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
                       viewedSet.add(nextConversationId);
-                      setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
+                      await setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
                     } catch (error) {
                       console.error('Failed to save viewed conversation:', error);
                     }
@@ -592,21 +620,10 @@ export default function App() {
                   }
                 }
               }}
-              initialNotes={selectedConversationId ? (() => {
+              initialNotes={initialNotes}
+              onNotesChange={async (conversationId, notes) => {
                 try {
-                  const savedNotes = getEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes');
-                  if (savedNotes) {
-                    const notesData = JSON.parse(savedNotes);
-                    return notesData[selectedConversationId] || '';
-                  }
-                } catch (error) {
-                  console.error('Failed to load notes:', error);
-                }
-                return '';
-              })() : ''}
-              onNotesChange={(conversationId, notes) => {
-                try {
-                  const savedNotes = getEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes') || '{}';
+                  const savedNotes = await getEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes') || '{}';
                   const notesData = JSON.parse(savedNotes);
                   
                   if (notes.trim()) {
@@ -615,7 +632,7 @@ export default function App() {
                     delete notesData[conversationId];
                   }
                   
-                  setEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes', JSON.stringify(notesData));
+                  await setEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes', JSON.stringify(notesData));
                 } catch (error) {
                   console.error('Failed to save notes:', error);
                 }

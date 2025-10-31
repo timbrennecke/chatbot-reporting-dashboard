@@ -37,6 +37,59 @@ interface StatisticsProps {
   uploadedConversations?: any[];
 }
 
+// Helper function to extract workflows from conversation messages (same as other components)
+function extractWorkflowsFromConversation(conversation: any): Set<string> {
+  const workflows = new Set<string>();
+  
+  if (!conversation.messages) return workflows;
+  
+  conversation.messages.forEach((message: any) => {
+    // Look for workflows in system/status messages
+    if (message.role === 'system' || message.role === 'status') {
+      if (message.content) {
+        message.content.forEach((content: any) => {
+          if (content.text || content.content) {
+            const text = content.text || content.content || '';
+            
+            // Look for "Workflows ausgewählt" pattern
+            if (text.includes('Workflows ausgewählt')) {
+              // Look for "* **Workflows:** `workflow-name1, workflow-name2`" pattern
+              const workflowPattern = /\*\s*\*\*Workflows:\*\*\s*`([^`]+)`/gi;
+              const matches = text.matchAll(workflowPattern);
+              
+              for (const match of matches) {
+                const workflowsString = match[1];
+                if (workflowsString) {
+                  // Split by comma and clean up workflow names
+                  const workflowNames = workflowsString.split(',').map(w => w.trim()).filter(w => w.length > 0);
+                  workflowNames.forEach(workflowName => {
+                    if (workflowName.length > 1) {
+                      workflows.add(workflowName);
+                    }
+                  });
+                }
+              }
+            }
+            
+            // Also look for standalone workflow mentions in system messages
+            const standaloneWorkflowPattern = /workflow-[\w-]+/gi;
+            const standaloneMatches = text.matchAll(standaloneWorkflowPattern);
+            
+            for (const match of standaloneMatches) {
+              const workflowName = match[0];
+              if (workflowName && workflowName.length > 1) {
+                workflows.add(workflowName);
+              }
+            }
+          }
+        });
+      }
+    }
+  });
+  
+  return workflows;
+}
+
 export function Statistics({ threads, uploadedConversations = [] }: StatisticsProps) {
   
   // Time range state with localStorage persistence - using full days
@@ -83,10 +136,11 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
   const [lastSearchKey, setLastSearchKey] = useState<string>('');
   const [loadingProgress, setLoadingProgress] = useState({ current: 0, total: 0, currentDate: '' });
   const [showToolDetails, setShowToolDetails] = useState(false);
+  const [showWorkflowDetails, setShowWorkflowDetails] = useState(false);
 
   // Prevent background scrolling when modal is open
   useEffect(() => {
-    if (showToolDetails) {
+    if (showToolDetails || showWorkflowDetails) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = 'unset';
@@ -96,7 +150,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
     return () => {
       document.body.style.overflow = 'unset';
     };
-  }, [showToolDetails]);
+  }, [showToolDetails, showWorkflowDetails]);
 
   // Save statistics state to localStorage when it changes
   useEffect(() => {
@@ -139,57 +193,95 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
     setError(null);
 
     try {
-      const apiKey = getEnvironmentSpecificItem('chatbot-dashboard-api-key');
+      const apiKey = await getEnvironmentSpecificItem('chatbot-dashboard-api-key');
       if (!apiKey?.trim()) {
         throw new Error('API key is required');
       }
 
       const apiBaseUrl = getApiBaseUrl();
       
-      // Calculate time difference - use 6-hour chunking for optimal balance
+      // Calculate time difference - use smart chunking for optimal balance
       const timeDiff = endDate.getTime() - startDate.getTime();
       const hoursDiff = Math.ceil(timeDiff / (1000 * 60 * 60));
-      const chunksDiff = Math.ceil(hoursDiff / 6);
       
       let allConversations: any[] = [];
       
-      // Use 6-hour chunking to balance speed and reliability
-      console.log(`📊 Processing ${hoursDiff} hours (${chunksDiff} chunks) with 6-hour chunking...`);
+      // Smart chunking strategy based on typical usage patterns
+      // 00:00-11:59 (12h), 12:00-16:59 (5h), 17:00-18:59 (2h), 19:00-20:59 (2h), 21:00-23:59 (3h)
+      console.log(`📊 Processing ${hoursDiff} hours with smart chunking strategy...`);
       
       const chunks: Array<{start: Date, end: Date, dateStr: string}> = [];
       
-      // Create 6-hour chunks
-      let currentDate = new Date(startDate);
-      const endDateObj = new Date(endDate);
-      while (currentDate < endDateObj) {
-        let nextDate = new Date(currentDate);
-        nextDate.setHours(nextDate.getHours() + 6);
+      // Smart chunking function for a single day
+      const createDayChunks = (dayStart: Date) => {
+        const dayChunks: Array<{start: Date, end: Date, dateStr: string}> = [];
+        const year = dayStart.getFullYear();
+        const month = dayStart.getMonth();
+        const date = dayStart.getDate();
         
-        // Don't go past the end date
-        if (nextDate > endDateObj) {
-          nextDate = new Date(endDateObj);
-        }
+        // Define smart chunk periods for each day
+        const periods = [
+          { start: 0, end: 11, label: '00:00-11:59' },   // 12 hours - low activity
+          { start: 12, end: 16, label: '12:00-16:59' },  // 5 hours - moderate activity
+          { start: 17, end: 18, label: '17:00-18:59' },  // 2 hours - peak activity
+          { start: 19, end: 20, label: '19:00-20:59' },  // 2 hours - peak activity
+          { start: 21, end: 23, label: '21:00-23:59' }   // 3 hours - moderate activity
+        ];
         
-        const startHour = currentDate.getHours();
-        const endHour = nextDate.getHours();
-        chunks.push({
-          start: new Date(currentDate),
-          end: new Date(nextDate),
-          dateStr: `${currentDate.toLocaleDateString()} ${startHour}:00-${endHour}:00`
+        periods.forEach(period => {
+          const chunkStart = new Date(year, month, date, period.start, 0, 0);
+          const chunkEnd = new Date(year, month, date, period.end, 59, 59, 999);
+          
+          dayChunks.push({
+            start: chunkStart,
+            end: chunkEnd,
+            dateStr: `${chunkStart.toLocaleDateString()} ${period.label}`
+          });
         });
         
-        currentDate.setHours(currentDate.getHours() + 6);
+        return dayChunks;
+      };
+      
+      // Generate chunks for each day in the range
+      let currentDate = new Date(startDate);
+      currentDate.setHours(0, 0, 0, 0); // Start at beginning of day
+      
+      const endDateObj = new Date(endDate);
+      
+      while (currentDate <= endDateObj) {
+        const dayChunks = createDayChunks(currentDate);
+        
+        // Filter chunks to only include those that overlap with our time range
+        dayChunks.forEach(chunk => {
+          const chunkStart = new Date(Math.max(chunk.start.getTime(), startDate.getTime()));
+          const chunkEnd = new Date(Math.min(chunk.end.getTime(), endDate.getTime()));
+          
+          // Only add chunk if it has a valid time range
+          if (chunkStart < chunkEnd) {
+            chunks.push({
+              start: chunkStart,
+              end: chunkEnd,
+              dateStr: `${chunkStart.toLocaleDateString()} ${chunkStart.getHours()}:${chunkStart.getMinutes().toString().padStart(2, '0')}-${chunkEnd.getHours()}:${chunkEnd.getMinutes().toString().padStart(2, '0')}`
+            });
+          }
+        });
+        
+        // Move to next day
+        currentDate.setDate(currentDate.getDate() + 1);
       }
       
-      console.log(`📦 Processing ${chunks.length} 6-hour chunks`);
-      setLoadingProgress({ current: 0, total: chunks.length, currentDate: '' });
+      // Parallel processing with concurrency control (like ThreadPoolExecutor)
+      // Get concurrency setting from localStorage or use default
+      const savedConcurrency = localStorage.getItem('chatbot-dashboard-concurrency');
+      const CONCURRENT_REQUESTS = savedConcurrency ? parseInt(savedConcurrency, 10) : 5; // Number of parallel requests
       
-      // Process chunks with progress tracking
-      for (let i = 0; i < chunks.length; i++) {
-        const chunk = chunks[i];
-        setLoadingProgress({ current: i + 1, total: chunks.length, currentDate: chunk.dateStr });
-        
-        console.log(`📅 Chunk ${i + 1}/${chunks.length}: ${chunk.dateStr}`);
+      console.log(`📦 Processing ${chunks.length} smart chunks with parallel fetching (concurrency: ${CONCURRENT_REQUESTS})`);
+      setLoadingProgress({ current: 0, total: chunks.length, currentDate: '' });
+      let completedChunks = 0;
+      
+      // Function to process a single chunk
+      const processChunk = async (chunk: any, index: number) => {
+        console.log(`📅 Starting chunk ${index + 1}/${chunks.length}: ${chunk.dateStr}`);
         
         try {
           const response = await fetch(`${apiBaseUrl}/thread`, {
@@ -206,8 +298,15 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
           });
 
           if (!response.ok) {
-            console.warn(`⚠️ Chunk ${i + 1} (${chunk.dateStr}) failed: HTTP ${response.status}`);
-            continue; // Skip failed chunks but continue with others
+            console.warn(`⚠️ Chunk ${index + 1} (${chunk.dateStr}) failed: HTTP ${response.status}`);
+            // Update progress even for failed chunks
+            completedChunks++;
+            setLoadingProgress({ 
+              current: completedChunks, 
+              total: chunks.length, 
+              currentDate: `Failed: ${chunk.dateStr}` 
+            });
+            return { conversations: [], index, chunk };
           }
 
           const chunkData = await response.json();
@@ -223,21 +322,76 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
             threadCreatedAt: thread.createdAt
           }));
           
-          allConversations.push(...chunkConversations);
-          console.log(`✅ Chunk ${i + 1}/${chunks.length} (${chunk.dateStr}): +${chunkConversations.length} conversations (total: ${allConversations.length})`);
+          // Update progress immediately when chunk completes
+          completedChunks++;
+          setLoadingProgress({ 
+            current: completedChunks, 
+            total: chunks.length, 
+            currentDate: `Completed: ${chunk.dateStr}` 
+          });
           
-          // Small delay to be nice to the server
-          if (i < chunks.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-          }
+          console.log(`✅ Chunk ${index + 1}/${chunks.length} (${chunk.dateStr}): +${chunkConversations.length} conversations`);
+          return { conversations: chunkConversations, index, chunk };
           
         } catch (chunkError) {
-          console.warn(`⚠️ Chunk ${i + 1} (${chunk.dateStr}) error:`, chunkError);
-          // Continue with other chunks
+          const errorMessage = chunkError instanceof Error ? chunkError.message : 'Unknown error';
+          const isTimeout = errorMessage.includes('504') || errorMessage.includes('timeout');
+          
+          if (isTimeout) {
+            console.warn(`⚠️ Chunk ${index + 1} (${chunk.dateStr}) failed: HTTP 504 Gateway Timeout - Server overloaded or chunk too large`);
+          } else {
+            console.warn(`⚠️ Chunk ${index + 1} (${chunk.dateStr}) failed:`, errorMessage);
+          }
+          
+          // Update progress even for errored chunks
+          completedChunks++;
+          setLoadingProgress({ 
+            current: completedChunks, 
+            total: chunks.length, 
+            currentDate: `⚠️ ${isTimeout ? 'Timeout' : 'Error'}: ${chunk.dateStr}` 
+          });
+          return { conversations: [], index, chunk, error: errorMessage };
         }
+      };
+
+      // Process chunks sequentially to avoid overwhelming the server
+      const results: any[] = [];
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        console.log(`📅 Processing chunk ${i + 1}/${chunks.length} sequentially: ${chunk.dateStr}`);
+        
+        const result = await processChunk(chunk, i);
+        results.push(result);
+        
+        // Small delay between requests to be gentle on the server
+        if (i < chunks.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 100)); // 100ms delay
+        }
+        
+        console.log(`✅ Completed chunk ${i + 1}/${chunks.length}`);
       }
       
-      console.log(`🎉 6-hour chunking complete: ${allConversations.length} total conversations from ${chunks.length} chunks`);
+      // Sort results by original index to maintain order and collect all conversations
+      results.sort((a, b) => a.index - b.index);
+      
+      const failedChunks = results.filter(result => result.error);
+      const successfulChunks = results.filter(result => !result.error);
+      
+      results.forEach(result => {
+        allConversations.push(...result.conversations);
+      });
+      
+      if (failedChunks.length > 0) {
+        console.warn(`⚠️ Smart chunking completed with ${failedChunks.length} failed chunks:`);
+        failedChunks.forEach(failed => {
+          const isTimeout = failed.error?.includes('504') || failed.error?.includes('timeout');
+          console.warn(`   - ${failed.chunk.dateStr}: ${isTimeout ? 'Server timeout (504)' : failed.error}`);
+        });
+        console.log(`✅ Successfully loaded ${allConversations.length} conversations from ${successfulChunks.length}/${chunks.length} chunks`);
+      } else {
+        console.log(`🎉 Sequential chunking complete: ${allConversations.length} total conversations from ${chunks.length} chunks`);
+      }
+      
       setLoadingProgress({ current: 0, total: 0, currentDate: '' });
       
       setFetchedConversations(allConversations);
@@ -441,11 +595,9 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       : 0;
 
     // Calculate Kontaktquote (conversations with contact tools)
-    // Base contact tool patterns (without prefixes)
+    // Base contact tool patterns (without prefixes) - only the two tools we want to track
     const baseContactTools = [
-      'hotline-availability',
       'send-message-to-customer-service', 
-      'show-enter-phone-number',
       'callback'
     ];
     
@@ -498,6 +650,24 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
     
     // Debug: Comprehensive tool search across ALL messages and content types
     const allToolNames = new Set<string>();
+
+    // Local helper to normalize and validate tool names
+    const normalizeToolName = (raw: string | undefined | null): string | null => {
+      if (!raw) return null;
+      let name = String(raw).trim();
+      // Strip backticks/quotes/parentheses and trailing punctuation
+      name = name.replace(/^['"`(\s]+|[)\s'"`.:;,]+$/g, '');
+      name = name.replace(/`/g, '');
+      // Replace spaces with hyphens
+      name = name.replace(/\s+/g, '-');
+      // Allow only safe chars
+      name = name.replace(/[^A-Za-z0-9._-]/g, '-');
+      // Collapse multiple hyphens
+      name = name.replace(/-{2,}/g, '-');
+      if (!name || name.length < 2) return null;
+      if (!/[A-Za-z0-9]/.test(name)) return null;
+      return name;
+    };
     let contactToolsFound = new Set<string>();
     let totalMessagesChecked = 0;
     let messagesWithContent = 0;
@@ -516,53 +686,55 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
               // FIRST: Use the WORKING logic from ThreadsOverview
               if (message.role === 'system' || message.role === 'status') {
                 if (content.text || content.content) {
-                  const text = content.text || content.content || '';
+                  const text = (content.text || content.content || '').toString();
                   
-                  // Look specifically for "**Tool Name:**" pattern in system messages
-                  const toolNamePattern = /\*\*Tool Name:\*\*\s*`([^`]+)`/gi;
-                  const matches = text.matchAll(toolNamePattern);
-                  
-                  for (const match of matches) {
-                    const toolName = match[1];
-                    if (toolName && toolName.length > 1) {
-                      allToolNames.add(toolName);
-                    }
+                  // Look for "**Tool Name:** `name`" pattern
+                  for (const match of text.matchAll(/\*\*Tool Name:\*\*\s*`([^`]+)`/gi)) {
+                    const normalized = normalizeToolName(match[1]);
+                    if (normalized) allToolNames.add(normalized);
                   }
+                  // Also support messages like: Tool Call Initiated (`name`) / (name) / : name
+                  const initiatedPatterns = [
+                    /Tool\s*Call\s*Initiated[^`\w]*`([^`]+)`/gi,
+                    /Tool\s*Call\s*(?:Initiated|Completed)[:\s]*([A-Za-z0-9_\-.]+)/gi,
+                    /Calling\s+tool[:\s]*`([^`]+)`/gi,
+                    /Using\s+tool[:\s]*`([^`]+)`/gi
+                  ];
+                  initiatedPatterns.forEach((pattern) => {
+                    for (const m of text.matchAll(pattern)) {
+                      const normalized = normalizeToolName(m[1]);
+                      if (normalized) allToolNames.add(normalized);
+                    }
+                  });
                 }
               }
               
               // SECOND: Check for assistant message tool usage (SAME as ThreadsOverview)
               if (message.role === 'assistant' && content.tool_use) {
-                const toolName = content.tool_use.name;
-                if (toolName && toolName.length > 1) {
-                  allToolNames.add(toolName);
-                }
+                const normalized = normalizeToolName(content.tool_use.name);
+                if (normalized) allToolNames.add(normalized);
               }
               
               // THIRD: Check for other tool storage patterns
               if (content.kind === 'tool_use' && content.tool_name) {
-                allToolNames.add(content.tool_name);
+                const normalized = normalizeToolName(content.tool_name);
+                if (normalized) allToolNames.add(normalized);
               }
               if (content.type === 'tool_use' && content.name) {
-                allToolNames.add(content.name);
+                const normalized = normalizeToolName(content.name);
+                if (normalized) allToolNames.add(normalized);
               }
               if (content.tool && content.tool.name) {
-                allToolNames.add(content.tool.name);
+                const normalized = normalizeToolName(content.tool.name);
+                if (normalized) allToolNames.add(normalized);
               }
               if (content.function_call && content.function_call.name) {
-                allToolNames.add(content.function_call.name);
+                const normalized = normalizeToolName(content.function_call.name);
+                if (normalized) allToolNames.add(normalized);
               }
               
               // NEW: Check if tools are mentioned in the text content itself
-              if (content.text && typeof content.text === 'string') {
-                baseContactTools.forEach(tool => {
-                  if (content.text.toLowerCase().includes(tool.toLowerCase()) ||
-                      content.text.toLowerCase().includes(tool.replace(/-/g, '_').toLowerCase()) ||
-                      content.text.toLowerCase().includes(tool.replace(/-/g, ' ').toLowerCase())) {
-                    allToolNames.add(`text-mention:${tool}`);
-                  }
-                });
-              }
+              // Do not add loose text mentions into tool list (avoids odd names in details view)
             });
           }
           
@@ -617,67 +789,134 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       travelAgent: foundTravelAgentTools
     });
     
-    // SIMPLE APPROACH: If we found contact tools, check which conversations have them
-    const conversationsWithContactTools = fetchedConversations.filter(conversation => {
+    // TOOL-BASED APPROACH: Check for specific contact tools
+    console.log('🔍 Kontaktquote Debug: Starting tool-based contact analysis...');
+    const conversationsWithContactTools = fetchedConversations.filter((conversation, idx) => {
       if (!conversation.messages) return false;
       
-      // Check if ANY of the found contact tools appear in this conversation
-      return foundContactTools.some(contactToolName => {
-        return conversation.messages.some((message: any) => {
-          if (!message.content) return false;
-          
-          return message.content.some((content: any) => {
-            // Check system/status messages for tool definitions (most reliable)
-            if ((message.role === 'system' || message.role === 'status') && (content.text || content.content)) {
-              const text = content.text || content.content || '';
-              if (text.includes(`\`${contactToolName}\``)) {
-                contactToolsFound.add(contactToolName);
-                return true;
+      // Look for specific contact tools
+      let hasContactTool = false;
+      const foundTools = new Set<string>();
+      
+      conversation.messages.forEach((message: any) => {
+        if (message.role === 'system' || message.role === 'status') {
+          if (message.content) {
+            message.content.forEach((content: any) => {
+              if (content.text || content.content) {
+                const text = content.text || content.content || '';
+                
+                // Look for "**Tool Name:**" pattern with specific tools
+                const toolNamePattern = /\*\*Tool Name:\*\*\s*`([^`]+)`/gi;
+                const matches = text.matchAll(toolNamePattern);
+                
+                for (const match of matches) {
+                  const toolNameRaw = match[1];
+                  const toolName = normalizeToolName(toolNameRaw) || toolNameRaw;
+                  foundTools.add(toolName);
+                  
+                  // Check for specific contact tools using flexible pattern matching
+                  if (isContactTool(toolName)) {
+                    hasContactTool = true;
+                    if (idx < 3) {
+                      console.log(`✅ Found contact tool in conversation ${idx}: ${toolName}`);
+                    }
+                    break;
+                  }
+                }
+
+                // Also support text patterns like Tool Call Initiated/Completed and Calling/Using tool
+                if (!hasContactTool) {
+                  const initiatedPatterns = [
+                    /Tool\s*Call\s*(?:Initiated|Completed)[^`\w]*`([^`]+)`/gi,
+                    /Tool\s*Call\s*(?:Initiated|Completed)[^A-Za-z0-9_-]*\(([^)]+)\)/gi,
+                    /Tool\s*Call\s*(?:Initiated|Completed)[:\s]*([A-Za-z0-9_\-.]+)/gi,
+                    /Calling\s+tool[:\s]*`([^`]+)`/gi,
+                    /Using\s+tool[:\s]*`([^`]+)`/gi
+                  ];
+                  for (let p = 0; p < initiatedPatterns.length && !hasContactTool; p++) {
+                    const re = initiatedPatterns[p];
+                    for (const m of text.matchAll(re)) {
+                      const raw = m[1];
+                      const name = normalizeToolName(raw) || raw;
+                      foundTools.add(name);
+                      if (isContactTool(name)) {
+                        hasContactTool = true;
+                        if (idx < 3) console.log(`✅ Found contact tool (initiated pattern) in conversation ${idx}: ${name}`);
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+            });
+          }
+        }
+        
+        // Also check assistant message tool usage
+        if (message.role === 'assistant' && message.content) {
+          message.content.forEach((content: any) => {
+            if (content.tool_use && content.tool_use.name) {
+              const toolName = normalizeToolName(content.tool_use.name) || content.tool_use.name;
+              foundTools.add(toolName);
+              
+              if (isContactTool(toolName)) {
+                hasContactTool = true;
+                if (idx < 3) {
+                  console.log(`✅ Found contact tool in assistant message ${idx}: ${toolName}`);
+                }
               }
             }
-            
-            // Check assistant messages for tool usage
-            if (message.role === 'assistant' && content.tool_use && content.tool_use.name === contactToolName) {
-              contactToolsFound.add(contactToolName);
-              return true;
+
+            // Assistant text-based mentions
+            if ((content.text || content.content) && !hasContactTool) {
+              const text = (content.text || content.content || '').toString();
+              const initiatedPatterns = [
+                /Tool\s*Call\s*(?:Initiated|Completed)[^`\w]*`([^`]+)`/gi,
+                /Tool\s*Call\s*(?:Initiated|Completed)[^A-Za-z0-9_-]*\(([^)]+)\)/gi,
+                /Tool\s*Call\s*(?:Initiated|Completed)[:\s]*([A-Za-z0-9_\-.]+)/gi,
+                /Calling\s+tool[:\s]*`([^`]+)`/gi,
+                /Using\s+tool[:\s]*`([^`]+)`/gi
+              ];
+              for (let p = 0; p < initiatedPatterns.length && !hasContactTool; p++) {
+                const re = initiatedPatterns[p];
+                for (const m of text.matchAll(re)) {
+                  const raw = m[1];
+                  const name = normalizeToolName(raw) || raw;
+                  foundTools.add(name);
+                  if (isContactTool(name)) {
+                    hasContactTool = true;
+                    if (idx < 3) console.log(`✅ Found contact tool (assistant text) in conversation ${idx}: ${name}`);
+                    break;
+                  }
+                }
+              }
             }
-            
-            return false;
+
+            // Assistant tool_use in alt schema
+            if (content.kind === 'tool_use' && content.tool_name) {
+              const name = normalizeToolName(content.tool_name) || content.tool_name;
+              foundTools.add(name);
+              if (isContactTool(name)) {
+                hasContactTool = true;
+                if (idx < 3) console.log(`✅ Found contact tool (assistant tool_use.kind) in conversation ${idx}: ${name}`);
+              }
+            }
           });
-        });
+        }
       });
+      
+      if (idx < 3 && foundTools.size > 0) {
+        console.log(`🔧 Conversation ${idx} tools found:`, Array.from(foundTools));
+      }
+      
+      return hasContactTool;
     });
     
-    // SIMPLE APPROACH: If we found travel agent tools, check which conversations have them
-    let travelAgentToolsFound = new Set<string>();
+    console.log(`📊 Kontaktquote Result: ${conversationsWithContactTools.length}/${fetchedConversations.length} conversations with contact tools`);
+    
     const conversationsWithTravelAgentTools = fetchedConversations.filter(conversation => {
-      if (!conversation.messages) return false;
-      
-      // Check if ANY of the found travel agent tools appear in this conversation
-      return foundTravelAgentTools.some(travelAgentToolName => {
-        return conversation.messages.some((message: any) => {
-          if (!message.content) return false;
-          
-          return message.content.some((content: any) => {
-            // Check system/status messages for tool definitions (most reliable)
-            if ((message.role === 'system' || message.role === 'status') && (content.text || content.content)) {
-              const text = content.text || content.content || '';
-              if (text.includes(`\`${travelAgentToolName}\``)) {
-                travelAgentToolsFound.add(travelAgentToolName);
-                return true;
-              }
-            }
-            
-            // Check assistant messages for tool usage
-            if (message.role === 'assistant' && content.tool_use && content.tool_use.name === travelAgentToolName) {
-              travelAgentToolsFound.add(travelAgentToolName);
-              return true;
-            }
-            
-            return false;
-          });
-        });
-      });
+      const workflows = extractWorkflowsFromConversation(conversation);
+      return workflows.has('workflow-travel-agent');
     });
     
     const kontaktquote = fetchedConversations.length > 0 
@@ -690,8 +929,8 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       
     // Only log detailed info if we have data
     if (fetchedConversations.length > 0) {
-      console.log(`📊 Kontaktquote: ${conversationsWithContactTools.length}/${fetchedConversations.length} (${kontaktquote}%)`);
-      console.log(`🧳 Travel Agent Quote: ${conversationsWithTravelAgentTools.length}/${fetchedConversations.length} (${travelAgentQuote}%)`);
+      console.log(`📊 Kontaktquote (workflow-based): ${conversationsWithContactTools.length}/${fetchedConversations.length} (${kontaktquote}%)`);
+      console.log(`🧳 Travel Agent Quote (workflow-based): ${conversationsWithTravelAgentTools.length}/${fetchedConversations.length} (${travelAgentQuote}%)`);
       
       // Debug: Check message structure
       const sampleConv = fetchedConversations[0];
@@ -788,19 +1027,56 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
     }));
     
     combinedThreads.push(...threadsFromFetched);
-    
-    console.log('🔧 Tool analysis STARTING - using combined threads data (same as ThreadsOverview):', {
-      threadsLength: threads.length,
-      fetchedConversationsLength: fetchedConversations.length,
-      combinedThreadsLength: combinedThreads.length,
-      allConversationsLength: allConversations.length,
-      uploadedConversationsLength: uploadedConversations.length,
-      sampleThread: threads[0],
-      sampleFetchedThread: threadsFromFetched[0],
-      sampleAllConversation: allConversations[0],
-      sampleUploadedConversation: uploadedConversations[0]
-    });
 
+    // Normalizer available before any mapping logic
+    function normalizeTool(raw: string): string | null {
+      if (!raw) return null;
+      let name = String(raw).trim();
+      name = name.replace(/^['"`(\s]+|[)\s'"`.:;,]+$/g, '');
+      name = name.replace(/`/g, '');
+      name = name.replace(/\s+/g, '-');
+      name = name.replace(/[^A-Za-z0-9._-]/g, '-');
+      name = name.replace(/-{2,}/g, '-');
+      if (!name || name.length < 2) return null;
+      if (!/[A-Za-z0-9]/.test(name)) return null;
+      return name;
+    }
+
+    // Pre-scan: Build ToolCallID -> ToolName map from status/assistant texts
+    const toolCallIdToName = new Map<string, string>();
+    const mapToolId = (id: string | null | undefined, name: string | null | undefined) => {
+      const normName = normalizeTool(name || '') || null;
+      if (id && normName) toolCallIdToName.set(id, normName);
+    };
+    const idNamePatterns: RegExp[] = [
+      /\*\*Tool Name:\*\*\s*`([^`]+)`[\s\S]*?\*\*Tool Call ID:\*\*\s*`([^`]+)`/gi,
+      /\*\*Tool Call ID:\*\*\s*`([^`]+)`[\s\S]*?\*\*Tool Name:\*\*\s*`([^`]+)`/gi,
+      /Tool\s*Call\s*(?:Initiated|Completed)[^`]*`([^`]+)`[\s\S]*?(?:ID|Id|id)[:\s]*`([^`]+)`/gi,
+      /Tool\s*Call\s*(?:Initiated|Completed)[^)]*\(([^)]+)\)[\s\S]*?(?:ID|Id|id)[:\s]*`([^`]+)`/gi
+    ];
+    combinedThreads.forEach(t => {
+      (t.messages || []).forEach((m: any) => {
+        (m.content || []).forEach((c: any) => {
+          const text = (c?.text || c?.content || '').toString();
+          if (!text) return;
+          for (let r = 0; r < idNamePatterns.length; r++) {
+            const re = idNamePatterns[r];
+            const matches = Array.from(text.matchAll(re));
+            for (let k = 0; k < matches.length; k++) {
+              const a = matches[k][1];
+              const b = matches[k][2];
+              // Patterns may be (name,id) or (id,name); try both
+              if (r === 0 || r === 2 || r === 3) {
+                mapToolId(b, a);
+              } else {
+                mapToolId(a, b);
+              }
+            }
+          }
+        });
+      });
+    });
+    
     const toolAnalysis: { [toolName: string]: { count: number; responseTimes: number[] } } = {};
     let totalToolCalls = 0;
 
@@ -838,7 +1114,8 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
           message.content.forEach((content: any, contentIndex: number) => {
             // Check if it's a tool_call object
             if (content.kind === 'tool_call' && content.tool_name) {
-              const toolName = content.tool_name;
+              const normalizedName = normalizeTool(content.tool_name);
+              const toolName = normalizedName || content.tool_name;
               console.log(`🔧 Found tool call (object): ${toolName}`);
               totalToolCalls++;
               
@@ -893,10 +1170,11 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                   totalToolCalls++;
                   foundToolName = true;
                   
-                  if (!toolAnalysis[toolName]) {
-                    toolAnalysis[toolName] = { count: 0, responseTimes: [] };
+                  const normalizedName = normalizeTool(toolName) || toolName;
+                  if (!toolAnalysis[normalizedName]) {
+                    toolAnalysis[normalizedName] = { count: 0, responseTimes: [] };
                   }
-                  toolAnalysis[toolName].count++;
+                  toolAnalysis[normalizedName].count++;
                   
                   // Calculate response time
                   const toolCallTime = new Date(message.created_at || message.createdAt || message.sentAt).getTime();
@@ -908,7 +1186,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                       const timeDiff = (responseTime - toolCallTime) / 1000;
                       
                       if (timeDiff > 0) {
-                        toolAnalysis[toolName].responseTimes.push(timeDiff);
+                        toolAnalysis[normalizedName].responseTimes.push(timeDiff);
                         console.log(`🔧 Tool ${toolName} response time: ${timeDiff}s`);
                       }
                       break;
@@ -919,34 +1197,75 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
               
               // Try alternative patterns if Tool Name pattern didn't work
               if (!foundToolName) {
-                // Pattern 1: Look for tool_use objects mentioned in text
-                const toolUsePattern = /"name":\s*"([^"]+)"/gi;
-                const toolUseMatches = textContent.matchAll(toolUsePattern);
-                
-                for (const match of toolUseMatches) {
-                  const toolName = match[1];
-                  if (toolName && toolName.length > 1) {
-                    console.log(`🔧 Found tool: ${toolName} (from tool_use name pattern)`);
-                    totalToolCalls++;
-                    foundToolName = true;
-                    
-                    if (!toolAnalysis[toolName]) {
-                      toolAnalysis[toolName] = { count: 0, responseTimes: [] };
+                // 1) Text-based initiated/completed patterns
+                const initiatedPatterns = [
+                  /Tool\s*Call\s*(?:Initiated|Completed)[^`\w]*`([^`]+)`/gi,
+                  /Tool\s*Call\s*(?:Initiated|Completed)[^A-Za-z0-9_-]*\(([^)]+)\)/gi,
+                  /Tool\s*Call\s*(?:Initiated|Completed)[:\s]*([A-Za-z0-9_\-.]+)/gi,
+                  /Calling\s+tool[:\s]*`([^`]+)`/gi,
+                  /Using\s+tool[:\s]*`([^`]+)`/gi
+                ];
+                for (let p = 0; p < initiatedPatterns.length && !foundToolName; p++) {
+                  const pat = initiatedPatterns[p];
+                  const matches = Array.from(textContent.matchAll(pat));
+                  for (let m = 0; m < matches.length; m++) {
+                    const toolName = matches[m][1];
+                    if (toolName && toolName.length > 1) {
+                      totalToolCalls++;
+                      foundToolName = true;
+                      const normalizedName = normalizeTool(toolName) || toolName;
+                      if (!toolAnalysis[normalizedName]) {
+                        toolAnalysis[normalizedName] = { count: 0, responseTimes: [] };
+                      }
+                      toolAnalysis[normalizedName].count++;
+                      const toolCallTime = new Date(message.created_at || message.createdAt || message.sentAt).getTime();
+                      for (let j = i + 1; j < messages.length; j++) {
+                        const nextMessage = messages[j];
+                        if (nextMessage.role === 'assistant') {
+                          const responseTime = new Date(nextMessage.created_at || nextMessage.createdAt || nextMessage.sentAt).getTime();
+                          const timeDiff = (responseTime - toolCallTime) / 1000;
+                          if (timeDiff > 0 && timeDiff < 300) {
+                            toolAnalysis[normalizedName].responseTimes.push(timeDiff);
+                          }
+                          break;
+                        }
+                      }
+                      break;
                     }
-                    toolAnalysis[toolName].count++;
-                    
-                    // Calculate response time
-                    const toolCallTime = new Date(message.created_at || message.createdAt || message.sentAt).getTime();
-                    
-                    for (let j = i + 1; j < messages.length; j++) {
-                      const nextMessage = messages[j];
-                      if (nextMessage.role === 'assistant') {
-                        const responseTime = new Date(nextMessage.created_at || nextMessage.createdAt || nextMessage.sentAt).getTime();
-                        const timeDiff = (responseTime - toolCallTime) / 1000;
-                        
-                        if (timeDiff > 0 && timeDiff < 300) {
-                          toolAnalysis[toolName].responseTimes.push(timeDiff);
-                          console.log(`🔧 Tool ${toolName} response time: ${timeDiff}s`);
+                  }
+                }
+
+                // 2) Safer JSON-ish blocks: ensure name is within tool_use/tool_call/function_call
+                if (!foundToolName) {
+                  const patternList = [
+                    /"tool_use"\s*:\s*\{[\s\S]*?"name"\s*:\s*"([^"]+)"/gi,
+                    /"tool_call"\s*:\s*\{[\s\S]*?"name"\s*:\s*"([^"]+)"/gi,
+                    /"function_call"\s*:\s*\{[\s\S]*?"name"\s*:\s*"([^"]+)"/gi
+                  ];
+                  for (let p = 0; p < patternList.length && !foundToolName; p++) {
+                    const pat = patternList[p];
+                    const matches = Array.from(textContent.matchAll(pat));
+                    for (let m = 0; m < matches.length; m++) {
+                      const toolName = matches[m][1];
+                      if (toolName && toolName.length > 1) {
+                        totalToolCalls++;
+                        foundToolName = true;
+                        const normalizedName = normalizeTool(toolName) || toolName;
+                        if (!toolAnalysis[normalizedName]) {
+                          toolAnalysis[normalizedName] = { count: 0, responseTimes: [] };
+                        }
+                        toolAnalysis[normalizedName].count++;
+                        const toolCallTime = new Date(message.created_at || message.createdAt || message.sentAt).getTime();
+                        for (let j = i + 1; j < messages.length; j++) {
+                          const nextMessage = messages[j];
+                          if (nextMessage.role === 'assistant') {
+                            const responseTime = new Date(nextMessage.created_at || nextMessage.createdAt || nextMessage.sentAt).getTime();
+                            const timeDiff = (responseTime - toolCallTime) / 1000;
+                            if (timeDiff > 0 && timeDiff < 300) {
+                              toolAnalysis[normalizedName].responseTimes.push(timeDiff);
+                            }
+                            break;
+                          }
                         }
                         break;
                       }
@@ -957,35 +1276,34 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
               
               // Fallback: If no Tool Name pattern found, look for Tool Call ID as backup
               if (!foundToolName && textContent.includes('**Tool Call ID:**')) {
-                const toolCallIdMatches = textContent.match(/\*\*Tool Call ID:\*\*\s*`([^`]+)`/g);
-                if (toolCallIdMatches) {
-                  toolCallIdMatches.forEach((match, index) => {
-                    const toolName = `Generic Tool Call ${totalToolCalls + 1}`;
-                    console.log(`🔧 Found generic tool call: ${toolName}`);
-                    totalToolCalls++;
-                    
-                    if (!toolAnalysis[toolName]) {
-                      toolAnalysis[toolName] = { count: 0, responseTimes: [] };
+                const idMatches = Array.from(textContent.matchAll(/\*\*Tool Call ID:\*\*\s*`([^`]+)`/gi));
+                if (idMatches.length > 0) {
+                  for (let idx = 0; idx < idMatches.length; idx++) {
+                    const callId = idMatches[idx][1];
+                    const mappedName = toolCallIdToName.get(callId);
+                    // If we cannot resolve the ID to a tool name anywhere, skip adding an unknown bucket
+                    if (!mappedName) {
+                      continue;
                     }
-                    toolAnalysis[toolName].count++;
-                    
-                    // Calculate response time
+                    totalToolCalls++;
+                    if (!toolAnalysis[mappedName]) {
+                      toolAnalysis[mappedName] = { count: 0, responseTimes: [] };
+                    }
+                    toolAnalysis[mappedName].count++;
                     const toolCallTime = new Date(message.created_at || message.createdAt || message.sentAt).getTime();
-                    
                     for (let j = i + 1; j < messages.length; j++) {
                       const nextMessage = messages[j];
                       if (nextMessage.role === 'assistant') {
                         const responseTime = new Date(nextMessage.created_at || nextMessage.createdAt || nextMessage.sentAt).getTime();
                         const timeDiff = (responseTime - toolCallTime) / 1000;
-                        
                         if (timeDiff > 0 && timeDiff < 300) {
-                          toolAnalysis[toolName].responseTimes.push(timeDiff);
-                          console.log(`🔧 Tool ${toolName} response time: ${timeDiff}s`);
+                          toolAnalysis[mappedName].responseTimes.push(timeDiff);
+                          console.log(`🔧 Tool ${mappedName} response time: ${timeDiff}s`);
                         }
                         break;
                       }
                     }
-                  });
+                  }
                 }
               }
             }
@@ -1198,6 +1516,95 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
     };
   }, [threads, fetchedConversations]);
 
+  // Calculate workflow statistics - similar to tool stats but for workflows
+  const workflowStats = useMemo(() => {
+    // Create combined dataset like we do for tools
+    const combinedThreads = [...threads];
+    
+    // Convert fetchedConversations to thread format
+    const threadsFromFetched = fetchedConversations.map(conv => ({
+      id: conv.id,
+      conversationId: conv.id,
+      messages: conv.messages || [],
+      createdAt: conv.created_at || conv.createdAt,
+      updatedAt: conv.updated_at || conv.updatedAt
+    }));
+    
+    combinedThreads.push(...threadsFromFetched);
+    
+    const workflowThreadCounts = new Map<string, Set<string>>(); // Map workflow name to set of thread IDs
+    
+    // Extract workflows from threads using the same logic as ThreadsOverview
+    combinedThreads.forEach(thread => {
+      const threadWorkflows = new Set<string>(); // Workflows found in this specific thread
+      
+      thread.messages.forEach(message => {
+        // Look for workflows in system/status messages
+        if (message.role === 'system' || message.role === 'status') {
+          message.content.forEach(content => {
+            if (content.text || content.content) {
+              const text = content.text || content.content || '';
+              
+              // Look for "Workflows ausgewählt" pattern
+              if (text.includes('Workflows ausgewählt')) {
+                // Look for "* **Workflows:** `workflow-name1, workflow-name2`" pattern
+                const workflowPattern = /\*\s*\*\*Workflows:\*\*\s*`([^`]+)`/gi;
+                const matches = text.matchAll(workflowPattern);
+                
+                for (const match of matches) {
+                  const workflowsString = match[1];
+                  if (workflowsString) {
+                    // Split by comma and clean up workflow names
+                    const workflows = workflowsString.split(',').map(w => w.trim()).filter(w => w.length > 0);
+                    workflows.forEach(workflowName => {
+                      if (workflowName.length > 1) {
+                        threadWorkflows.add(workflowName);
+                      }
+                    });
+                  }
+                }
+              }
+              
+              // Also look for standalone workflow mentions in system messages
+              const standaloneWorkflowPattern = /workflow-[\w-]+/gi;
+              const standaloneMatches = text.matchAll(standaloneWorkflowPattern);
+              
+              for (const match of standaloneMatches) {
+                const workflowName = match[0];
+                if (workflowName && workflowName.length > 1) {
+                  threadWorkflows.add(workflowName);
+                }
+              }
+            }
+          });
+        }
+      });
+      
+      // Add this thread ID to each workflow it contains
+      threadWorkflows.forEach(workflowName => {
+        if (!workflowThreadCounts.has(workflowName)) {
+          workflowThreadCounts.set(workflowName, new Set());
+        }
+        workflowThreadCounts.get(workflowName)!.add(thread.id);
+      });
+    });
+
+    // Convert to array and sort by count (descending)
+    const workflowDetails = Array.from(workflowThreadCounts.entries())
+      .map(([name, threadSet]) => ({ name, count: threadSet.size }))
+      .sort((a, b) => b.count - a.count);
+    
+    const totalWorkflowUsage = workflowDetails.reduce((sum, workflow) => sum + workflow.count, 0);
+    const mostUsedWorkflow = workflowDetails.length > 0 ? workflowDetails[0].name : '';
+
+    return {
+      totalWorkflowUsage,
+      uniqueWorkflows: workflowDetails.length,
+      mostUsedWorkflow,
+      workflowDetails
+    };
+  }, [threads, fetchedConversations]);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -1387,6 +1794,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
         </CardContent>
       </Card>
 
+
       {/* Error Display */}
       {error && (
         <Card className="border-red-200 bg-red-50">
@@ -1468,7 +1876,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
         </div>
       )}
 
-      {/* Tool Details Section */}
+      {/* Tool & Workflow Details Section */}
       {stats.fetchedConversationsCount > 0 && (
         <Card className="shadow-lg border-2 border-green-100">
           <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50 border-b">
@@ -1478,13 +1886,41 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                   <Activity className="h-6 w-6 text-green-600" />
                 </div>
                 <div>
-                  <CardTitle className="text-xl text-gray-900">🔧 Tool Analysis</CardTitle>
+                  <CardTitle className="text-xl text-gray-900">🔧 Tool & Workflow Analysis</CardTitle>
                   <CardDescription className="text-gray-600">
-                    Individual tool usage and response times
+                    Individual tool usage, response times, and workflow patterns
                   </CardDescription>
                 </div>
               </div>
-              <button
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowWorkflowDetails(true)}
+                  style={{
+                    backgroundColor: '#7c3aed',
+                    color: 'white',
+                    border: '1px solid #7c3aed',
+                    borderRadius: '6px',
+                    padding: '8px 16px',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)'
+                  }}
+                  onMouseOver={(e) => {
+                    e.currentTarget.style.backgroundColor = '#6d28d9';
+                    e.currentTarget.style.borderColor = '#6d28d9';
+                  }}
+                  onMouseOut={(e) => {
+                    e.currentTarget.style.backgroundColor = '#7c3aed';
+                    e.currentTarget.style.borderColor = '#7c3aed';
+                  }}
+                >
+                  🔄 View Workflow Details
+                </button>
+                <button
                 onClick={() => {
                   console.log('🔧 BUTTON CLICKED - Debug info:', {
                     allConversationsLength: allConversations.length,
@@ -1569,23 +2005,14 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
               >
                 📊 View Tool Details
               </button>
+              </div>
             </div>
           </CardHeader>
           <CardContent className="p-6 bg-white">
             <div className="text-center py-4">
-              <div className="mb-4">
-                <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-50 rounded-lg border border-green-200">
-                  <Activity className="h-5 w-5 text-green-600" />
-                  <span className="text-lg font-semibold text-green-700">
-                    {toolStats.toolDetails.length > 0 
-                      ? `${toolStats.toolDetails.length} tools detected`
-                      : 'Analyzing tool usage...'
-                    }
-                  </span>
-                </div>
-              </div>
               <p className="text-gray-600 max-w-md mx-auto">
-                Click "View Tool Details" to see individual tool usage patterns, response times, and detailed analytics for each tool used in your conversations.
+                Click "View Tool Details" to see individual tool usage patterns, response times, and detailed analytics for each tool used in your conversations. 
+                Click "View Workflow Details" to see workflow usage patterns and statistics.
               </p>
             </div>
           </CardContent>
@@ -1803,6 +2230,194 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
         </div>
       )}
 
+      {/* Workflow Details Modal - Simple Overlay */}
+      {showWorkflowDetails && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            zIndex: 99999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px'
+          }}
+          onClick={() => setShowWorkflowDetails(false)}
+        >
+          <div 
+            style={{
+              backgroundColor: 'white',
+              borderRadius: '8px',
+              width: '100%',
+              maxWidth: '800px',
+              maxHeight: '80vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{
+              padding: '16px',
+              borderBottom: '1px solid #e5e7eb',
+              backgroundColor: '#f3e8ff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderTopLeftRadius: '8px',
+              borderTopRightRadius: '8px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '18px' }}>🔄</span>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '600', color: '#111827' }}>
+                  Workflow Analysis Results
+                </h3>
+                <span style={{ fontSize: '14px', color: '#6b7280' }}>
+                  ({workflowStats.workflowDetails.length} workflows)
+                </span>
+              </div>
+              <button
+                onClick={() => setShowWorkflowDetails(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '20px',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  color: '#6b7280'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            
+            {/* Summary */}
+            <div style={{
+              padding: '16px',
+              backgroundColor: '#f9fafb',
+              borderBottom: '1px solid #e5e7eb'
+            }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#7c3aed' }}>
+                    {workflowStats.totalWorkflowUsage}
+                  </div>
+                  <div style={{ fontSize: '14px', color: '#6b7280' }}>Total Usage</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#059669' }}>
+                    {workflowStats.uniqueWorkflows}
+                  </div>
+                  <div style={{ fontSize: '14px', color: '#6b7280' }}>Unique Workflows</div>
+                </div>
+              </div>
+              
+            </div>
+            
+            {/* Scrollable Table */}
+            <div style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: '16px'
+            }}>
+              {workflowStats.workflowDetails.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+                  <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔄</div>
+                  <h3 style={{ margin: '0 0 8px 0', color: '#111827' }}>No Workflows Found</h3>
+                  <p style={{ margin: 0 }}>No workflows were detected in the analyzed conversations.</p>
+                </div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
+                      <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: '14px', fontWeight: '600', color: '#111827' }}>
+                        #
+                      </th>
+                      <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: '14px', fontWeight: '600', color: '#111827' }}>
+                        Workflow Name
+                      </th>
+                      <th style={{ textAlign: 'center', padding: '8px 12px', fontSize: '14px', fontWeight: '600', color: '#111827' }}>
+                        Usage Count
+                      </th>
+                      <th style={{ textAlign: 'center', padding: '8px 12px', fontSize: '14px', fontWeight: '600', color: '#111827' }}>
+                        Percentage
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {workflowStats.workflowDetails.map((workflow, index) => (
+                      <tr 
+                        key={workflow.name} 
+                        style={{ 
+                          borderBottom: '1px solid #f3f4f6',
+                          backgroundColor: index % 2 === 0 ? '#ffffff' : '#f9fafb'
+                        }}
+                      >
+                        <td style={{ padding: '8px 12px' }}>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '20px',
+                            height: '20px',
+                            fontSize: '12px',
+                            backgroundColor: '#e0e7ff',
+                            color: '#3730a3',
+                            borderRadius: '50%',
+                            fontWeight: '600'
+                          }}>
+                            {index + 1}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px 12px' }}>
+                          <span style={{ fontWeight: '500', color: '#111827', fontSize: '14px' }}>
+                            {workflow.name}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '2px 8px',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            backgroundColor: '#e0e7ff',
+                            color: '#3730a3',
+                            borderRadius: '4px'
+                          }}>
+                            {workflow.count}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                          <div style={{
+                            display: 'inline-block',
+                            padding: '2px 8px',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            backgroundColor: '#dcfce7',
+                            color: '#166534',
+                            borderRadius: '4px'
+                          }}>
+                            {workflowStats.totalWorkflowUsage > 0 
+                              ? Math.round((workflow.count / workflowStats.totalWorkflowUsage) * 100)
+                              : 0
+                            }%
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Debug Info - Show data status */}
       {isLoading && (
         <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
@@ -1832,7 +2447,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                 </div>
                 
                 <p className="text-xs text-blue-600">
-                  Processing data in 6-hour chunks to avoid timeouts...
+                  Processing data with smart chunking to avoid timeouts...
                 </p>
               </div>
             )}
@@ -1848,16 +2463,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
         </div>
       )}
 
-      {/* Debug: Show data loading status */}
-      {!isLoading && stats.fetchedConversationsCount > 0 && (
-        <div className="bg-green-50 rounded-lg p-3 border border-green-200 text-sm">
-          <p className="text-green-700">
-            ✅ Data loaded: {stats.fetchedConversationsCount} conversations analyzed | 
-            Chart data points: {conversationsPerDay.length} | 
-            {conversationsPerDay.length > 0 ? 'Graph should appear below' : 'No daily data for chart'}
-          </p>
-        </div>
-      )}
 
       {/* Conversations per Day Chart - Enhanced */}
       {stats.fetchedConversationsCount > 0 && conversationsPerDay.length > 0 && (
