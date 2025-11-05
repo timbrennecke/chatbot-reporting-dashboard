@@ -6,7 +6,7 @@ import {
 } from '../lib/api';
 
 export function useEnvironmentManager() {
-  const handleEnvironmentChange = useCallback((
+  const handleEnvironmentChange = useCallback(async (
     newEnvironment: string,
     setEnvironment: (env: string) => void,
     setApiKey: (key: string) => void,
@@ -21,12 +21,12 @@ export function useEnvironmentManager() {
     localStorage.setItem('chatbot-dashboard-environment', newEnvironment);
     
     // Load environment-specific data
-    const newApiKey = getEnvironmentSpecificItem('chatbot-dashboard-api-key') || '';
+    const newApiKey = (await getEnvironmentSpecificItem('chatbot-dashboard-api-key')) || '';
     setApiKey(newApiKey);
     
     // Load environment-specific uploaded data
     try {
-      const savedData = getEnvironmentSpecificItem('chatbot-dashboard-data');
+      const savedData = await getEnvironmentSpecificItem('chatbot-dashboard-data');
       if (savedData) {
         const parsedData = JSON.parse(savedData);
         setUploadedData(parsedData);
@@ -36,16 +36,9 @@ export function useEnvironmentManager() {
                           (parsedData.attributesResponses?.length || 0) > 0 || 
                           (parsedData.bulkAttributesResponses?.length || 0) > 0;
         setGlobalOfflineMode(hasAnyData);
-        
-        console.log('💾 Loaded environment-specific data:', {
-          conversations: parsedData.conversations?.length || 0,
-          threads: parsedData.threadsResponse?.threads?.length || 0,
-          hasOfflineMode: hasAnyData
-        });
       } else {
         setUploadedData({});
         setGlobalOfflineMode(false);
-        console.log('💾 No saved data found for environment:', newEnvironment);
       }
     } catch (error) {
       console.error('Failed to load environment-specific data:', error);
@@ -55,10 +48,9 @@ export function useEnvironmentManager() {
     
     // Load environment-specific saved chats
     try {
-      const savedChatsData = getEnvironmentSpecificItem('chatbot-dashboard-saved-chats');
+      const savedChatsData = await getEnvironmentSpecificItem('chatbot-dashboard-saved-chats');
       const newSavedChats = savedChatsData ? new Set(JSON.parse(savedChatsData)) : new Set();
       setSavedChats(newSavedChats);
-      console.log('💾 Loaded environment-specific saved chats:', newSavedChats.size, 'chats');
     } catch (error) {
       console.error('Failed to load environment-specific saved chats:', error);
       setSavedChats(new Set());

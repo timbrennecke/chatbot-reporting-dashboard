@@ -49,45 +49,7 @@ import {
 } from '../lib/api';
 import { parseThreadId, calculateThreadAnalytics, formatTimestamp, debounce } from '../lib/utils';
 import { IntentAnalysis } from './IntentAnalysis';
-
-// Topic categorization keywords (same as IntentAnalysis)
-const TOPIC_KEYWORDS = {
-  'Parkplätze/Parking': ['parkplatz', 'parkplätze', 'parken', 'auto', 'fahrzeug', 'stellplatz', 'garage', 'tiefgarage', 'wo kann ich parken', 'parkgebühren', 'kostenpflichtig parken', 'parkschein', 'parkuhr'],
-  'Frühstück/Breakfast': ['frühstück', 'morgenbuffet', 'buffet', 'morgen', 'kaffee', 'brötchen', 'gibt es frühstück', 'frühstückszeiten', 'kontinentales frühstück', 'müsli', 'marmelade', 'butter', 'eier', 'speck'],
-  'Check-in/Öffnungszeiten': ['öffnungszeit', 'öffnungszeiten', 'geöffnet', 'öffnen', 'schließen', 'geschlossen', 'wann', 'uhrzeit', 'bis wann', 'ab wann', 'wie lange geöffnet', 'öffnungszeiten heute', 'wann macht auf', 'wann macht zu', 'check-in', 'check-out', 'checkin', 'checkout', 'anreise', 'abreise', 'einchecken', 'auschecken', 'eingecheckt', 'ankunft', 'schlüssel', 'zimmerschlüssel', 'keycard', 'rezeption', 'empfang', 'wann kann ich einchecken'],
-  'Preise/Prices': ['preis', 'preise', 'kosten', 'wie viel', 'was kostet', 'teuer', 'günstig', 'euro', 'geld', 'wie teuer', 'preiswert', 'bezahlen', 'zahlung', 'gebühr', 'tarif'],
-  'Reservierung/Booking': ['reservierung', 'buchen', 'buchung', 'verfügbar', 'frei', 'belegt', 'termin', 'platz', 'reservieren', 'vorbestellen', 'tisch reservieren', 'platz buchen', 'halbpension', 'kulanzgutschein', 'kulanzguthaben', 'gutschein', 'wie kann ich nach kostenloser stornierung filtern'],
-  'WLAN/WiFi': ['wlan', 'wifi', 'wi-fi', 'internet', 'netzwerk', 'verbindung', 'online', 'zugang', 'internetverbindung', 'wlan passwort', 'wifi passwort', 'wie komme ich ins internet', 'netz', 'empfang'],
-  'Restaurant/Essen': ['restaurant', 'essen', 'abendessen', 'mittagessen', 'küche', 'speisekarte', 'bestellen', 'trinken', 'bar', 'café', 'kaffee', 'gastronomie', 'verpflegung', 'mahlzeit', 'getränke', 'alkohol', 'bier', 'wein'],
-  'Transport/Anfahrt': ['anfahrt', 'transport', 'bus', 'bahn', 'zug', 'taxi', 'weg', 'fahren', 'gehen', 'entfernung', 'wie komme ich', 'flughafen', 'bahnhof', 'öffentliche verkehrsmittel', 'u-bahn', 's-bahn', 'straßenbahn', 'bushaltestelle', 'fahrplan', 'verbindung'],
-  'Stornierung/Cancellation': ['stornierung', 'stornieren', 'absagen', 'rückgängig', 'zurück', 'ändern', 'umbuchen', 'stornogebühr', 'kostenlos stornieren', 'buchung ändern', 'termin verschieben'],
-  'Zimmer/Room': ['zimmer', 'bett', 'schlafzimmer', 'bad', 'dusche', 'balkon', 'aussicht', 'etage', 'doppelzimmer', 'einzelzimmer', 'familienzimmer', 'klimaanlage', 'heizung', 'fernseher', 'minibar', 'safe', 'handtücher'],
-  'Wellness/Spa': ['wellness', 'spa', 'sauna', 'pool', 'schwimmbad', 'massage', 'entspannung', 'fitness', 'sport', 'schwimmen', 'baden', 'wellnessbereich', 'fitnessraum', 'dampfbad', 'whirlpool', 'jacuzzi', 'kosmetik'],
-  'Events/Veranstaltungen': ['veranstaltung', 'feier', 'hochzeit', 'tagung', 'seminar', 'workshop', 'fest', 'festival', 'konferenz', 'geschäftlich', 'firmenfeier', 'geburtstag', 'jubiläum'],
-  'Fahrrad/Bicycle': ['fahrrad', 'rad', 'fahrräder', 'abstellen', 'parken', 'garage', 'fahrradgarage', 'fahrradkeller', 'fahrradständer', 'radfahren', 'mountainbike', 'e-bike', 'pedelec', 'fahrradverleih', 'fahrradtour', 'radweg'],
-  'Inspiration/Reiseberatung': ['urlaub', 'reise', 'hotel', 'ziel', 'wohin', 'zeig mir', 'schöner urlaub', 'reiseberatung', 'reiseziel', 'urlaubsziel', 'ausflug', 'sehenswürdigkeiten', 'gibt es wälder', 'natur', 'landschaft', 'berge', 'seen', 'wandern', 'spazieren', 'umgebung', 'nähe', 'in der nähe', 'was gibt es hier zu sehen', 'lohnenswert', 'schön', 'empfehlung', 'empfehlungen', 'vorschlag', 'tipp', 'tipps', 'was können sie empfehlen', 'beste', 'gut', 'aktivitäten', 'was kann man machen', 'was gibt es hier', 'lohnt sich', 'interessant', 'besichtigen'],
-  'Kundenberatung/Customer Support': ['hilfe', 'kundenservice', 'beratung', 'beraten', 'rückruf', 'zurückrufen', 'anrufen', 'ruf mich an', 'nachricht', 'kontakt', 'sprechen', 'problem', 'beschwerde', 'frage', 'können sie mir helfen', 'ich brauche hilfe', 'unterstützung', 'mitarbeiter', 'personal', 'ich hätte gerne', 'könnten sie', 'wäre es möglich'],
-  'Haustiere/Pets': ['haustiere', 'haustier', 'hund', 'hunde', 'katze', 'katzen', 'tier', 'tiere', 'mit hund', 'mit katze', 'erlaubt', 'mitbringen', 'tierfrei', 'hundefrei', 'katzenfrei']
-};
-
-// Exact message patterns for Inspiration/Reiseberatung category
-const INSPIRATION_EXACT_MESSAGES = [
-  'Beliebte Ziele für einen Wellnesstrip',
-  'Welche Städte sind bekannt für ihr lebendiges Nachtleben?',
-  'Reiseziele für einen Städtetrip',
-  'Kinderfreundliche All-Inclusive-Resorts',
-  'Rückzugsorte in den Bergen',
-  'Reiseziele für Outdoor-Aktivitäten'
-];
-
-// Pattern-based messages for Inspiration/Reiseberatung (X = variable placeholder)
-const INSPIRATION_PATTERN_MESSAGES = [
-  /^Welche gut bewerteten Hotels in .+ kannst du mir empfehlen\?$/i,
-  /^Welche Hotels in .+ haben einen Parkplatz\?$/i,
-  /^Welche Veranstaltungen gibt es in .+ während meiner Reise\?$/i,
-  /^Wie ist das Klima in .+ während meiner Reise\?$/i,
-  /^Welche Hotels in .+ haben gut bewertetes Frühstück\?$/i
-];
+import { categorizeThread as categorizationUtilCategorizeThread } from '../lib/categorization';
 
 interface ThreadsOverviewProps {
   uploadedThreads?: Thread[];
@@ -323,18 +285,9 @@ export function ThreadsOverview({
   const [threads, setThreads] = useState<Thread[]>(() => {
     // If we have uploaded threads, use them
     if (uploadedThreads && uploadedThreads.length > 0) {
-      console.log('🔄 Initializing with uploaded threads:', {
-        count: uploadedThreads.length,
-        sampleThreadIds: uploadedThreads.slice(0, 3).map(t => t.id),
-        hasMessages: uploadedThreads[0]?.messages?.length > 0,
-        environment: localStorage.getItem('chatbot-dashboard-environment')
-      });
       return uploadedThreads;
     }
     
-    console.log('🔄 Initializing with empty threads array', {
-      environment: localStorage.getItem('chatbot-dashboard-environment')
-    });
     // Start with empty array - no more caching
     return [];
   });
@@ -376,7 +329,6 @@ export function ThreadsOverview({
         // Load search filters
         const savedStartDate = await getEnvironmentSpecificItem('threads-search-start-date');
         if (savedStartDate && typeof savedStartDate === 'string') {
-          console.log('📋 Loaded saved start date:', savedStartDate);
           setStartDate(savedStartDate);
         }
 
@@ -390,7 +342,7 @@ export function ThreadsOverview({
           setSearchTerm(savedSearchTerm);
         }
       } catch (error) {
-        console.error('Failed to load viewed data:', error);
+        // Failed to load viewed data
       } finally {
         // Mark initial load as complete
         setIsInitialLoad(false);
@@ -429,7 +381,6 @@ export function ThreadsOverview({
     const date = new Date();
     date.setHours(date.getHours() - 1);
     const defaultValue = date.toISOString().slice(0, 16);
-    console.log('📋 Using default start date:', defaultValue);
     return defaultValue; // Format for datetime-local input
   });
   const [endDate, setEndDate] = useState<string>(() => {
@@ -550,129 +501,11 @@ export function ThreadsOverview({
 
   // Function to check if a thread has timeouts (30+ second gaps between consecutive messages)
   // Excludes user-initiated gaps (session restarts) where the gap is followed by a user message
-  // Helper function to extract workflows from a thread (same as IntentAnalysis)
-  const extractWorkflowsFromThread = useCallback((thread: any): Set<string> => {
-    const threadWorkflows = new Set<string>();
-    
-    thread.messages.forEach((message: any) => {
-      // Look for workflows in system/status messages
-      if (message.role === 'system' || message.role === 'status') {
-        message.content.forEach((content: any) => {
-          if (content.text || content.content) {
-            const text = content.text || content.content || '';
-            
-            // Look for "Workflows ausgewählt" pattern
-            if (text.includes('Workflows ausgewählt')) {
-              // Look for "* **Workflows:** `workflow-name1, workflow-name2`" pattern
-              const workflowPattern = /\*\s*\*\*Workflows:\*\*\s*`([^`]+)`/gi;
-              const matches = text.matchAll(workflowPattern);
-              
-              for (const match of matches) {
-                const workflowsString = match[1];
-                if (workflowsString) {
-                  // Split by comma and clean up workflow names
-                  const workflows = workflowsString.split(',').map(w => w.trim()).filter(w => w.length > 0);
-                  workflows.forEach(workflowName => {
-                    if (workflowName.length > 1) {
-                      threadWorkflows.add(workflowName);
-                    }
-                  });
-                }
-              }
-            }
-            
-            // Also look for standalone workflow mentions in system messages
-            const standaloneWorkflowPattern = /workflow-[\w-]+/gi;
-            const standaloneMatches = text.matchAll(standaloneWorkflowPattern);
-            
-            for (const match of standaloneMatches) {
-              const workflowName = match[0];
-              if (workflowName && workflowName.length > 1) {
-                threadWorkflows.add(workflowName);
-              }
-            }
-          }
-        });
-      }
-    });
-    
-    return threadWorkflows;
-  }, []);
-
-  // Helper function to categorize a thread (same as IntentAnalysis for consistency)
-  const categorizeThread = useCallback((thread: any): string | null => {
-    if (!thread.messages || thread.messages.length === 0) return null;
-
-    // Extract workflows from thread
-    const workflows = extractWorkflowsFromThread(thread);
-    
-    // Special handling for workflow-based categories
-    if (workflows.has('workflow-travel-agent')) {
-      return 'Inspiration/Reiseberatung';
-    }
-    
-    if (workflows.has('workflow-contact-customer-service')) {
-      return 'Kundenberatung/Customer Support';
-    }
-
-    // Get the first user message
-    const firstUserMessage = thread.messages
-      ?.filter((m: any) => m.role === 'user')
-      ?.sort((a: any, b: any) => {
-        const timeA = new Date(a.sentAt).getTime();
-        const timeB = new Date(b.sentAt).getTime();
-        return timeA - timeB;
-      })[0];
-
-    if (!firstUserMessage) return null;
-
-    const messageText = firstUserMessage?.content
-      ?.map((content: any) => content.text || content.content || '')
-      .join(' ')
-      .trim() || '';
-
-    if (!messageText) return null;
-
-    const messageTextLower = messageText.toLowerCase();
-
-    // Check for exact message matches for Inspiration/Reiseberatung (even without workflow)
-    for (const exactMessage of INSPIRATION_EXACT_MESSAGES) {
-      if (messageText.toLowerCase() === exactMessage.toLowerCase()) {
-        return 'Inspiration/Reiseberatung';
-      }
-    }
-
-    // Check for pattern-based messages for Inspiration/Reiseberatung (even without workflow)
-    for (const pattern of INSPIRATION_PATTERN_MESSAGES) {
-      if (pattern.test(messageText)) {
-        return 'Inspiration/Reiseberatung';
-      }
-    }
-
-    // Check against all categories (excluding workflow-based ones) - first match wins
-    for (const [categoryName, keywords] of Object.entries(TOPIC_KEYWORDS)) {
-      // Skip workflow-based categories as they're handled above
-      if (categoryName === 'Inspiration/Reiseberatung' || categoryName === 'Kundenberatung/Customer Support') {
-        continue;
-      }
-
-      const hasKeyword = keywords.some(keyword => 
-        messageTextLower.includes(keyword.toLowerCase())
-      );
-      
-      if (hasKeyword) {
-        return categoryName;
-      }
-    }
-
-    return 'Others/Sonstiges';
-  }, [extractWorkflowsFromThread]);
-
   // Helper function to check if a thread matches a specific topic
   const threadMatchesTopic = useCallback((thread: any, topicName: string) => {
-    const threadCategory = categorizeThread(thread);
+    const threadCategory = categorizationUtilCategorizeThread(thread);
     return threadCategory === topicName;
-  }, [categorizeThread]);
+  }, []);
 
   const threadHasTimeouts = useCallback((thread: any) => {
     if (!thread.messages || thread.messages.length < 2) return false;
@@ -881,15 +714,6 @@ export function ThreadsOverview({
   const availableWorkflowsWithCounts = useMemo(() => {
     const workflowThreadCounts = new Map<string, Set<string>>(); // Map workflow name to set of thread IDs
     
-    console.log('🔄 Extracting workflows from threads:', {
-      threadsCount: threads.length,
-      sampleThread: threads[0] ? {
-        id: threads[0].id,
-        messagesCount: threads[0].messages?.length,
-        hasSystemMessages: threads[0].messages?.some(m => m.role === 'system'),
-      } : null
-    });
-    
     // Extracting workflows from threads - count unique threads per workflow
     threads.forEach(thread => {
       const threadWorkflows = new Set<string>(); // Workflows found in this specific thread
@@ -950,12 +774,6 @@ export function ThreadsOverview({
       .map(([name, threadSet]) => ({ name, count: threadSet.size }))
       .sort((a, b) => a.name.localeCompare(b.name));
     
-    console.log('🔄 Available workflows extracted:', {
-      workflowsCount: workflowsWithCounts.length,
-      workflows: workflowsWithCounts.map(w => `${w.name} (${w.count})`),
-      threadsCount: threads.length,
-    });
-    
     return workflowsWithCounts;
   }, [threads]);
 
@@ -987,17 +805,13 @@ export function ThreadsOverview({
     setStartDate(formatDateTimeLocal(startTime));
     setEndDate(formatDateTimeLocal(now));
     
-    console.log(`⏰ Set time range: ${hours}h (${formatDateTimeLocal(startTime)} - ${formatDateTimeLocal(now)})`);
     // Don't reset hasSearched here - let it persist until user performs new search
   };
 
   const setDefaultTimeRange = () => {
     // Only set defaults if current values are empty
     if (!startDate || !endDate) {
-      console.log('📋 Setting default time range (1 hour)');
       setTimeRange(1);
-    } else {
-      console.log('📋 Skipping default time range - values already set');
     }
   };
 
@@ -1033,14 +847,8 @@ export function ThreadsOverview({
 
   // Update threads when uploaded data changes
   useEffect(() => {
-    console.log('🔄 Uploaded threads changed:', {
-      uploadedThreadsCount: uploadedThreads?.length || 0,
-      hasUploadedThreads: !!uploadedThreads?.length
-    });
-    
     // Only act if we have actual uploaded threads (not empty array)
     if (uploadedThreads && uploadedThreads.length > 0) {
-      console.log('📤 Setting uploaded threads as active threads');
       setThreads(uploadedThreads);
       setError(null);
       setHasSearched(true); // Mark as searched since we have data
@@ -1051,7 +859,6 @@ export function ThreadsOverview({
   useEffect(() => {
     if (threads.length > 0 && !uploadedThreads?.length && !hasSearched) {
       setHasSearched(true);
-      console.log('📋 Threads loaded, marking as searched:', threads.length, 'threads');
     }
   }, [threads.length, uploadedThreads?.length, hasSearched]); // Use length instead of full arrays
 
@@ -1064,7 +871,6 @@ export function ThreadsOverview({
     if (threads.length !== threadsRef.current.length || threads !== threadsRef.current) {
       threadsRef.current = threads;
       if (onThreadsChange) {
-        console.log('🔄 Notifying parent of threads change:', threads.length, 'threads');
         onThreadsChange(threads);
       }
     }
@@ -1077,11 +883,10 @@ export function ThreadsOverview({
     const saveStartDate = async () => {
       try {
         if (startDate && typeof startDate === 'string') {
-          console.log('💾 Saving start date:', startDate);
           await setEnvironmentSpecificItem('threads-search-start-date', startDate);
         }
       } catch (error) {
-        console.warn('Failed to save start date:', error);
+        // Failed to save start date
       }
     };
     saveStartDate();
@@ -1096,7 +901,7 @@ export function ThreadsOverview({
           await setEnvironmentSpecificItem('threads-search-end-date', endDate);
         }
       } catch (error) {
-        console.warn('Failed to save end date:', error);
+        // Failed to save end date
       }
     };
     saveEndDate();
@@ -1111,7 +916,7 @@ export function ThreadsOverview({
           await setEnvironmentSpecificItem('threads-search-term', searchTerm);
         }
       } catch (error) {
-        console.warn('Failed to save search term:', error);
+        // Failed to save search term
       }
     };
     saveSearchTerm();
@@ -1143,9 +948,6 @@ export function ThreadsOverview({
       // Format timestamps for the API
       const startTimestamp = new Date(startDate).toISOString();
       const endTimestamp = new Date(endDate).toISOString();
-
-      // Proceed with full API fetch - no more cache checking
-      console.log('🌐 Fetching from API...');
       
       const apiBaseUrl = getApiBaseUrl();
       
@@ -1157,8 +959,6 @@ export function ThreadsOverview({
       
       // Smart chunking strategy based on typical usage patterns
       // 00:00-11:59 (12h), 12:00-16:59 (5h), 17:00-18:59 (2h), 19:00-20:59 (2h), 21:00-23:59 (3h)
-      console.log(`📊 Processing ${hoursDiff} hours with smart chunking strategy...`);
-      
       const chunks: Array<{start: Date, end: Date, dateStr: string}> = [];
       
       // Smart chunking function for a single day
@@ -1224,14 +1024,11 @@ export function ThreadsOverview({
       const savedConcurrency = localStorage.getItem('chatbot-dashboard-concurrency');
       const CONCURRENT_REQUESTS = savedConcurrency ? parseInt(savedConcurrency, 10) : 5; // Number of parallel requests
       
-      console.log(`📦 Processing ${chunks.length} smart chunks with parallel fetching (concurrency: ${CONCURRENT_REQUESTS})`);
       setLoadingProgress({ current: 0, total: chunks.length, currentDate: '' });
       let completedChunks = 0;
       
       // Function to process a single chunk
       const processChunk = async (chunk: any, index: number) => {
-        console.log(`📅 Starting chunk ${index + 1}/${chunks.length}: ${chunk.dateStr}`);
-        
         try {
           const response = await fetch(`${apiBaseUrl}/thread`, {
             method: 'POST',
@@ -1246,7 +1043,6 @@ export function ThreadsOverview({
           });
 
           if (!response.ok) {
-            console.warn(`⚠️ Chunk ${index + 1} (${chunk.dateStr}) failed: HTTP ${response.status}`);
             // Update progress even for failed chunks
             completedChunks++;
             setLoadingProgress({ 
@@ -1268,11 +1064,9 @@ export function ThreadsOverview({
             currentDate: `Completed: ${chunk.dateStr}` 
           });
           
-          console.log(`✅ Chunk ${index + 1}/${chunks.length} (${chunk.dateStr}): +${chunkThreads.length} threads`);
           return { threads: chunkThreads, index, chunk };
           
         } catch (chunkError) {
-          console.warn(`⚠️ Chunk ${index + 1} (${chunk.dateStr}) error:`, chunkError);
           // Update progress even for errored chunks
           completedChunks++;
           setLoadingProgress({ 
@@ -1288,8 +1082,6 @@ export function ThreadsOverview({
       const results: any[] = [];
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
-        console.log(`📅 Processing chunk ${i + 1}/${chunks.length} sequentially: ${chunk.dateStr}`);
-        
         const result = await processChunk(chunk, i);
         results.push(result);
         
@@ -1297,8 +1089,6 @@ export function ThreadsOverview({
         if (i < chunks.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 100)); // 100ms delay
         }
-        
-        console.log(`✅ Completed chunk ${i + 1}/${chunks.length}`);
       }
       
       // Sort results by original index to maintain order and collect all threads
@@ -1307,25 +1097,7 @@ export function ThreadsOverview({
         allThreads.push(...result.threads);
       });
       
-      console.log(`🎉 Sequential chunking complete: ${allThreads.length} total threads from ${chunks.length} chunks`);
       setLoadingProgress({ current: 0, total: 0, currentDate: '' });
-      
-      // Enhanced logging for production debugging
-      console.log('📊 Threads fetch complete - detailed analysis:', {
-        totalThreads: allThreads.length,
-        environment: localStorage.getItem('chatbot-dashboard-environment'),
-        timeRange: { startDate, endDate },
-        sampleThreads: allThreads.slice(0, 3).map(t => ({
-          id: t.id,
-          conversationId: t.conversationId,
-          messageCount: t.messages?.length || 0,
-          hasSystemMessages: t.messages?.some(m => m.role === 'system'),
-          createdAt: t.createdAt
-        })),
-        uniqueConversationIds: new Set(allThreads.map(t => t.conversationId)).size,
-        chunksProcessed: chunks.length,
-        dateRangeHours: Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60))
-      });
       
       // No more caching - just set the threads directly
       setThreads(allThreads);
@@ -1363,20 +1135,6 @@ export function ThreadsOverview({
   );
 
   const filteredThreads = useMemo(() => {
-    console.log('🔍 Filtering threads:', {
-      totalThreads: threads.length,
-      searchTerm,
-      messageSearchEnabled,
-      messageSearchTerm,
-      hasUiFilter,
-      selectedTools: Array.from(selectedTools),
-      selectedWorkflows: Array.from(selectedWorkflows),
-      showErrorsOnly,
-      showTimeoutsOnly,
-      selectedTopic,
-      environment: localStorage.getItem('chatbot-dashboard-environment')
-    });
-    
     const filtered = threads.filter(thread => {
       const parsed = parseThreadId(thread.id);
       
@@ -1407,41 +1165,11 @@ export function ThreadsOverview({
             if (message.role === 'system' || message.role === 'status') {
               return false;
             }
-            
-            if (debugSearch) {
-              console.log('🔍 Searching message:', {
-                threadId: thread.id,
-                messageRole: message.role,
-                messageId: message.id,
-                searchTerm: searchLower,
-                contentType: typeof message.content,
-                isArray: Array.isArray(message.content),
-                contentSample: Array.isArray(message.content) 
-                  ? message.content.slice(0, 2).map(c => ({ 
-                      kind: c.kind, 
-                      hasText: !!c.text, 
-                      hasContent: !!c.content,
-                      textSample: (c.text || c.content || '').substring(0, 50) + '...'
-                    }))
-                  : typeof message.content === 'string' 
-                    ? message.content.substring(0, 50) + '...'
-                    : 'object'
-              });
-            }
-            
             // Handle different content structures
             if (message.content) {
               // Case 1: content is a direct string
               if (typeof message.content === 'string') {
                 const found = message.content.toLowerCase().includes(searchLower);
-                if (debugSearch && found) {
-                  console.log('✅ Match found in direct string:', {
-                    threadId: thread.id,
-                    messageRole: message.role,
-                    searchTerm: searchLower,
-                    matchedText: message.content.substring(0, 100) + '...'
-                  });
-                }
                 return found;
               }
               
@@ -1452,14 +1180,6 @@ export function ThreadsOverview({
                     // Search in text field
                     if (content.text && typeof content.text === 'string') {
                       if (content.text.toLowerCase().includes(searchLower)) {
-                        if (debugSearch) {
-                          console.log('✅ Match found in content.text:', {
-                            threadId: thread.id,
-                            messageRole: message.role,
-                            searchTerm: searchLower,
-                            matchedText: content.text.substring(0, 100) + '...'
-                          });
-                        }
                         return true;
                       }
                     }
@@ -1467,14 +1187,6 @@ export function ThreadsOverview({
                     // Search in content field
                     if (content.content && typeof content.content === 'string') {
                       if (content.content.toLowerCase().includes(searchLower)) {
-                        if (debugSearch) {
-                          console.log('✅ Match found in content.content:', {
-                            threadId: thread.id,
-                            messageRole: message.role,
-                            searchTerm: searchLower,
-                            matchedText: content.content.substring(0, 100) + '...'
-                          });
-                        }
                         return true;
                       }
                     }
@@ -1496,7 +1208,7 @@ export function ThreadsOverview({
                     }
                     
                   } catch (e) {
-                    console.warn('Error processing content item:', e);
+                    // Error processing content item
                   }
                   return false;
                 });
@@ -1511,20 +1223,10 @@ export function ThreadsOverview({
             }
             
           } catch (e) {
-            console.warn('Error processing message:', e);
+            // Error processing message
           }
           return false;
         }) || false;
-        
-        if (debugSearch) {
-          console.log('🔍 Search result for thread:', {
-            threadId: thread.id,
-            searchTerm: searchLower,
-            hasMatch: hasMatchingMessage,
-            messageCount: thread.messages?.length || 0,
-            userAssistantMessages: thread.messages?.filter(m => m.role === 'user' || m.role === 'assistant').length || 0
-          });
-        }
         
         if (!hasMatchingMessage) return false;
       }
@@ -1773,24 +1475,6 @@ export function ThreadsOverview({
       return timeB - timeA; // Most recent first
     });
     
-    console.log('🔍 Filtering complete:', {
-      totalThreads: threads.length,
-      filteredThreads: filtered.length,
-      removedThreads: threads.length - filtered.length,
-      environment: localStorage.getItem('chatbot-dashboard-environment'),
-      filtersApplied: {
-        searchTerm: !!searchTerm,
-        messageSearch: messageSearchEnabled && !!messageSearchTerm,
-        hasUiFilter,
-        toolFilter: selectedTools.size > 0,
-        workflowFilter: selectedWorkflows.size > 0,
-        errorFilter: showErrorsOnly,
-        timeoutFilter: showTimeoutsOnly,
-        topicFilter: !!selectedTopic,
-        advancedFilters: minMessages !== '' || maxMessages !== '' || minDuration !== '' || maxDuration !== '' || minResponseTime !== '' || maxResponseTime !== ''
-      }
-    });
-    
     return filtered;
   }, [threads, searchTerm, hasUiFilter, selectedTools, selectedWorkflows, showErrorsOnly, showTimeoutsOnly, selectedTopic, messageSearchEnabled, messageSearchTerm, threadHasErrors, threadHasTimeouts, threadMatchesTopic, minMessages, maxMessages, minDuration, maxDuration, minResponseTime, maxResponseTime]);
 
@@ -1918,7 +1602,7 @@ export function ThreadsOverview({
     try {
       setEnvironmentSpecificItem('chatbot-dashboard-viewed-threads', JSON.stringify(Array.from(newViewedThreads)));
     } catch (error) {
-      console.error('Failed to save viewed threads:', error);
+      // Failed to save viewed threads
     }
     
     // Call the original onThreadSelect callback
@@ -1950,16 +1634,7 @@ export function ThreadsOverview({
     const associatedThread = filteredThreads.find(thread => thread.conversationId === conversationId);
     if (associatedThread && onThreadSelect) {
       // Since the threads endpoint now contains all messages, use the thread data directly
-      console.log('✅ Using thread data directly:', {
-          id: associatedThread.id,
-          conversationId: associatedThread.conversationId,
-          messagesCount: associatedThread.messages?.length,
-        hasSystemMessages: associatedThread.messages?.some(m => m.role === 'system'),
-        systemMessagesCount: associatedThread.messages?.filter(m => m.role === 'system').length
-      });
-      
-      // Calling onThreadSelect with thread data
-            onThreadSelect(associatedThread);
+      onThreadSelect(associatedThread);
     }
     
     // Notify parent about the thread order for navigation FIRST
@@ -2445,10 +2120,6 @@ export function ThreadsOverview({
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          console.log('🔧 Tool filter button clicked', { 
-                            currentState: toolDropdownOpen,
-                            availableToolsCount: availableTools.length 
-                          });
                           
                           if (!toolDropdownOpen && toolButtonRef.current) {
                             const rect = toolButtonRef.current.getBoundingClientRect();
@@ -2456,11 +2127,6 @@ export function ThreadsOverview({
                               top: rect.bottom + 4,
                               left: rect.left
                             };
-                            console.log('🔧 Tool dropdown position:', {
-                              rect: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
-                              viewport: { width: window.innerWidth, height: window.innerHeight },
-                              finalPosition: position
-                            });
                             setToolDropdownPosition(position);
                           }
                           setToolDropdownOpen(prev => !prev);
@@ -2569,10 +2235,6 @@ export function ThreadsOverview({
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          console.log('🔄 Workflow filter button clicked', { 
-                            currentState: workflowDropdownOpen,
-                            availableWorkflowsCount: availableWorkflows.length 
-                          });
                           
                           if (!workflowDropdownOpen && workflowButtonRef.current) {
                             const rect = workflowButtonRef.current.getBoundingClientRect();
@@ -2580,11 +2242,6 @@ export function ThreadsOverview({
                               top: rect.bottom + 4,
                               left: rect.left
                             };
-                            console.log('🔄 Workflow dropdown position:', {
-                              rect: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
-                              viewport: { width: window.innerWidth, height: window.innerHeight },
-                              finalPosition: position
-                            });
                             setWorkflowDropdownPosition(position);
                           }
                           setWorkflowDropdownOpen(prev => !prev);

@@ -84,7 +84,6 @@ export function SavedChats({
       
       if (missingConversationIds.length === 0) return;
       
-      console.log('🔍 Fetching missing conversation details for saved chats:', missingConversationIds.length, 'conversations');
       
       // Fetch conversations in parallel
       const fetchPromises = missingConversationIds.map(async (conversationId) => {
@@ -92,7 +91,6 @@ export function SavedChats({
           const baseUrl = getApiBaseUrl();
           const apiKey = await getEnvironmentSpecificItem('chatbot-dashboard-api-key');
           if (!apiKey?.trim()) {
-            console.warn('⚠️ No API key available for fetching conversation:', conversationId);
             return;
           }
           
@@ -104,15 +102,12 @@ export function SavedChats({
           });
           
           if (!response.ok) {
-            console.warn('⚠️ Failed to fetch conversation details for saved chat:', conversationId, 'HTTP', response.status);
             return;
           }
           
           const data = await response.json();
-          console.log('✅ Fetched conversation details for saved chat:', conversationId, data.title || 'No title');
           onConversationFetched(data);
         } catch (error) {
-          console.warn('⚠️ Failed to fetch conversation details for saved chat:', conversationId, error);
         }
       });
       
@@ -135,7 +130,6 @@ export function SavedChats({
           setNotes(new Map(Object.entries(notesData)));
         }
       } catch (error) {
-        console.error('Failed to load saved chat notes:', error);
       }
     };
     loadNotes();
@@ -147,7 +141,6 @@ export function SavedChats({
       const notesObject = Object.fromEntries(notesMap);
       await setEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes', JSON.stringify(notesObject));
     } catch (error) {
-      console.error('Failed to save notes to localStorage:', error);
     }
   };
 
@@ -269,9 +262,7 @@ export function SavedChats({
     navigator.clipboard.writeText(conversationId).then(() => {
       setCopiedId(conversationId);
       setTimeout(() => setCopiedId(null), 2000); // Clear after 2 seconds
-      console.log('Conversation ID copied to clipboard:', conversationId);
     }).catch(err => {
-      console.error('Failed to copy conversation ID:', err);
     });
   };
 

@@ -32,187 +32,10 @@ import {
   Settings
 } from 'lucide-react';
 import { Conversation, Thread, Message, MessageContent } from '../lib/types';
-import { getApiBaseUrl, getEnvironmentSpecificItem } from '../lib/api';
+import { getApiBaseUrl, getEnvironmentSpecificItem, setEnvironmentSpecificItem } from '../lib/api';
 import { formatTimestamp, parseThreadId } from '../lib/utils';
-
-// Topic categorization keywords (same as IntentAnalysis)
-const TOPIC_KEYWORDS = {
-  'Parkplätze/Parking': ['parkplatz', 'parkplätze', 'parken', 'auto', 'fahrzeug', 'stellplatz', 'garage', 'tiefgarage', 'wo kann ich parken', 'parkgebühren', 'kostenpflichtig parken', 'parkschein', 'parkuhr'],
-  'Frühstück/Breakfast': ['frühstück', 'morgenbuffet', 'buffet', 'morgen', 'kaffee', 'brötchen', 'gibt es frühstück', 'frühstückszeiten', 'kontinentales frühstück', 'müsli', 'marmelade', 'butter', 'eier', 'speck'],
-  'Check-in/Öffnungszeiten': ['öffnungszeit', 'öffnungszeiten', 'geöffnet', 'öffnen', 'schließen', 'geschlossen', 'wann', 'uhrzeit', 'bis wann', 'ab wann', 'wie lange geöffnet', 'öffnungszeiten heute', 'wann macht auf', 'wann macht zu', 'check-in', 'check-out', 'checkin', 'checkout', 'anreise', 'abreise', 'einchecken', 'auschecken', 'eingecheckt', 'ankunft', 'schlüssel', 'zimmerschlüssel', 'keycard', 'rezeption', 'empfang', 'wann kann ich einchecken'],
-  'Preise/Prices': ['preis', 'preise', 'kosten', 'wie viel', 'was kostet', 'teuer', 'günstig', 'euro', 'geld', 'wie teuer', 'preiswert', 'bezahlen', 'zahlung', 'gebühr', 'tarif'],
-  'Reservierung/Booking': ['reservierung', 'buchen', 'buchung', 'verfügbar', 'frei', 'belegt', 'termin', 'platz', 'reservieren', 'vorbestellen', 'tisch reservieren', 'platz buchen', 'halbpension', 'kulanzgutschein', 'kulanzguthaben', 'gutschein', 'wie kann ich nach kostenloser stornierung filtern'],
-  'WLAN/WiFi': ['wlan', 'wifi', 'wi-fi', 'internet', 'netzwerk', 'verbindung', 'online', 'zugang', 'internetverbindung', 'wlan passwort', 'wifi passwort', 'wie komme ich ins internet', 'netz', 'empfang'],
-  'Restaurant/Essen': ['restaurant', 'essen', 'abendessen', 'mittagessen', 'küche', 'speisekarte', 'bestellen', 'trinken', 'bar', 'café', 'kaffee', 'gastronomie', 'verpflegung', 'mahlzeit', 'getränke', 'alkohol', 'bier', 'wein'],
-  'Transport/Anfahrt': ['anfahrt', 'transport', 'bus', 'bahn', 'zug', 'taxi', 'weg', 'fahren', 'gehen', 'entfernung', 'wie komme ich', 'flughafen', 'bahnhof', 'öffentliche verkehrsmittel', 'u-bahn', 's-bahn', 'straßenbahn', 'bushaltestelle', 'fahrplan', 'verbindung'],
-  'Stornierung/Cancellation': ['stornierung', 'stornieren', 'absagen', 'rückgängig', 'zurück', 'ändern', 'umbuchen', 'stornogebühr', 'kostenlos stornieren', 'buchung ändern', 'termin verschieben'],
-  'Zimmer/Room': ['zimmer', 'bett', 'schlafzimmer', 'bad', 'dusche', 'balkon', 'aussicht', 'etage', 'doppelzimmer', 'einzelzimmer', 'familienzimmer', 'klimaanlage', 'heizung', 'fernseher', 'minibar', 'safe', 'handtücher'],
-  'Wellness/Spa': ['wellness', 'spa', 'sauna', 'pool', 'schwimmbad', 'massage', 'entspannung', 'fitness', 'sport', 'schwimmen', 'baden', 'wellnessbereich', 'fitnessraum', 'dampfbad', 'whirlpool', 'jacuzzi', 'kosmetik'],
-  'Events/Veranstaltungen': ['veranstaltung', 'feier', 'hochzeit', 'tagung', 'seminar', 'workshop', 'fest', 'festival', 'konferenz', 'geschäftlich', 'firmenfeier', 'geburtstag', 'jubiläum'],
-  'Fahrrad/Bicycle': ['fahrrad', 'rad', 'fahrräder', 'abstellen', 'parken', 'garage', 'fahrradgarage', 'fahrradkeller', 'fahrradständer', 'radfahren', 'mountainbike', 'e-bike', 'pedelec', 'fahrradverleih', 'fahrradtour', 'radweg'],
-  'Inspiration/Reiseberatung': ['urlaub', 'reise', 'hotel', 'ziel', 'wohin', 'zeig mir', 'schöner urlaub', 'reiseberatung', 'reiseziel', 'urlaubsziel', 'ausflug', 'sehenswürdigkeiten', 'gibt es wälder', 'natur', 'landschaft', 'berge', 'seen', 'wandern', 'spazieren', 'umgebung', 'nähe', 'in der nähe', 'was gibt es hier zu sehen', 'lohnenswert', 'schön', 'empfehlung', 'empfehlungen', 'vorschlag', 'tipp', 'tipps', 'was können sie empfehlen', 'beste', 'gut', 'aktivitäten', 'was kann man machen', 'was gibt es hier', 'lohnt sich', 'interessant', 'besichtigen'],
-  'Kundenberatung/Customer Support': ['hilfe', 'kundenservice', 'beratung', 'beraten', 'rückruf', 'zurückrufen', 'anrufen', 'ruf mich an', 'nachricht', 'kontakt', 'sprechen', 'problem', 'beschwerde', 'frage', 'können sie mir helfen', 'ich brauche hilfe', 'unterstützung', 'mitarbeiter', 'personal', 'ich hätte gerne', 'könnten sie', 'wäre es möglich'],
-  'Haustiere/Pets': ['haustiere', 'haustier', 'hund', 'hunde', 'katze', 'katzen', 'tier', 'tiere', 'mit hund', 'mit katze', 'erlaubt', 'mitbringen', 'tierfrei', 'hundefrei', 'katzenfrei']
-};
-
-// Exact message patterns for Inspiration/Reiseberatung category
-const INSPIRATION_EXACT_MESSAGES = [
-  'Beliebte Ziele für einen Wellnesstrip',
-  'Welche Städte sind bekannt für ihr lebendiges Nachtleben?',
-  'Reiseziele für einen Städtetrip',
-  'Kinderfreundliche All-Inclusive-Resorts',
-  'Rückzugsorte in den Bergen',
-  'Reiseziele für Outdoor-Aktivitäten'
-];
-
-// Pattern-based messages for Inspiration/Reiseberatung (X = variable placeholder)
-const INSPIRATION_PATTERN_MESSAGES = [
-  /^Welche gut bewerteten Hotels in .+ kannst du mir empfehlen\?$/i,
-  /^Welche Hotels in .+ haben einen Parkplatz\?$/i,
-  /^Welche Veranstaltungen gibt es in .+ während meiner Reise\?$/i,
-  /^Wie ist das Klima in .+ während meiner Reise\?$/i,
-  /^Welche Hotels in .+ haben gut bewertetes Frühstück\?$/i
-];
-
-// Category colors for tags
-const CATEGORY_COLORS: { [key: string]: { bg: string; text: string; border: string } } = {
-  'Parkplätze/Parking': { bg: '#dbeafe', text: '#1e40af', border: '#3b82f6' },
-  'Frühstück/Breakfast': { bg: '#fef3c7', text: '#92400e', border: '#f59e0b' },
-  'Öffnungszeiten/Opening Hours': { bg: '#e0e7ff', text: '#3730a3', border: '#6366f1' },
-  'Preise/Prices': { bg: '#dcfce7', text: '#166534', border: '#22c55e' },
-  'Reservierung/Booking': { bg: '#fce7f3', text: '#be185d', border: '#ec4899' },
-  'WLAN/WiFi': { bg: '#e0f2fe', text: '#0c4a6e', border: '#0ea5e9' },
-  'Check-in/Check-out': { bg: '#f3e8ff', text: '#6b21a8', border: '#a855f7' },
-  'Restaurant/Essen': { bg: '#fed7d7', text: '#c53030', border: '#f56565' },
-  'Transport/Anfahrt': { bg: '#e6fffa', text: '#234e52', border: '#38b2ac' },
-  'Stornierung/Cancellation': { bg: '#fef5e7', text: '#c05621', border: '#ed8936' },
-  'Zimmer/Room': { bg: '#edf2f7', text: '#2d3748', border: '#4a5568' },
-  'Wellness/Spa': { bg: '#f0fff4', text: '#22543d', border: '#48bb78' },
-  'Events/Veranstaltungen': { bg: '#faf5ff', text: '#553c9a', border: '#9f7aea' },
-  'Haustiere/Pets': { bg: '#fffbeb', text: '#92400e', border: '#f6ad55' },
-  'Fahrrad/Bicycle': { bg: '#f0f9ff', text: '#0c4a6e', border: '#0284c7' },
-  'Inspiration/Reiseberatung': { bg: '#ecfdf5', text: '#065f46', border: '#10b981' },
-  'Kundenberatung/Customer Support': { bg: '#fef2f2', text: '#991b1b', border: '#ef4444' },
-  'Others/Sonstiges': { bg: '#f9fafb', text: '#374151', border: '#6b7280' }
-};
-
-// Helper function to extract workflows from messages (same as IntentAnalysis)
-function extractWorkflowsFromMessages(messages: Message[]): Set<string> {
-  const workflows = new Set<string>();
-  
-  messages.forEach(message => {
-    // Look for workflows in system/status messages
-    if (message.role === 'system' || (message as any).role === 'status') {
-      message.content.forEach(content => {
-        if (content.text || content.content) {
-          const text = content.text || content.content || '';
-          
-          // Look for "Workflows ausgewählt" pattern
-          if (text.includes('Workflows ausgewählt')) {
-            // Look for "* **Workflows:** `workflow-name1, workflow-name2`" pattern
-            const workflowPattern = /\*\s*\*\*Workflows:\*\*\s*`([^`]+)`/gi;
-            const matches = text.matchAll(workflowPattern);
-            
-            for (const match of matches) {
-              const workflowsString = match[1];
-              if (workflowsString) {
-                // Split by comma and clean up workflow names
-                const workflowNames = workflowsString.split(',').map(w => w.trim()).filter(w => w.length > 0);
-                workflowNames.forEach(workflowName => {
-                  if (workflowName.length > 1) {
-                    workflows.add(workflowName);
-                  }
-                });
-              }
-            }
-          }
-          
-          // Also look for standalone workflow mentions in system messages
-          const standaloneWorkflowPattern = /workflow-[\w-]+/gi;
-          const standaloneMatches = text.matchAll(standaloneWorkflowPattern);
-          
-          for (const match of standaloneMatches) {
-            const workflowName = match[0];
-            if (workflowName && workflowName.length > 1) {
-              workflows.add(workflowName);
-            }
-          }
-        }
-      });
-    }
-  });
-  
-  return workflows;
-}
-
-// Function to categorize a conversation
-function categorizeConversation(messages: Message[]): string | null {
-  if (!messages || messages.length === 0) return null;
-
-  // Extract workflows from messages
-  const workflows = extractWorkflowsFromMessages(messages);
-  
-  // Special handling for workflow-based categories
-  if (workflows.has('workflow-travel-agent')) {
-    return 'Inspiration/Reiseberatung';
-  }
-  
-  if (workflows.has('workflow-contact-customer-service')) {
-    return 'Kundenberatung/Customer Support';
-  }
-
-  // Get first user message
-  const firstUserMessage = messages
-    .filter(m => m.role === 'user')
-    .sort((a, b) => {
-      const timeA = new Date(a.sentAt || a.createdAt || a.created_at || 0).getTime();
-      const timeB = new Date(b.sentAt || b.createdAt || b.created_at || 0).getTime();
-      return timeA - timeB;
-    })[0];
-
-  if (!firstUserMessage || !firstUserMessage.content) return null;
-
-  const messageText = firstUserMessage.content
-    .map(content => content.text || content.content || '')
-    .join(' ')
-    .trim();
-
-  if (!messageText) return null;
-
-  const messageTextLower = messageText.toLowerCase();
-
-  // Check for exact message matches for Inspiration/Reiseberatung (even without workflow)
-  for (const exactMessage of INSPIRATION_EXACT_MESSAGES) {
-    if (messageText.toLowerCase() === exactMessage.toLowerCase()) {
-      return 'Inspiration/Reiseberatung';
-    }
-  }
-
-  // Check for pattern-based messages for Inspiration/Reiseberatung (even without workflow)
-  for (const pattern of INSPIRATION_PATTERN_MESSAGES) {
-    if (pattern.test(messageText)) {
-      return 'Inspiration/Reiseberatung';
-    }
-  }
-
-  // Check against all categories (excluding workflow-based ones)
-  for (const [categoryName, keywords] of Object.entries(TOPIC_KEYWORDS)) {
-    // Skip workflow-based categories as they're handled above
-    if (categoryName === 'Inspiration/Reiseberatung' || categoryName === 'Kundenberatung/Customer Support') {
-      continue;
-    }
-
-    const hasKeyword = keywords.some(keyword => 
-      messageTextLower.includes(keyword.toLowerCase())
-    );
-    
-    if (hasKeyword) {
-      return categoryName;
-    }
-  }
-
-  return 'Others/Sonstiges';
-}
+import { CATEGORY_COLORS } from '../lib/constants';
+import { categorizeConversation } from '../lib/categorization';
 
 interface ConversationDetailProps {
   conversation?: Conversation;
@@ -242,80 +65,56 @@ interface ConversationAnalytics {
   totalMessages: number;
   totalUiEvents: number;
   totalLinkouts: number;
-  avgMessageLength: number;
 }
 
-// Helper function to count messages excluding UI components
+// Helper function to count messages excluding UI events and linkouts
 function countMessagesExcludingUI(messages: Message[]): number {
-  return messages.filter(message => {
-    if (message.role === 'system') return false;
-    const hasUiComponent = message.content.some(content => content.kind === 'ui');
-    return !hasUiComponent;
+  return messages.filter(msg => {
+    if (!msg.content) return true;
+    if (!Array.isArray(msg.content)) return true;
+    
+    // If all content items are UI/linkout events, exclude this message
+    const hasNonUIContent = msg.content.some((content: any) => {
+      return content.kind !== 'ui_event' && content.kind !== 'linkout';
+    });
+    
+    return hasNonUIContent;
   }).length;
 }
 
-function cleanText(text: string): string {
-  // More conservative approach - only fix obvious fragmentation patterns
-  let cleaned = text
-    // Fix single character fragments with spaces (like "K ar ls" -> "Karls")
-    // Only join single characters or very short fragments that are clearly part of a word
-    .replace(/\b(\w{1,2})\s+(\w{1,3})\b/g, (match, part1, part2, offset, string) => {
-      // Check if this looks like a fragmented word by looking at context
-      const before = string.substring(Math.max(0, offset - 10), offset);
-      const after = string.substring(offset + match.length, offset + match.length + 10);
-      
-      // If surrounded by other short fragments, likely part of fragmentation
-      if (before.match(/\w\s+\w\s*$/) || after.match(/^\s*\w\s+\w/)) {
-        return part1 + part2;
-      }
-      
-      // Keep as separate words if it doesn't look like fragmentation
-      return match;
-    })
-    // Fix obvious cases where single letters are separated (like "a n d" -> "and")
-    .replace(/\b(\w)\s+(\w)\s+(\w)\b/g, (match, c1, c2, c3) => {
-      // Only join if all are single characters (likely fragmented short word)
-      if (c1.length === 1 && c2.length === 1 && c3.length === 1) {
-        return c1 + c2 + c3;
-      }
-      return match;
-    })
-    // Clean up excessive spaces (3+ spaces become 1)
-    .replace(/\s{3,}/g, ' ')
-    // Fix spaces around punctuation
-    .replace(/\s+([.,!?;:\-*])/g, '$1')
-    .replace(/([.,!?;:\-*])\s+/g, '$1 ')
-    .trim();
+// Helper function to check if a system message contains error information
+function systemMessageHasErrors(message: Message): boolean {
+  if (!message.content) return false;
   
-  return cleaned;
-}
-
-// Function to check if a system/status message contains errors
-function systemMessageHasErrors(message: any): boolean {
-  if (message.role !== 'system' && message.role !== 'status') return false;
+  // Convert content to text for error checking
+  let messageText = '';
   
-  return message.content.some((content: any) => {
-    if (content.text || content.content) {
-      const text = content.text || content.content || '';
-      
-      // Check for error patterns
-      const errorPatterns = [
-        /Agent execution error/gi,
-        /Error:/gi,
-        /Failed:/gi,
-        /Exception:/gi,
-        /Timeout/gi,
-        /Connection error/gi,
-        /Invalid/gi,
-        /Not found/gi,
-        /Unauthorized/gi,
-        /Forbidden/gi
-      ];
-      
-      return errorPatterns.some(pattern => pattern.test(text));
-    }
-    return false;
-  });
+  if (typeof message.content === 'string') {
+    messageText = message.content;
+  } else if (Array.isArray(message.content)) {
+    messageText = message.content
+      .map((c: any) => c.text || c.content || JSON.stringify(c))
+      .join(' ');
+  }
+  
+  // Check for error indicators in the message
+  const errorPatterns = [
+    /\berror\b/i,
+    /\bfailed\b/i,
+    /\bfailure\b/i,
+    /\bexception\b/i,
+    /\bwarning\b/i,
+    /\btimeout\b/i,
+    /\brefused\b/i,
+    /\bunexpected\b/i,
+    /\binvalid\b/i,
+    /\bincorrect\b/i,
+    /\bcannot\b/i,
+    /\bcouldn't\b/i,
+    /\bcan't\b/i
+  ];
+  
+  return errorPatterns.some(pattern => pattern.test(messageText));
 }
 
 function formatJsonInText(text: string): { hasJson: boolean; formattedText: string } {
@@ -483,7 +282,6 @@ function formatJsonInText(text: string): { hasJson: boolean; formattedText: stri
         searchIndex = startIndex + formattedJson.length;
       } catch (error) {
         // If parsing still fails, format as a code block without trying to parse
-        console.warn('Failed to parse JSON, formatting as code block:', error.message);
         
         // Let's try a more aggressive approach - just display as text without JSON parsing
         const displayText = jsonString
@@ -568,7 +366,6 @@ export function ConversationDetail({
   const [showSystemMessages, setShowSystemMessages] = useState(false);
   
   // Debug: Log the state (removed to prevent infinite logs)
-  // console.log('🔍 ConversationDetail showSystemMessages state:', showSystemMessages);
   const [paginationConversationId, setPaginationConversationId] = useState(() => {
     const id = conversationId || conversation?.id || selectedThread?.conversationId || '';
     return id;
@@ -601,7 +398,6 @@ export function ConversationDetail({
           setApiKey(savedApiKey);
         }
       } catch (error) {
-        console.error('Failed to load API key:', error);
       }
     };
     loadApiKey();
@@ -642,7 +438,6 @@ export function ConversationDetail({
       setCopiedId(id);
       setTimeout(() => setCopiedId(null), 2000); // Reset after 2 seconds
     } catch (err) {
-      console.error('Failed to copy text: ', err);
     }
   };
 
@@ -688,16 +483,34 @@ export function ConversationDetail({
           // If there's a PageContext field, try to extract the structured JSON from it
           if (contextToStore.PageContext && typeof contextToStore.PageContext === 'string') {
             try {
-              // PageContext format: "[SYSTEM] ... <structured>{...JSON...}</structured> ..."
+              // Try format 1: <structured>{...JSON...}</structured>
+              let structuredJson = null;
               const structuredMatch = contextToStore.PageContext.match(/<structured>(.*?)<\/structured>/);
               if (structuredMatch && structuredMatch[1]) {
-                const structuredJson = JSON.parse(structuredMatch[1]);
-                // Merge structured data with other attributes
+                structuredJson = JSON.parse(structuredMatch[1]);
+              } else {
+                // Try format 2: JSON object directly embedded in the string
+                // Look for { at the start of a JSON object and try to parse from there
+                const jsonMatch = contextToStore.PageContext.match(/\{[\s\S]*\}$/);
+                if (jsonMatch) {
+                  try {
+                    structuredJson = JSON.parse(jsonMatch[0]);
+                  } catch (e) {
+                    // If that fails, try to find any JSON object in the string
+                    const anyJsonMatch = contextToStore.PageContext.match(/\{[\s\S]*?\}/);
+                    if (anyJsonMatch) {
+                      structuredJson = JSON.parse(anyJsonMatch[0]);
+                    }
+                  }
+                }
+              }
+              
+              // Merge structured data with other attributes if found
+              if (structuredJson) {
                 contextToStore = { ...contextToStore, ...structuredJson };
               }
             } catch (e) {
               // If parsing fails, keep the original attributes
-              console.log('Could not parse PageContext structured data');
             }
           }
         }
@@ -736,12 +549,10 @@ export function ConversationDetail({
       }
       
       // Single log showing what we're storing
-      console.log('✅ Context data ready for display:', contextToStore);
       setContextData(contextToStore);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
       setContextError(`Failed to fetch context: ${errorMessage}`);
-      console.error('Context fetch error:', err);
     } finally {
       setContextLoading(false);
     }
@@ -783,10 +594,8 @@ export function ConversationDetail({
       !(selectedThread && selectedThread.messages && selectedThread.messages.length > 0); // Don't auto-fetch if we have thread data
 
     if (shouldAutoFetch) {
-      console.log('🔄 Auto-fetching conversation (no thread data available)');
       handleFetchConversation();
     } else if (selectedThread && selectedThread.messages && selectedThread.messages.length > 0) {
-      console.log('✅ Skipping auto-fetch: using selectedThread data instead');
     }
   }, [paginationConversationId, apiKey, uploadedConversation, fetchedConversation, fetchLoading, selectedThread]);
 
@@ -794,10 +603,8 @@ export function ConversationDetail({
   useEffect(() => {
     const newId = conversationId || conversation?.id || selectedThread?.conversationId || '';
     if (newId && newId !== paginationConversationId) {
-      console.log('🔄 Conversation ID changed, updating pagination ID:', paginationConversationId, '->', newId);
       setPaginationConversationId(newId);
       if (fetchedConversation && newId !== (fetchedConversation.id || '')) {
-        console.log('🔄 Clearing fetched data for new conversation');
         setFetchedConversation(null);
       }
     }
@@ -856,7 +663,6 @@ export function ConversationDetail({
       // Dispatch a custom event to mark this conversation as viewed
       const event = new CustomEvent('conversationViewed', { detail: { conversationId: currentConversationId } });
       window.dispatchEvent(event);
-      console.log('👁️ Marked conversation as viewed:', currentConversationId);
     }
   }, [conversationId, conversation?.id, selectedThread?.conversationId, paginationConversationId]);
 
@@ -864,7 +670,6 @@ export function ConversationDetail({
   useEffect(() => {
     const threadId = selectedThread?.id;
     if (threadId && apiKey.trim()) {
-      console.log('🔄 Auto-fetching context data for thread:', threadId);
       fetchContextData(threadId);
     }
   }, [selectedThread?.id, apiKey]);
@@ -873,18 +678,11 @@ export function ConversationDetail({
   useEffect(() => {
     if (contextData) {
       const allKeys = getAllKeys(contextData);
-      console.log('🔑 Available context keys:', allKeys);
       
       // Specific search for our target fields
       const pageIdSearch = searchContextKeys(contextData, ['pageId', 'pageID', 'page_id', 'pageid']);
       const deviceSearch = searchContextKeys(contextData, ['deviceOutput', 'device_output', 'deviceoutput', 'device']);
       const appVersionSearch = searchContextKeys(contextData, ['appVersion', 'app_version', 'appversion', 'version']);
-      
-      console.log('🔍 Target fields:', {
-        pageId: pageIdSearch,
-        deviceOutput: deviceSearch,
-        appVersion: appVersionSearch
-      });
     }
   }, [contextData]);
 
@@ -976,14 +774,6 @@ export function ConversationDetail({
       const conversationId = paginationConversationId.trim();
       
       // No more cache checking - fetch directly from API
-      console.log('🌐 Fetching conversation from API');
-      console.log('🔍 API Call Debug:', {
-        conversationId,
-        paginationConversationId,
-        selectedThreadConversationId: selectedThread?.conversationId,
-        apiCallUrl: `${getApiBaseUrl()}/conversation/${conversationId}`
-      });
-      
       const apiBaseUrl = getApiBaseUrl();
       const response = await fetch(`${apiBaseUrl}/conversation/${conversationId}`, {
         method: 'GET',
@@ -1014,7 +804,6 @@ export function ConversationDetail({
       onConversationFetched?.(data);
       
     } catch (error: any) {
-      console.error('❌ Fetch error:', error);
       
       // Provide more helpful error messages for common CORS/network issues
       let errorMessage = error.message || 'Failed to fetch conversation';
@@ -1431,14 +1220,6 @@ export function ConversationDetail({
                     size="sm"
                     onClick={() => {
                       const newValue = !showSystemMessages;
-                      console.log('🔍 Show System Button Clicked (Thread):', {
-                        currentValue: showSystemMessages,
-                        newValue,
-                        hasSelectedThread: !!selectedThread,
-                        selectedThreadId: selectedThread?.id,
-                        threadMessagesCount: selectedThread?.messages?.length || 0,
-                        systemMessagesInThread: selectedThread?.messages?.filter(msg => msg.role === 'system').length || 0
-                      });
                       setShowSystemMessages(newValue);
                     }}
                     className={`flex items-center gap-2 ${showSystemMessages ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-300 text-gray-700'}`}
@@ -1487,19 +1268,6 @@ export function ConversationDetail({
                       {(() => {
                         // Use activeConversation messages directly
                         const allMessages = activeConversation?.messages || [];
-                        
-                        // Debug: Check message data
-                        // Debug: Check message data (only log once per conversation)
-                        if (allMessages.length > 0 && !window.debugLoggedFor) {
-                          console.log('🔍 Thread section - Processing messages:', {
-                            totalMessages: allMessages.length,
-                            messageRoles: allMessages.map(m => m.role),
-                            systemMessageCount: allMessages.filter(m => m.role === 'system').length,
-                            statusMessageCount: allMessages.filter(m => m.role === 'status').length,
-                            showSystemMessages
-                          });
-                          window.debugLoggedFor = true;
-                        }
                         
                         const filteredMessages = allMessages
                           .filter(message => {
@@ -1999,14 +1767,6 @@ export function ConversationDetail({
                     size="sm"
                     onClick={() => {
                       const newValue = !showSystemMessages;
-                      console.log('🔍 Show System Button Clicked:', {
-                        currentValue: showSystemMessages,
-                        newValue,
-                        hasSelectedThread: !!selectedThread,
-                        selectedThreadId: selectedThread?.id,
-                        threadMessagesCount: selectedThread?.messages?.length || 0,
-                        systemMessagesInThread: selectedThread?.messages?.filter(msg => msg.role === 'system').length || 0
-                      });
                       setShowSystemMessages(newValue);
                     }}
                     className={`flex items-center gap-2 ${showSystemMessages ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-300 text-gray-700'}`}
@@ -2592,14 +2352,6 @@ export function ConversationDetail({
                         size="sm"
                         onClick={() => {
                           const newValue = !showSystemMessages;
-                          console.log('🔍 Show System Button Clicked (Fetched):', {
-                            currentValue: showSystemMessages,
-                            newValue,
-                            hasSelectedThread: !!selectedThread,
-                            selectedThreadId: selectedThread?.id,
-                            threadMessagesCount: selectedThread?.messages?.length || 0,
-                            systemMessagesInThread: selectedThread?.messages?.filter(msg => msg.role === 'system').length || 0
-                          });
                           setShowSystemMessages(newValue);
                         }}
                         className="flex items-center gap-2"
