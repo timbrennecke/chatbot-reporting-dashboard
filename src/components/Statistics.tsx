@@ -31,63 +31,11 @@ import {
 } from 'lucide-react';
 import { Thread } from '../lib/types';
 import { getApiBaseUrl, getEnvironmentSpecificItem, setEnvironmentSpecificItem } from '../lib/api';
+import { extractWorkflowsFromConversation } from '../lib/categorization';
 
 interface StatisticsProps {
   threads: Thread[];
   uploadedConversations?: any[];
-}
-
-// Helper function to extract workflows from conversation messages (same as other components)
-function extractWorkflowsFromConversation(conversation: any): Set<string> {
-  const workflows = new Set<string>();
-  
-  if (!conversation.messages) return workflows;
-  
-  conversation.messages.forEach((message: any) => {
-    // Look for workflows in system/status messages
-    if (message.role === 'system' || message.role === 'status') {
-      if (message.content) {
-        message.content.forEach((content: any) => {
-          if (content.text || content.content) {
-            const text = content.text || content.content || '';
-            
-            // Look for "Workflows ausgewählt" pattern
-            if (text.includes('Workflows ausgewählt')) {
-              // Look for "* **Workflows:** `workflow-name1, workflow-name2`" pattern
-              const workflowPattern = /\*\s*\*\*Workflows:\*\*\s*`([^`]+)`/gi;
-              const matches = text.matchAll(workflowPattern);
-              
-              for (const match of matches) {
-                const workflowsString = match[1];
-                if (workflowsString) {
-                  // Split by comma and clean up workflow names
-                  const workflowNames = workflowsString.split(',').map(w => w.trim()).filter(w => w.length > 0);
-                  workflowNames.forEach(workflowName => {
-                    if (workflowName.length > 1) {
-                      workflows.add(workflowName);
-                    }
-                  });
-                }
-              }
-            }
-            
-            // Also look for standalone workflow mentions in system messages
-            const standaloneWorkflowPattern = /workflow-[\w-]+/gi;
-            const standaloneMatches = text.matchAll(standaloneWorkflowPattern);
-            
-            for (const match of standaloneMatches) {
-              const workflowName = match[0];
-              if (workflowName && workflowName.length > 1) {
-                workflows.add(workflowName);
-              }
-            }
-          }
-        });
-      }
-    }
-  });
-  
-  return workflows;
 }
 
 export function Statistics({ threads, uploadedConversations = [] }: StatisticsProps) {
@@ -103,7 +51,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
         return date;
       }
     } catch (error) {
-      console.warn('Failed to load saved stats start date:', error);
     }
     // Default to yesterday (full day)
     const date = new Date();
@@ -121,7 +68,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
         return date;
       }
     } catch (error) {
-      console.warn('Failed to load saved stats end date:', error);
     }
     // Default to today (end of current day)
     const date = new Date();
@@ -159,7 +105,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
         setEnvironmentSpecificItem('chatbot-dashboard-stats-start-date', startDate.toISOString());
       }
     } catch (error) {
-      console.warn('Failed to save stats start date:', error);
     }
   }, [startDate]);
 
@@ -169,7 +114,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
         setEnvironmentSpecificItem('chatbot-dashboard-stats-end-date', endDate.toISOString());
       }
     } catch (error) {
-      console.warn('Failed to save stats end date:', error);
     }
   }, [endDate]);
 
@@ -185,7 +129,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
     
     // Check if we already have this data cached
     if (searchKey === lastSearchKey && fetchedConversations.length > 0) {
-      console.log('Using cached statistics data');
       return;
     }
 
@@ -208,7 +151,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       
       // Smart chunking strategy based on typical usage patterns
       // 00:00-11:59 (12h), 12:00-16:59 (5h), 17:00-18:59 (2h), 19:00-20:59 (2h), 21:00-23:59 (3h)
-      console.log(`📊 Processing ${hoursDiff} hours with smart chunking strategy...`);
       
       const chunks: Array<{start: Date, end: Date, dateStr: string}> = [];
       
@@ -275,13 +217,11 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       const savedConcurrency = localStorage.getItem('chatbot-dashboard-concurrency');
       const CONCURRENT_REQUESTS = savedConcurrency ? parseInt(savedConcurrency, 10) : 5; // Number of parallel requests
       
-      console.log(`📦 Processing ${chunks.length} smart chunks with parallel fetching (concurrency: ${CONCURRENT_REQUESTS})`);
       setLoadingProgress({ current: 0, total: chunks.length, currentDate: '' });
       let completedChunks = 0;
       
       // Function to process a single chunk
       const processChunk = async (chunk: any, index: number) => {
-        console.log(`📅 Starting chunk ${index + 1}/${chunks.length}: ${chunk.dateStr}`);
         
         try {
           const response = await fetch(`${apiBaseUrl}/thread`, {
@@ -298,7 +238,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
           });
 
           if (!response.ok) {
-            console.warn(`⚠️ Chunk ${index + 1} (${chunk.dateStr}) failed: HTTP ${response.status}`);
             // Update progress even for failed chunks
             completedChunks++;
             setLoadingProgress({ 
@@ -330,7 +269,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
             currentDate: `Completed: ${chunk.dateStr}` 
           });
           
-          console.log(`✅ Chunk ${index + 1}/${chunks.length} (${chunk.dateStr}): +${chunkConversations.length} conversations`);
           return { conversations: chunkConversations, index, chunk };
           
         } catch (chunkError) {
@@ -338,9 +276,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
           const isTimeout = errorMessage.includes('504') || errorMessage.includes('timeout');
           
           if (isTimeout) {
-            console.warn(`⚠️ Chunk ${index + 1} (${chunk.dateStr}) failed: HTTP 504 Gateway Timeout - Server overloaded or chunk too large`);
           } else {
-            console.warn(`⚠️ Chunk ${index + 1} (${chunk.dateStr}) failed:`, errorMessage);
           }
           
           // Update progress even for errored chunks
@@ -358,7 +294,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       const results: any[] = [];
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
-        console.log(`📅 Processing chunk ${i + 1}/${chunks.length} sequentially: ${chunk.dateStr}`);
         
         const result = await processChunk(chunk, i);
         results.push(result);
@@ -368,7 +303,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
           await new Promise(resolve => setTimeout(resolve, 100)); // 100ms delay
         }
         
-        console.log(`✅ Completed chunk ${i + 1}/${chunks.length}`);
       }
       
       // Sort results by original index to maintain order and collect all conversations
@@ -382,14 +316,10 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       });
       
       if (failedChunks.length > 0) {
-        console.warn(`⚠️ Smart chunking completed with ${failedChunks.length} failed chunks:`);
         failedChunks.forEach(failed => {
           const isTimeout = failed.error?.includes('504') || failed.error?.includes('timeout');
-          console.warn(`   - ${failed.chunk.dateStr}: ${isTimeout ? 'Server timeout (504)' : failed.error}`);
         });
-        console.log(`✅ Successfully loaded ${allConversations.length} conversations from ${successfulChunks.length}/${chunks.length} chunks`);
       } else {
-        console.log(`🎉 Sequential chunking complete: ${allConversations.length} total conversations from ${chunks.length} chunks`);
       }
       
       setLoadingProgress({ current: 0, total: 0, currentDate: '' });
@@ -398,7 +328,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       setLastSearchKey(searchKey);
       
     } catch (error) {
-      console.error('Error fetching conversations for statistics:', error);
       setError(error instanceof Error ? error.message : 'Failed to fetch conversations');
     } finally {
       setIsLoading(false);
@@ -601,37 +530,9 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       'callback'
     ];
     
-    // Calculate Travel Agent Quote (conversations with travel agent tools)
-    // Base travel agent tool patterns (without prefixes)
-    const baseTravelAgentTools = [
-      'get-promoted-results-url',
-      'get-hotel-min-price',
-      'search-hotels',
-      'show-hotel-recommendations'
-    ];
-    
     // Function to check if a tool name matches any contact tool pattern
     const isContactTool = (toolName: string): boolean => {
       return baseContactTools.some(baseTool => {
-        // Check exact match
-        if (toolName === baseTool) return true;
-        
-        // Check with various prefixes and formats
-        const patterns = [
-          `hotel__${baseTool}`,
-          `hotel-staging__${baseTool}`,
-          `hotel__${baseTool.replace(/-/g, '_')}`,
-          `hotel-staging__${baseTool.replace(/-/g, '_')}`,
-          baseTool.replace(/-/g, '_')
-        ];
-        
-        return patterns.some(pattern => toolName === pattern);
-      });
-    };
-    
-    // Function to check if a tool name matches any travel agent tool pattern
-    const isTravelAgentTool = (toolName: string): boolean => {
-      return baseTravelAgentTools.some(baseTool => {
         // Check exact match
         if (toolName === baseTool) return true;
         
@@ -783,14 +684,8 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
     
     // Check which contact and travel agent tools we found
     const foundContactTools = Array.from(allToolNames).filter(isContactTool);
-    const foundTravelAgentTools = Array.from(allToolNames).filter(isTravelAgentTool);
-    console.log(`🔧 Tools found: ${allToolNames.size} unique tools (${foundContactTools.length} contact, ${foundTravelAgentTools.length} travel agent)`, {
-      contact: foundContactTools,
-      travelAgent: foundTravelAgentTools
-    });
     
     // TOOL-BASED APPROACH: Check for specific contact tools
-    console.log('🔍 Kontaktquote Debug: Starting tool-based contact analysis...');
     const conversationsWithContactTools = fetchedConversations.filter((conversation, idx) => {
       if (!conversation.messages) return false;
       
@@ -818,7 +713,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                   if (isContactTool(toolName)) {
                     hasContactTool = true;
                     if (idx < 3) {
-                      console.log(`✅ Found contact tool in conversation ${idx}: ${toolName}`);
                     }
                     break;
                   }
@@ -841,7 +735,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                       foundTools.add(name);
                       if (isContactTool(name)) {
                         hasContactTool = true;
-                        if (idx < 3) console.log(`✅ Found contact tool (initiated pattern) in conversation ${idx}: ${name}`);
                         break;
                       }
                     }
@@ -862,7 +755,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
               if (isContactTool(toolName)) {
                 hasContactTool = true;
                 if (idx < 3) {
-                  console.log(`✅ Found contact tool in assistant message ${idx}: ${toolName}`);
                 }
               }
             }
@@ -885,7 +777,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                   foundTools.add(name);
                   if (isContactTool(name)) {
                     hasContactTool = true;
-                    if (idx < 3) console.log(`✅ Found contact tool (assistant text) in conversation ${idx}: ${name}`);
                     break;
                   }
                 }
@@ -898,7 +789,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
               foundTools.add(name);
               if (isContactTool(name)) {
                 hasContactTool = true;
-                if (idx < 3) console.log(`✅ Found contact tool (assistant tool_use.kind) in conversation ${idx}: ${name}`);
               }
             }
           });
@@ -906,13 +796,11 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       });
       
       if (idx < 3 && foundTools.size > 0) {
-        console.log(`🔧 Conversation ${idx} tools found:`, Array.from(foundTools));
       }
       
       return hasContactTool;
     });
     
-    console.log(`📊 Kontaktquote Result: ${conversationsWithContactTools.length}/${fetchedConversations.length} conversations with contact tools`);
     
     const conversationsWithTravelAgentTools = fetchedConversations.filter(conversation => {
       const workflows = extractWorkflowsFromConversation(conversation);
@@ -929,64 +817,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
       
     // Only log detailed info if we have data
     if (fetchedConversations.length > 0) {
-      console.log(`📊 Kontaktquote (workflow-based): ${conversationsWithContactTools.length}/${fetchedConversations.length} (${kontaktquote}%)`);
-      console.log(`🧳 Travel Agent Quote (workflow-based): ${conversationsWithTravelAgentTools.length}/${fetchedConversations.length} (${travelAgentQuote}%)`);
       
-      // Debug: Check message structure
-      const sampleConv = fetchedConversations[0];
-      if (sampleConv && sampleConv.messages && sampleConv.messages.length > 0) {
-        console.log(`🔍 Sample message structure:`, {
-          messageCount: sampleConv.messages.length,
-          firstMessage: {
-            role: sampleConv.messages[0].role,
-            hasContent: !!sampleConv.messages[0].content,
-            contentLength: sampleConv.messages[0].content?.length || 0,
-            contentTypes: sampleConv.messages[0].content?.map((c: any) => c.kind) || [],
-            fullContent: sampleConv.messages[0].content // Show full content structure
-          }
-        });
-        
-        // Show ACTUAL content objects - not just references
-        console.log(`📋 ACTUAL Content Objects:`, sampleConv.messages.slice(0, 3).map((msg: any, idx: number) => ({
-          messageIndex: idx,
-          role: msg.role,
-          contentCount: msg.content?.length || 0,
-          contentObjects: msg.content?.map((c: any, cidx: number) => ({
-            contentIndex: cidx,
-            // Show ALL properties of each content object
-            ...c,
-            // Also show what keys are available
-            availableKeys: Object.keys(c || {})
-          })) || []
-        })));
-        
-        // Look specifically for text content
-        console.log(`📝 Text Content Search:`, sampleConv.messages.slice(0, 5).map((msg: any, idx: number) => ({
-          messageIndex: idx,
-          role: msg.role,
-          textFound: msg.content?.map((c: any) => ({
-            text: c.text,
-            value: c.value,
-            content: c.content,
-            body: c.body,
-            message: c.message,
-            allKeys: Object.keys(c || {})
-          })) || []
-        })));
-        
-        // Look for any tool_use in first few messages
-        const toolUseMessages = sampleConv.messages.slice(0, 5).filter((msg: any) => 
-          msg.content?.some((c: any) => c.kind === 'tool_use')
-        );
-        if (toolUseMessages.length > 0) {
-          console.log(`🛠️ Found tool_use messages:`, toolUseMessages.map((msg: any) => ({
-            role: msg.role,
-            tools: msg.content.filter((c: any) => c.kind === 'tool_use').map((c: any) => c.tool_name)
-          })));
-        } else {
-          console.log(`❌ No tool_use found in first 5 messages of sample conversation`);
-        }
-      }
     }
 
     return {
@@ -1082,7 +913,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
 
     // Use combined threads data (same approach as ThreadsOverview)
     if (combinedThreads.length === 0) {
-      console.log('🔧 No threads found for tool analysis');
       return {
         totalToolCalls: 0,
         uniqueTools: 0,
@@ -1091,11 +921,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
         toolDetails: []
       };
     }
-
-    console.log('🔧 Tool analysis starting with combined threads data:', {
-      combinedThreadsCount: combinedThreads.length,
-      sampleThread: combinedThreads[0]
-    });
 
     // Analyze each thread for tool usage and timing (same as ThreadsOverview logic)
     combinedThreads.forEach((thread, threadIndex) => {
@@ -1108,7 +933,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
           if ((message.role === 'system' || message.role === 'status') && message.content) {
             // Debug: Log status/system message content
             if (threadIndex < 3 && message.role === 'status') {
-              console.log(`🔧 Status message ${i} content:`, message.content);
             }
             
           message.content.forEach((content: any, contentIndex: number) => {
@@ -1116,7 +940,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
             if (content.kind === 'tool_call' && content.tool_name) {
               const normalizedName = normalizeTool(content.tool_name);
               const toolName = normalizedName || content.tool_name;
-              console.log(`🔧 Found tool call (object): ${toolName}`);
               totalToolCalls++;
               
               if (!toolAnalysis[toolName]) {
@@ -1135,7 +958,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                   
                   if (timeDiff > 0 && timeDiff < 300) {
                     toolAnalysis[toolName].responseTimes.push(timeDiff);
-                    console.log(`🔧 Tool ${toolName} response time: ${timeDiff}s`);
                   }
                   break;
                 }
@@ -1145,19 +967,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
             else if (content.kind === 'text' && content.content) {
               const textContent = content.content;
               
-              // Debug: Log more detailed content to understand the format
-              if (threadIndex < 5 && contentIndex === 0) {
-                console.log(`🔧 Sample text content (thread ${threadIndex}):`, textContent);
-                console.log(`🔧 Looking for patterns:`, {
-                  hasToolName: textContent.includes('**Tool Name:**'),
-                  hasToolCallId: textContent.includes('**Tool Call ID:**'),
-                  hasFunction: textContent.includes('function'),
-                  hasTool: textContent.includes('tool'),
-                  contentLength: textContent.length,
-                  firstLines: textContent.split('\n').slice(0, 5)
-                });
-              }
-              
               // Use the same pattern as ThreadsOverview: "**Tool Name:**" pattern
               const toolNamePattern = /\*\*Tool Name:\*\*\s*`([^`]+)`/gi;
               const matches = textContent.matchAll(toolNamePattern);
@@ -1166,7 +975,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
               for (const match of matches) {
                 const toolName = match[1];
                 if (toolName && toolName.length > 1) {
-                  console.log(`🔧 Found tool: ${toolName} (from Tool Name pattern)`);
                   totalToolCalls++;
                   foundToolName = true;
                   
@@ -1187,7 +995,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                       
                       if (timeDiff > 0) {
                         toolAnalysis[normalizedName].responseTimes.push(timeDiff);
-                        console.log(`🔧 Tool ${toolName} response time: ${timeDiff}s`);
                       }
                       break;
                     }
@@ -1298,7 +1105,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                         const timeDiff = (responseTime - toolCallTime) / 1000;
                         if (timeDiff > 0 && timeDiff < 300) {
                           toolAnalysis[mappedName].responseTimes.push(timeDiff);
-                          console.log(`🔧 Tool ${mappedName} response time: ${timeDiff}s`);
                         }
                         break;
                       }
@@ -1310,21 +1116,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
           });
         }
       }
-    });
-
-    console.log('🔧 Tool analysis complete:', {
-      totalToolCalls,
-      uniqueToolsFound: Object.keys(toolAnalysis).length,
-      toolsFound: Object.keys(toolAnalysis),
-      detailedAnalysis: toolAnalysis,
-      sampleToolDetails: Object.entries(toolAnalysis).slice(0, 3).map(([name, data]) => ({
-        name,
-        count: data.count,
-        responseTimes: data.responseTimes.length,
-        avgTime: data.responseTimes.length > 0 
-          ? Math.round(data.responseTimes.reduce((sum, time) => sum + time, 0) / data.responseTimes.length)
-          : 0
-      }))
     });
 
     // Calculate averages and variability metrics with proper statistical analysis
@@ -1642,7 +1433,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                     onChange={(e) => {
                       if (e.target.value) {
                         const date = new Date(e.target.value + 'T00:00:00');
-                        console.log('Start date input changed to:', date);
                         setStartDate(date);
                       } else {
                         setStartDate(null);
@@ -1663,7 +1453,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                     onChange={(e) => {
                       if (e.target.value) {
                         const date = new Date(e.target.value + 'T23:59:59');
-                        console.log('End date input changed to:', date);
                         setEndDate(date);
                       } else {
                         setEndDate(null);
@@ -1681,22 +1470,17 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                 size="sm"
                 onClick={() => {
                   const now = new Date();
-                  console.log('Today button clicked. Current date:', now);
                   
                   // Create start of today
                   const today = new Date();
                   today.setHours(0, 0, 0, 0);
-                  console.log('Start of today:', today);
                   
                   // Current time
                   const currentTime = new Date();
-                  console.log('Current time:', currentTime);
                   
                   // Debug the date formatting
                   const todayFormatted = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
                   const currentFormatted = `${currentTime.getFullYear()}-${String(currentTime.getMonth() + 1).padStart(2, '0')}-${String(currentTime.getDate()).padStart(2, '0')}`;
-                  console.log('Today formatted for input:', todayFormatted);
-                  console.log('Current formatted for input:', currentFormatted);
                   
                   setStartDate(today);
                   setEndDate(currentTime);
@@ -1710,17 +1494,14 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                 size="sm"
                 onClick={() => {
                   const now = new Date();
-                  console.log('Last 24 Hours button clicked. Current date:', now);
                   
                   // Create start of yesterday
                   const yesterday = new Date();
                   yesterday.setDate(yesterday.getDate() - 1);
                   yesterday.setHours(0, 0, 0, 0);
-                  console.log('Start of yesterday:', yesterday);
                   
                   // Current time
                   const currentTime = new Date();
-                  console.log('Current time:', currentTime);
                   
                   setStartDate(yesterday);
                   setEndDate(currentTime);
@@ -1922,62 +1703,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                 </button>
                 <button
                 onClick={() => {
-                  console.log('🔧 BUTTON CLICKED - Debug info:', {
-                    allConversationsLength: allConversations.length,
-                    fetchedConversationsLength: fetchedConversations.length,
-                    uploadedConversationsLength: uploadedConversations.length,
-                    threadsLength: threads.length,
-                    toolStatsExists: !!toolStats,
-                    toolStatsValue: toolStats,
-                    sampleConversation: allConversations[0],
-                    sampleMessages: allConversations[0]?.messages?.slice(0, 3)
-                  });
-                  
-                  // Check what tools ThreadsOverview would find for comparison
-                  console.log('🔧 Comparing with ThreadsOverview tool detection...');
-                  const threadsOverviewTools = new Set();
-                  allConversations.forEach(conv => {
-                    conv.messages?.forEach(msg => {
-                      if ((msg.role === 'system' || msg.role === 'status') && msg.content) {
-                        msg.content.forEach(content => {
-                          if (content.text || content.content) {
-                            const text = content.text || content.content || '';
-                            const toolNamePattern = /\*\*Tool Name:\*\*\s*`([^`]+)`/gi;
-                            const matches = text.matchAll(toolNamePattern);
-                            for (const match of matches) {
-                              threadsOverviewTools.add(match[1]);
-                            }
-                          }
-                        });
-                      }
-                    });
-                  });
-                  console.log('🔧 ThreadsOverview would find these tools:', Array.from(threadsOverviewTools));
-                  
-                  // Force recalculation by logging sample data
-                  if (allConversations.length > 0) {
-                    console.log('🔧 Sample conversation for debugging:', allConversations[0]);
-                    if (allConversations[0]?.messages) {
-                      console.log('🔧 Sample messages:', allConversations[0].messages.slice(0, 5));
-                      allConversations[0].messages.slice(0, 5).forEach((msg, i) => {
-                        console.log(`🔧 Message ${i} (${msg.role}):`, msg);
-                        if (msg.content) {
-                          console.log(`🔧 Message ${i} content:`, msg.content);
-                          // Log each content item individually
-                          msg.content.forEach((contentItem, j) => {
-                            console.log(`🔧 Message ${i} content[${j}]:`, contentItem);
-                            if (contentItem.kind) {
-                              console.log(`🔧 Message ${i} content[${j}] kind:`, contentItem.kind);
-                            }
-                            if (contentItem.content || contentItem.text) {
-                              console.log(`🔧 Message ${i} content[${j}] text:`, contentItem.content || contentItem.text);
-                            }
-                          });
-                        }
-                      });
-                    }
-                  }
-                  
                   setShowToolDetails(true);
                 }}
                 style={{

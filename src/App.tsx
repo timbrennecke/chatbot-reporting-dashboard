@@ -85,7 +85,6 @@ export default function App() {
           setInitialNotes('');
         }
       } catch (error) {
-        console.error('Failed to load notes:', error);
         setInitialNotes('');
       }
     };
@@ -124,7 +123,9 @@ export default function App() {
       setUploadedData,
       setSavedChats,
       resetAppState
-    );
+    ).catch(err => {
+      console.error('Error changing environment:', err);
+    });
   }, [handleEnvironmentChange, setEnvironment, setApiKey, setUploadedData, setSavedChats, resetAppState]);
 
   // API key handlers
@@ -176,7 +177,6 @@ export default function App() {
       try {
         setEnvironmentSpecificItem('chatbot-dashboard-data', JSON.stringify(merged));
       } catch (error) {
-        console.error('Failed to save data to localStorage:', error);
       }
       
       return merged;
@@ -200,7 +200,6 @@ export default function App() {
     try {
       setEnvironmentSpecificItem('chatbot-dashboard-data', '{}');
     } catch (error) {
-      console.error('Failed to clear data from localStorage:', error);
     }
   }, [setUploadedData, setSelectedConversationId, setSelectedThread]);
 
@@ -241,11 +240,9 @@ export default function App() {
         alert('Please close this browser tab manually to complete the shutdown.');
       }
     } catch (error) {
-      console.log('Application closure initiated');
       try {
         window.close();
       } catch (closeError) {
-        console.log('Could not close tab automatically - please close manually');
       }
     }
   }, []);
@@ -337,7 +334,6 @@ export default function App() {
                   viewedSet.add(conversationId);
                   await setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
                 } catch (error) {
-                  console.error('Failed to save viewed conversation:', error);
                 }
               }}
               onThreadsChange={setCurrentThreads}
@@ -383,7 +379,6 @@ export default function App() {
                 try {
                   setEnvironmentSpecificItem('chatbot-dashboard-saved-chats', JSON.stringify([...newSavedChats]));
                 } catch (error) {
-                  console.error('Failed to unsave chat:', error);
                 }
               }}
               onClearAllSaved={() => {
@@ -391,7 +386,6 @@ export default function App() {
                 try {
                   setEnvironmentSpecificItem('chatbot-dashboard-saved-chats', JSON.stringify([]));
                 } catch (error) {
-                  console.error('Failed to clear all saved chats:', error);
                 }
               }}
               onNotesChange={async (conversationId, notes) => {
@@ -407,7 +401,6 @@ export default function App() {
                   
                   await setEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes', JSON.stringify(notesData));
                 } catch (error) {
-                  console.error('Failed to save notes:', error);
                 }
               }}
               onConversationFetched={(conversation) => {
@@ -474,7 +467,6 @@ export default function App() {
                       viewedSet.add(previousConversationId);
                       await setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
                     } catch (error) {
-                      console.error('Failed to save viewed conversation:', error);
                     }
                     
                     // Find and set the thread for the new conversation
@@ -498,7 +490,6 @@ export default function App() {
                       viewedSet.add(previousConversationId);
                       await setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
                     } catch (error) {
-                      console.error('Failed to save viewed conversation:', error);
                     }
                     
                     // Find and set the thread for the new conversation
@@ -528,7 +519,6 @@ export default function App() {
                       viewedSet.add(nextConversationId);
                       await setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
                     } catch (error) {
-                      console.error('Failed to save viewed conversation:', error);
                     }
                     
                     // Find and set the thread for the new conversation
@@ -552,7 +542,6 @@ export default function App() {
                       viewedSet.add(nextConversationId);
                       await setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
                     } catch (error) {
-                      console.error('Failed to save viewed conversation:', error);
                     }
                     
                     // Find and set the thread for the new conversation
@@ -607,7 +596,6 @@ export default function App() {
                   try {
                     setEnvironmentSpecificItem('chatbot-dashboard-saved-chats', JSON.stringify([...newSavedChats]));
                   } catch (error) {
-                    console.error('Failed to unsave chat:', error);
                   }
                 } else {
                   const newSavedChats = new Set(savedChats);
@@ -616,7 +604,6 @@ export default function App() {
                   try {
                     setEnvironmentSpecificItem('chatbot-dashboard-saved-chats', JSON.stringify([...newSavedChats]));
                   } catch (error) {
-                    console.error('Failed to save chat:', error);
                   }
                 }
               }}
@@ -634,7 +621,6 @@ export default function App() {
                   
                   await setEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes', JSON.stringify(notesData));
                 } catch (error) {
-                  console.error('Failed to save notes:', error);
                 }
               }}
             />
