@@ -170,6 +170,25 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                   Chunk Status ({chunkStatuses.length})
                 </button>
               )}
+              {chunkStatuses.length > 0 && (
+                <button
+                  onClick={() => setShowChunkStatus(true)}
+                  className="px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 rounded-lg"
+                  style={{ 
+                    backgroundColor: 'transparent',
+                    transition: 'all 0.2s ease-in-out',
+                    border: 'none'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#f3f4f6';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                  }}
+                >
+                  Chunk Status ({chunkStatuses.length})
+                </button>
+              )}
             </div>
             <div className="rounded-lg border p-6" style={{ backgroundColor: '#ffffff', borderColor: '#e5e7eb' }}>
               <ConversationsChart data={conversationsPerDay} />
