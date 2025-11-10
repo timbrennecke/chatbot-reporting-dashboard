@@ -1,10 +1,10 @@
-import React from 'react';
-import { Card, CardContent } from '../ui/card';
+import { RefreshCw, Search } from 'lucide-react';
+import type React from 'react';
+import { Alert, AlertDescription } from '../ui/alert';
 import { Button } from '../ui/button';
+import { Card, CardContent } from '../ui/card';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { Alert, AlertDescription } from '../ui/alert';
-import { Search, RefreshCw } from 'lucide-react';
 
 interface ConversationSearchProps {
   conversationSearchId: string;
@@ -33,14 +33,12 @@ export function ConversationSearch({
         <CardContent className="p-8">
           <div className="text-center space-y-6">
             <div>
-              <h2 className="text-2xl font-bold text-slate-800 mb-2">
-                Conversation Search
-              </h2>
+              <h2 className="text-2xl font-bold text-slate-800 mb-2">Search Threads</h2>
               <p className="text-slate-600">
                 Enter a conversation ID to fetch and view the conversation details
               </p>
             </div>
-            
+
             <div className="space-y-4">
               <div>
                 <Label htmlFor="conversation-search" className="text-base font-medium">
@@ -73,7 +71,7 @@ export function ConversationSearch({
                   </Button>
                 </div>
               </div>
-              
+
               <Button
                 onClick={onSearch}
                 disabled={isDisabled}
@@ -89,18 +87,16 @@ export function ConversationSearch({
                   'Fetch Conversation'
                 )}
               </Button>
-              
+
               {!apiKey.trim() && (
                 <p className="text-sm text-amber-600">
                   Please set your API key in the header first
                 </p>
               )}
-              
+
               {searchError && (
                 <Alert variant="destructive" className="text-left bg-red-100 border-red-300">
-                  <AlertDescription className="text-red-800">
-                    {searchError}
-                  </AlertDescription>
+                  <AlertDescription className="text-red-800">{searchError}</AlertDescription>
                 </Alert>
               )}
             </div>

@@ -1,19 +1,22 @@
-import React, { useCallback, useState, useEffect } from 'react';
-import { Button } from './components/ui/button';
-
-import { AppHeader } from './components/layout/AppHeader';
-import { ConversationSearch } from './components/features/ConversationSearch';
-import { ThreadsOverview } from './components/ThreadsOverview';
+import type React from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ConversationDetail } from './components/ConversationDetail';
+import { ConversationSearch } from './components/features/ConversationSearch';
+import { AppHeader } from './components/layout/AppHeader';
 import { SavedChats } from './components/SavedChats';
 import { Statistics } from './components/Statistics';
+import { ThreadsOverview } from './components/ThreadsOverview';
+import { Button } from './components/ui/button';
 
 import { useAppState } from './hooks/useAppState';
 import { useConversationSearch } from './hooks/useConversationSearch';
 import { useEnvironmentManager } from './hooks/useEnvironmentManager';
-
-import { UploadedData } from './lib/types';
-import { setGlobalOfflineMode, setEnvironmentSpecificItem, getEnvironmentSpecificItem } from './lib/api';
+import {
+  getEnvironmentSpecificItem,
+  setEnvironmentSpecificItem,
+  setGlobalOfflineMode,
+} from './lib/api';
+import type { UploadedData } from './lib/types';
 
 export default function App() {
   const {
@@ -59,11 +62,8 @@ export default function App() {
     handleSearchKeyDown,
   } = useConversationSearch();
 
-  const {
-    handleEnvironmentChange,
-    handleApiKeyChange,
-    handleApiKeyKeyDown,
-  } = useEnvironmentManager();
+  const { handleEnvironmentChange, handleApiKeyChange, handleApiKeyKeyDown } =
+    useEnvironmentManager();
 
   // Notes state for async loading
   const [initialNotes, setInitialNotes] = useState<string>('');
@@ -75,20 +75,20 @@ export default function App() {
         setInitialNotes('');
         return;
       }
-      
+
       try {
-        const savedNotes = await getEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes');
+        const savedNotes = getEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes');
         if (savedNotes) {
           const notesData = JSON.parse(savedNotes);
           setInitialNotes(notesData[selectedConversationId] || '');
         } else {
           setInitialNotes('');
         }
-      } catch (error) {
+      } catch (_error) {
         setInitialNotes('');
       }
     };
-    
+
     loadNotes();
   }, [selectedConversationId]);
 
@@ -112,113 +112,141 @@ export default function App() {
     setShowConversationOverlay,
     setActiveTab,
     setShowApiKey,
+    currentSavedChatPositionRef,
+    currentThreadPositionRef,
+    savedChatsOrderRef,
+    selectedConversationIdRef,
+    threadOrderRef,
   ]);
 
   // Environment change handler
-  const onEnvironmentChange = useCallback((newEnvironment: string) => {
-    handleEnvironmentChange(
-      newEnvironment,
+  const onEnvironmentChange = useCallback(
+    (newEnvironment: string) => {
+      handleEnvironmentChange(
+        newEnvironment,
+        setEnvironment,
+        setApiKey,
+        setUploadedData,
+        setSavedChats,
+        resetAppState
+      ).catch((err) => {
+        console.error('Error changing environment:', err);
+      });
+    },
+    [
+      handleEnvironmentChange,
       setEnvironment,
       setApiKey,
       setUploadedData,
       setSavedChats,
-      resetAppState
-    ).catch(err => {
-      console.error('Error changing environment:', err);
-    });
-  }, [handleEnvironmentChange, setEnvironment, setApiKey, setUploadedData, setSavedChats, resetAppState]);
+      resetAppState,
+    ]
+  );
 
   // API key handlers
-  const onApiKeyChange = useCallback((newApiKey: string) => {
-    handleApiKeyChange(newApiKey, setApiKey);
-  }, [handleApiKeyChange, setApiKey]);
+  const onApiKeyChange = useCallback(
+    (newApiKey: string) => {
+      handleApiKeyChange(newApiKey, setApiKey);
+    },
+    [handleApiKeyChange, setApiKey]
+  );
 
-  const onApiKeyKeyDown = useCallback((e: React.KeyboardEvent) => {
-    handleApiKeyKeyDown(e, apiKey, setApiKey);
-  }, [handleApiKeyKeyDown, apiKey, setApiKey]);
+  const onApiKeyKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      handleApiKeyKeyDown(e, apiKey, setApiKey);
+    },
+    [handleApiKeyKeyDown, apiKey, setApiKey]
+  );
 
   // Data management - merge data in memory
-  const handleDataUploaded = useCallback(async (data: UploadedData) => {
-    setUploadedData(prevData => {
-      const merged: UploadedData = {
-        conversations: [
-          ...(prevData.conversations || []),
-          ...(data.conversations || [])
-        ],
-        threadsResponse: data.threadsResponse ? {
-          threads: [
-            ...(prevData.threadsResponse?.threads || []),
-            ...(data.threadsResponse.threads || [])
-          ]
-        } : prevData.threadsResponse,
-        attributesResponses: [
-          ...(prevData.attributesResponses || []),
-          ...(data.attributesResponses || [])
-        ],
-        bulkAttributesResponses: [
-          ...(prevData.bulkAttributesResponses || []),
-          ...(data.bulkAttributesResponses || [])
-        ]
-      };
-      
-      // Clean up empty arrays
-      if (merged.conversations?.length === 0) delete merged.conversations;
-      if (merged.attributesResponses?.length === 0) delete merged.attributesResponses;
-      if (merged.bulkAttributesResponses?.length === 0) delete merged.bulkAttributesResponses;
-      
-      // Enable offline mode if we have data
-      const hasAnyData = (merged.conversations?.length || 0) > 0 || 
-                        !!merged.threadsResponse || 
-                        (merged.attributesResponses?.length || 0) > 0 || 
-                        (merged.bulkAttributesResponses?.length || 0) > 0;
-      setGlobalOfflineMode(hasAnyData);
-      
-      // Save to localStorage
-      try {
-        setEnvironmentSpecificItem('chatbot-dashboard-data', JSON.stringify(merged));
-      } catch (error) {
+  const _handleDataUploaded = useCallback(
+    async (data: UploadedData) => {
+      setUploadedData((prevData) => {
+        const merged: UploadedData = {
+          conversations: [...(prevData.conversations || []), ...(data.conversations || [])],
+          threadsResponse: data.threadsResponse
+            ? {
+                threads: [
+                  ...(prevData.threadsResponse?.threads || []),
+                  ...(data.threadsResponse.threads || []),
+                ],
+              }
+            : prevData.threadsResponse,
+          attributesResponses: [
+            ...(prevData.attributesResponses || []),
+            ...(data.attributesResponses || []),
+          ],
+          bulkAttributesResponses: [
+            ...(prevData.bulkAttributesResponses || []),
+            ...(data.bulkAttributesResponses || []),
+          ],
+        };
+
+        // Clean up empty arrays
+        if (merged.conversations?.length === 0) delete merged.conversations;
+        if (merged.attributesResponses?.length === 0) delete merged.attributesResponses;
+        if (merged.bulkAttributesResponses?.length === 0) delete merged.bulkAttributesResponses;
+
+        // Enable offline mode if we have data
+        const hasAnyData =
+          (merged.conversations?.length || 0) > 0 ||
+          !!merged.threadsResponse ||
+          (merged.attributesResponses?.length || 0) > 0 ||
+          (merged.bulkAttributesResponses?.length || 0) > 0;
+        setGlobalOfflineMode(hasAnyData);
+
+        // Save to localStorage
+        try {
+          setEnvironmentSpecificItem('chatbot-dashboard-data', JSON.stringify(merged));
+        } catch (_error) {}
+
+        return merged;
+      });
+
+      // Auto-switch to dashboard
+      if (data.threadsResponse?.threads?.length || data.conversations?.length) {
+        setActiveTab('dashboard');
+        if (data.conversations?.length) {
+          setSelectedConversationId(data.conversations[0].id);
+        }
       }
-      
-      return merged;
-    });
-    
-    // Auto-switch to dashboard
-    if (data.threadsResponse?.threads?.length || data.conversations?.length) {
-      setActiveTab('dashboard');
-      if (data.conversations?.length) {
-        setSelectedConversationId(data.conversations[0].id);
-      }
-    }
-  }, [setUploadedData, setActiveTab, setSelectedConversationId]);
+    },
+    [setUploadedData, setActiveTab, setSelectedConversationId]
+  );
 
   const handleDataCleared = useCallback(() => {
     setUploadedData({});
     setSelectedConversationId(undefined);
     setSelectedThread(undefined);
     setGlobalOfflineMode(false);
-    
+
     try {
       setEnvironmentSpecificItem('chatbot-dashboard-data', '{}');
-    } catch (error) {
-    }
+    } catch (_error) {}
   }, [setUploadedData, setSelectedConversationId, setSelectedThread]);
 
   // Conversation search handler
-  const onConversationFound = useCallback((conversation: any, thread?: any) => {
-    setSelectedConversationId(conversation.id);
-    if (thread) {
-      setSelectedThread(thread);
-    }
-    setShowConversationOverlay(true);
-  }, [setSelectedConversationId, setSelectedThread, setShowConversationOverlay]);
+  const onConversationFound = useCallback(
+    (conversation: any, thread?: any) => {
+      setSelectedConversationId(conversation.id);
+      if (thread) {
+        setSelectedThread(thread);
+      }
+      setShowConversationOverlay(true);
+    },
+    [setSelectedConversationId, setSelectedThread, setShowConversationOverlay]
+  );
 
   const onSearch = useCallback(() => {
     handleConversationSearch(apiKey, onConversationFound);
   }, [handleConversationSearch, apiKey, onConversationFound]);
 
-  const onSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
-    handleSearchKeyDown(e, apiKey, onConversationFound);
-  }, [handleSearchKeyDown, apiKey, onConversationFound]);
+  const onSearchKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      handleSearchKeyDown(e, apiKey, onConversationFound);
+    },
+    [handleSearchKeyDown, apiKey, onConversationFound]
+  );
 
   // Server shutdown handler
   const handleServerShutdown = useCallback(async () => {
@@ -231,33 +259,33 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
-      
+
       alert('Closing application...');
-      
+
       try {
         window.close();
-      } catch (closeError) {
+      } catch (_closeError) {
         alert('Please close this browser tab manually to complete the shutdown.');
       }
-    } catch (error) {
+    } catch (_error) {
       try {
         window.close();
-      } catch (closeError) {
-      }
+      } catch (_closeError) {}
     }
   }, []);
 
   // Check if we have offline data
-  const hasOfflineData = (uploadedData.conversations?.length || 0) > 0 || 
-                        !!uploadedData.threadsResponse || 
-                        (uploadedData.attributesResponses?.length || 0) > 0 || 
-                        (uploadedData.bulkAttributesResponses?.length || 0) > 0;
+  const hasOfflineData =
+    (uploadedData.conversations?.length || 0) > 0 ||
+    !!uploadedData.threadsResponse ||
+    (uploadedData.attributesResponses?.length || 0) > 0 ||
+    (uploadedData.bulkAttributesResponses?.length || 0) > 0;
 
   // Extract threads from uploaded data
-  const uploadedThreads = uploadedData.threadsResponse?.threads.map(t => t.thread) || [];
-  const uploadedConversation = selectedConversationId && uploadedData.conversations?.find(
-    c => c.id === selectedConversationId
-  );
+  const uploadedThreads = uploadedData.threadsResponse?.threads.map((t) => t.thread) || [];
+  const uploadedConversation =
+    selectedConversationId &&
+    uploadedData.conversations?.find((c) => c.id === selectedConversationId);
 
   return (
     <div className="min-h-screen bg-background">
@@ -280,7 +308,7 @@ export default function App() {
           <div className="flex">
             {[
               { id: 'dashboard', label: 'Dashboard' },
-              { id: 'conversation-search', label: 'Conversation Search' },
+              { id: 'conversation-search', label: 'Search Threads' },
               { id: 'saved-chats', label: 'Saved Chats' },
               { id: 'statistics', label: 'Statistics' },
             ].map((tab, index) => (
@@ -329,18 +357,24 @@ export default function App() {
               }}
               onConversationViewed={async (conversationId) => {
                 try {
-                  const existingViewed = await getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
-                  const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
+                  const existingViewed = getEnvironmentSpecificItem(
+                    'chatbot-dashboard-viewed-conversations'
+                  );
+                  const viewedSet = existingViewed
+                    ? new Set(JSON.parse(existingViewed))
+                    : new Set();
                   viewedSet.add(conversationId);
-                  await setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
-                } catch (error) {
-                }
+                  setEnvironmentSpecificItem(
+                    'chatbot-dashboard-viewed-conversations',
+                    JSON.stringify(Array.from(viewedSet))
+                  );
+                } catch (_error) {}
               }}
               onThreadsChange={setCurrentThreads}
               savedConversationIds={savedChats}
             />
           )}
-          
+
           {activeTab === 'conversation-search' && (
             <ConversationSearch
               conversationSearchId={conversationSearchId}
@@ -363,10 +397,10 @@ export default function App() {
                 setSelectedConversationId(conversationId);
                 setShowConversationOverlay(true);
                 setNavigationContext('saved-chats');
-                
+
                 const savedChatsArray = sortedOrder || [...savedChats];
                 savedChatsOrderRef.current = savedChatsArray;
-                
+
                 if (position !== undefined) {
                   currentSavedChatPositionRef.current = position;
                 }
@@ -375,36 +409,41 @@ export default function App() {
                 const newSavedChats = new Set(savedChats);
                 newSavedChats.delete(conversationId);
                 setSavedChats(newSavedChats);
-                
+
                 try {
-                  setEnvironmentSpecificItem('chatbot-dashboard-saved-chats', JSON.stringify([...newSavedChats]));
-                } catch (error) {
-                }
+                  setEnvironmentSpecificItem(
+                    'chatbot-dashboard-saved-chats',
+                    JSON.stringify([...newSavedChats])
+                  );
+                } catch (_error) {}
               }}
               onClearAllSaved={() => {
                 setSavedChats(new Set());
                 try {
                   setEnvironmentSpecificItem('chatbot-dashboard-saved-chats', JSON.stringify([]));
-                } catch (error) {
-                }
+                } catch (_error) {}
               }}
               onNotesChange={async (conversationId, notes) => {
                 try {
-                  const savedNotes = await getEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes') || '{}';
+                  const savedNotes =
+                    (getEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes')) ||
+                    '{}';
                   const notesData = JSON.parse(savedNotes);
-                  
+
                   if (notes.trim()) {
                     notesData[conversationId] = notes;
                   } else {
                     delete notesData[conversationId];
                   }
-                  
-                  await setEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes', JSON.stringify(notesData));
-                } catch (error) {
-                }
+
+                  setEnvironmentSpecificItem(
+                    'chatbot-dashboard-saved-chat-notes',
+                    JSON.stringify(notesData)
+                  );
+                } catch (_error) {}
               }}
               onConversationFetched={(conversation) => {
-                setFetchedConversationsMap(prev => {
+                setFetchedConversationsMap((prev) => {
                   const newMap = new Map(prev);
                   newMap.set(conversation.id, conversation);
                   return newMap;
@@ -427,8 +466,8 @@ export default function App() {
         <div className="fixed inset-0 bg-background z-50 overflow-y-auto">
           <div className="container mx-auto px-4 py-6">
             <div className="flex items-center gap-4 mb-6">
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 size="sm"
                 onClick={() => setShowConversationOverlay(false)}
                 className="flex items-center gap-2"
@@ -436,21 +475,21 @@ export default function App() {
                 ← Back to Dashboard
               </Button>
             </div>
-            
+
             <ConversationDetail
               conversationId={selectedConversationId}
               uploadedConversation={uploadedConversation}
               hasAnyUploadedConversations={(uploadedData.conversations?.length || 0) > 0}
               selectedThread={selectedThread}
               onThreadSelect={(threadId) => {
-                const thread = uploadedThreads.find(t => t.id === threadId);
+                const thread = uploadedThreads.find((t) => t.id === threadId);
                 if (thread) {
                   setSelectedThread(thread);
                 }
               }}
               onPreviousConversation={async () => {
                 if (!selectedConversationId) return;
-                
+
                 if (navigationContext === 'saved-chats') {
                   // Use saved chats navigation
                   const savedChatsOrder = savedChatsOrderRef.current;
@@ -459,18 +498,26 @@ export default function App() {
                   if (currentIndex > 0) {
                     const previousConversationId = savedChatsOrder[currentIndex - 1];
                     setSelectedConversationId(previousConversationId);
-                    
+
                     // Mark the new conversation as viewed
                     try {
-                      const existingViewed = await getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
-                      const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
+                      const existingViewed = getEnvironmentSpecificItem(
+                        'chatbot-dashboard-viewed-conversations'
+                      );
+                      const viewedSet = existingViewed
+                        ? new Set(JSON.parse(existingViewed))
+                        : new Set();
                       viewedSet.add(previousConversationId);
-                      await setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
-                    } catch (error) {
-                    }
-                    
+                      setEnvironmentSpecificItem(
+                        'chatbot-dashboard-viewed-conversations',
+                        JSON.stringify(Array.from(viewedSet))
+                      );
+                    } catch (_error) {}
+
                     // Find and set the thread for the new conversation
-                    const associatedThread = currentThreads.find(thread => thread.conversationId === previousConversationId);
+                    const associatedThread = currentThreads.find(
+                      (thread) => thread.conversationId === previousConversationId
+                    );
                     if (associatedThread) {
                       setSelectedThread(associatedThread);
                     }
@@ -482,18 +529,26 @@ export default function App() {
                   if (currentIndex > 0) {
                     const previousConversationId = threadOrder[currentIndex - 1];
                     setSelectedConversationId(previousConversationId);
-                    
+
                     // Mark the new conversation as viewed
                     try {
-                      const existingViewed = await getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
-                      const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
+                      const existingViewed = getEnvironmentSpecificItem(
+                        'chatbot-dashboard-viewed-conversations'
+                      );
+                      const viewedSet = existingViewed
+                        ? new Set(JSON.parse(existingViewed))
+                        : new Set();
                       viewedSet.add(previousConversationId);
-                      await setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
-                    } catch (error) {
-                    }
-                    
+                      setEnvironmentSpecificItem(
+                        'chatbot-dashboard-viewed-conversations',
+                        JSON.stringify(Array.from(viewedSet))
+                      );
+                    } catch (_error) {}
+
                     // Find and set the thread for the new conversation
-                    const associatedThread = currentThreads.find(thread => thread.conversationId === previousConversationId);
+                    const associatedThread = currentThreads.find(
+                      (thread) => thread.conversationId === previousConversationId
+                    );
                     if (associatedThread) {
                       setSelectedThread(associatedThread);
                     }
@@ -502,7 +557,7 @@ export default function App() {
               }}
               onNextConversation={async () => {
                 if (!selectedConversationId) return;
-                
+
                 if (navigationContext === 'saved-chats') {
                   // Use saved chats navigation
                   const savedChatsOrder = savedChatsOrderRef.current;
@@ -511,18 +566,26 @@ export default function App() {
                   if (currentIndex >= 0 && currentIndex < savedChatsOrder.length - 1) {
                     const nextConversationId = savedChatsOrder[currentIndex + 1];
                     setSelectedConversationId(nextConversationId);
-                    
+
                     // Mark the new conversation as viewed
                     try {
-                      const existingViewed = await getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
-                      const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
+                      const existingViewed = getEnvironmentSpecificItem(
+                        'chatbot-dashboard-viewed-conversations'
+                      );
+                      const viewedSet = existingViewed
+                        ? new Set(JSON.parse(existingViewed))
+                        : new Set();
                       viewedSet.add(nextConversationId);
-                      await setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
-                    } catch (error) {
-                    }
-                    
+                      setEnvironmentSpecificItem(
+                        'chatbot-dashboard-viewed-conversations',
+                        JSON.stringify(Array.from(viewedSet))
+                      );
+                    } catch (_error) {}
+
                     // Find and set the thread for the new conversation
-                    const associatedThread = currentThreads.find(thread => thread.conversationId === nextConversationId);
+                    const associatedThread = currentThreads.find(
+                      (thread) => thread.conversationId === nextConversationId
+                    );
                     if (associatedThread) {
                       setSelectedThread(associatedThread);
                     }
@@ -534,18 +597,26 @@ export default function App() {
                   if (currentIndex >= 0 && currentIndex < threadOrder.length - 1) {
                     const nextConversationId = threadOrder[currentIndex + 1];
                     setSelectedConversationId(nextConversationId);
-                    
+
                     // Mark the new conversation as viewed
                     try {
-                      const existingViewed = await getEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations');
-                      const viewedSet = existingViewed ? new Set(JSON.parse(existingViewed)) : new Set();
+                      const existingViewed = getEnvironmentSpecificItem(
+                        'chatbot-dashboard-viewed-conversations'
+                      );
+                      const viewedSet = existingViewed
+                        ? new Set(JSON.parse(existingViewed))
+                        : new Set();
                       viewedSet.add(nextConversationId);
-                      await setEnvironmentSpecificItem('chatbot-dashboard-viewed-conversations', JSON.stringify(Array.from(viewedSet)));
-                    } catch (error) {
-                    }
-                    
+                      setEnvironmentSpecificItem(
+                        'chatbot-dashboard-viewed-conversations',
+                        JSON.stringify(Array.from(viewedSet))
+                      );
+                    } catch (_error) {}
+
                     // Find and set the thread for the new conversation
-                    const associatedThread = currentThreads.find(thread => thread.conversationId === nextConversationId);
+                    const associatedThread = currentThreads.find(
+                      (thread) => thread.conversationId === nextConversationId
+                    );
                     if (associatedThread) {
                       setSelectedThread(associatedThread);
                     }
@@ -554,7 +625,7 @@ export default function App() {
               }}
               hasPreviousConversation={(() => {
                 if (!selectedConversationId) return false;
-                
+
                 if (navigationContext === 'saved-chats') {
                   const savedChatsOrder = savedChatsOrderRef.current;
                   if (savedChatsOrder.length === 0) return false;
@@ -568,7 +639,7 @@ export default function App() {
               })()}
               hasNextConversation={(() => {
                 if (!selectedConversationId) return false;
-                
+
                 if (navigationContext === 'saved-chats') {
                   const savedChatsOrder = savedChatsOrderRef.current;
                   if (savedChatsOrder.length === 0) return false;
@@ -581,7 +652,7 @@ export default function App() {
                 }
               })()}
               onConversationFetched={(conversation) => {
-                setFetchedConversationsMap(prev => {
+                setFetchedConversationsMap((prev) => {
                   const newMap = new Map(prev);
                   newMap.set(conversation.id, conversation);
                   return newMap;
@@ -594,34 +665,42 @@ export default function App() {
                   newSavedChats.delete(conversationId);
                   setSavedChats(newSavedChats);
                   try {
-                    setEnvironmentSpecificItem('chatbot-dashboard-saved-chats', JSON.stringify([...newSavedChats]));
-                  } catch (error) {
-                  }
+                    setEnvironmentSpecificItem(
+                      'chatbot-dashboard-saved-chats',
+                      JSON.stringify([...newSavedChats])
+                    );
+                  } catch (_error) {}
                 } else {
                   const newSavedChats = new Set(savedChats);
                   newSavedChats.add(conversationId);
                   setSavedChats(newSavedChats);
                   try {
-                    setEnvironmentSpecificItem('chatbot-dashboard-saved-chats', JSON.stringify([...newSavedChats]));
-                  } catch (error) {
-                  }
+                    setEnvironmentSpecificItem(
+                      'chatbot-dashboard-saved-chats',
+                      JSON.stringify([...newSavedChats])
+                    );
+                  } catch (_error) {}
                 }
               }}
               initialNotes={initialNotes}
               onNotesChange={async (conversationId, notes) => {
                 try {
-                  const savedNotes = await getEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes') || '{}';
+                  const savedNotes =
+                    (getEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes')) ||
+                    '{}';
                   const notesData = JSON.parse(savedNotes);
-                  
+
                   if (notes.trim()) {
                     notesData[conversationId] = notes;
                   } else {
                     delete notesData[conversationId];
                   }
-                  
-                  await setEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes', JSON.stringify(notesData));
-                } catch (error) {
-                }
+
+                  setEnvironmentSpecificItem(
+                    'chatbot-dashboard-saved-chat-notes',
+                    JSON.stringify(notesData)
+                  );
+                } catch (_error) {}
               }}
             />
           </div>
