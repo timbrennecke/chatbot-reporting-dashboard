@@ -24,7 +24,7 @@ import { categorizeThread as categorizationUtilCategorizeThread } from '../lib/c
 import type { BulkAttributesRequest, Thread } from '../lib/types';
 import { calculateThreadAnalytics, debounce, formatTimestamp, parseThreadId } from '../lib/utils';
 import { IntentAnalysis } from './IntentAnalysis';
-import { ChunkStatusModal } from './statistics';
+import { ChunkStatusModal } from './statistics/index';
 import { Alert, AlertDescription } from './ui/alert';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
