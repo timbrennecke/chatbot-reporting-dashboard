@@ -13,7 +13,7 @@ import {
   ToolDetailsModal,
   ToolWorkflowSummary,
   WorkflowDetailsModal,
-} from './statistics';
+} from './statistics/index';
 
 interface StatisticsProps {
   threads: Thread[];
