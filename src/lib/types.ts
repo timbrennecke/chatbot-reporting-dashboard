@@ -10,19 +10,20 @@ export interface MessageContent {
     customUiInstanceId: string;
     namespace: string;
     identifier: string;
-    state: Record<string, any>;
-    initialState: Record<string, any>;
+    state: Record<string, unknown>;
+    initialState: Record<string, unknown>;
+    props?: Record<string, unknown>;
   };
   url?: string;
   text?: string;
   tool_use?: {
     name: string;
-    input: Record<string, any>;
+    input: Record<string, unknown>;
   };
   tool_name?: string;
   tool_call?: {
     name: string;
-    arguments: Record<string, any>;
+    arguments: Record<string, unknown>;
   };
 }
 

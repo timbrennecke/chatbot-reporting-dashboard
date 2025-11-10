@@ -2,57 +2,66 @@
  * Shared categorization utilities for conversations and threads
  */
 
-import { Message, Thread, Conversation } from './types';
-import { TOPIC_KEYWORDS, INSPIRATION_EXACT_MESSAGES, INSPIRATION_PATTERN_MESSAGES } from './constants';
+import {
+  INSPIRATION_EXACT_MESSAGES,
+  INSPIRATION_PATTERN_MESSAGES,
+  TOPIC_KEYWORDS,
+} from './constants';
+import type { Message, Thread } from './types';
 
 /**
  * Extract workflows from message content
  */
 export function extractWorkflowsFromMessages(messages: Message[]): Set<string> {
   const workflows = new Set<string>();
-  
-  messages.forEach(message => {
+
+  messages.forEach((message) => {
     // Look for workflows in system/status messages
-    if (message.role === 'system' || (message as any).role === 'status') {
-      message.content.forEach(content => {
+    if ((message.role === 'system' || (message as any).role === 'status') && Array.isArray(message.content)) {
+      message.content.forEach((content) => {
         if (content.text || content.content) {
           const text = content.text || content.content || '';
-          
+
           // Look for "Workflows ausgewählt" pattern
           if (text.includes('Workflows ausgewählt')) {
             // Look for "* **Workflows:** `workflow-name1, workflow-name2`" pattern
             const workflowPattern = /\*\s*\*\*Workflows:\*\*\s*`([^`]+)`/gi;
             const matches = text.matchAll(workflowPattern);
-            
+
             for (const match of matches) {
               const workflowsString = match[1];
               if (workflowsString) {
                 // Split by comma and clean up workflow names
-                const workflowNames = workflowsString.split(',').map(w => w.trim()).filter(w => w.length > 0);
-                workflowNames.forEach(workflowName => {
+                const workflowNames = workflowsString
+                  .split(',')
+                  .map((w) => w.trim())
+                  .filter((w) => w.length > 0);
+                workflowNames.forEach((workflowName) => {
                   if (workflowName.length > 1) {
                     workflows.add(workflowName);
+                    console.log('🔍 Found workflow from pattern:', workflowName);
                   }
                 });
               }
             }
           }
-          
+
           // Also look for standalone workflow mentions in system messages
           const standaloneWorkflowPattern = /workflow-[\w-]+/gi;
           const standaloneMatches = text.matchAll(standaloneWorkflowPattern);
-          
+
           for (const match of standaloneMatches) {
             const workflowName = match[0];
             if (workflowName && workflowName.length > 1) {
               workflows.add(workflowName);
+              console.log('🔍 Found workflow standalone:', workflowName);
             }
           }
         }
       });
     }
   });
-  
+
   return workflows;
 }
 
@@ -76,7 +85,7 @@ export function extractWorkflowsFromConversation(conversation: any): Set<string>
  */
 function getFirstUserMessage(messages: Message[]): Message | undefined {
   return messages
-    .filter(m => m.role === 'user')
+    .filter((m) => m.role === 'user')
     .sort((a, b) => {
       const timeA = new Date(a.sentAt || a.createdAt || (a as any).created_at || 0).getTime();
       const timeB = new Date(b.sentAt || b.createdAt || (b as any).created_at || 0).getTime();
@@ -89,7 +98,7 @@ function getFirstUserMessage(messages: Message[]): Message | undefined {
  */
 function getMessageText(message: Message): string {
   return message.content
-    .map(content => content.text || content.content || '')
+    .map((content) => content.text || content.content || '')
     .join(' ')
     .trim();
 }
@@ -141,14 +150,21 @@ export function categorizeConversation(messages: Message[]): string | null {
 
   // Extract workflows from messages
   const workflows = extractWorkflowsFromMessages(messages);
-  
+
   // Special handling for workflow-based categories
   if (workflows.has('workflow-travel-agent')) {
+    console.log('✅ Categorizing as Inspiration/Reiseberatung due to workflow-travel-agent');
     return 'Inspiration/Reiseberatung';
   }
-  
+
   if (workflows.has('workflow-contact-customer-service')) {
+    console.log('✅ Categorizing as Kundenberatung/Customer Support due to workflow-contact-customer-service');
     return 'Kundenberatung/Customer Support';
+  }
+  
+  // Debug: log workflows found if any
+  if (workflows.size > 0) {
+    console.log('⚠️ Found workflows but not matching known ones:', Array.from(workflows));
   }
 
   // Get first user message
@@ -182,4 +198,3 @@ export function categorizeConversationObject(conversation: any): string | null {
   if (!conversation.messages) return null;
   return categorizeConversation(conversation.messages);
 }
-

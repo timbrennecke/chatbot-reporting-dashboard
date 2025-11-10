@@ -1,38 +1,36 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Badge } from './ui/badge';
-import { Textarea } from './ui/textarea';
-import { 
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from './ui/table';
-import { 
-  Bookmark, 
-  BookmarkX, 
-  Search, 
-  MessageSquare,
+import {
+  Bookmark,
+  BookmarkX,
   Clock,
-  ExternalLink,
   Copy,
+  Download,
+  ExternalLink,
+  MessageSquare,
+  Search,
   Trash2,
-  Download
 } from 'lucide-react';
-import { Conversation, Thread } from '../lib/types';
+import type React from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { getApiBaseUrl, getEnvironmentSpecificItem, setEnvironmentSpecificItem } from '../lib/api';
+import type { Conversation, Thread } from '../lib/types';
 import { formatTimestamp } from '../lib/utils';
-import { getEnvironmentSpecificItem, setEnvironmentSpecificItem, api, getApiBaseUrl } from '../lib/api';
+import { Badge } from './ui/badge';
+import { Button } from './ui/button';
+import { Card, CardContent } from './ui/card';
+import { Input } from './ui/input';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { Textarea } from './ui/textarea';
 
 interface SavedChatsProps {
   savedConversationIds: string[];
   uploadedConversations?: Conversation[];
   uploadedThreads?: Thread[];
   fetchedConversationsMap?: Map<string, any>;
-  onConversationSelect?: (conversationId: string, position?: number, sortedOrder?: string[]) => void;
+  onConversationSelect?: (
+    conversationId: string,
+    position?: number,
+    sortedOrder?: string[]
+  ) => void;
   onUnsaveChat?: (conversationId: string) => void;
   onNotesChange?: (conversationId: string, notes: string) => void;
   onClearAllSaved?: () => void;
@@ -61,30 +59,29 @@ export function SavedChats({
   onUnsaveChat,
   onNotesChange,
   onClearAllSaved,
-  onConversationFetched
+  onConversationFetched,
 }: SavedChatsProps) {
   const [searchTerm, setSearchTerm] = useState('');
-  
+
   // Copy feedback state
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  
+
   // Fetch missing conversation details
   useEffect(() => {
     const fetchMissingConversations = async () => {
       if (!savedConversationIds.length || !onConversationFetched) return;
-      
-      const missingConversationIds = savedConversationIds.filter(id => {
+
+      const missingConversationIds = savedConversationIds.filter((id) => {
         // Check if we already have this conversation's details
-        const hasUploadedConv = uploadedConversations.some(conv => conv.id === id);
-        const hasUploadedThread = uploadedThreads.some(thread => thread.conversationId === id);
+        const hasUploadedConv = uploadedConversations.some((conv) => conv.id === id);
+        const hasUploadedThread = uploadedThreads.some((thread) => thread.conversationId === id);
         const hasFetchedData = fetchedConversationsMap.has(id);
-        
+
         return !hasUploadedConv && !hasUploadedThread && !hasFetchedData;
       });
-      
+
       if (missingConversationIds.length === 0) return;
-      
-      
+
       // Fetch conversations in parallel
       const fetchPromises = missingConversationIds.map(async (conversationId) => {
         try {
@@ -93,30 +90,35 @@ export function SavedChats({
           if (!apiKey?.trim()) {
             return;
           }
-          
+
           const response = await fetch(`${baseUrl}/conversation/${conversationId}`, {
             method: 'GET',
             headers: {
-              'Authorization': `Bearer ${apiKey.trim()}`,
+              Authorization: `Bearer ${apiKey.trim()}`,
             },
           });
-          
+
           if (!response.ok) {
             return;
           }
-          
+
           const data = await response.json();
           onConversationFetched(data);
-        } catch (error) {
-        }
+        } catch (_error) {}
       });
-      
+
       await Promise.all(fetchPromises);
     };
-    
+
     fetchMissingConversations();
-  }, [savedConversationIds, uploadedConversations, uploadedThreads, fetchedConversationsMap, onConversationFetched]);
-  
+  }, [
+    savedConversationIds,
+    uploadedConversations,
+    uploadedThreads,
+    fetchedConversationsMap,
+    onConversationFetched,
+  ]);
+
   // Notes state - environment-specific
   const [notes, setNotes] = useState<Map<string, string>>(new Map());
 
@@ -129,8 +131,7 @@ export function SavedChats({
           const notesData = JSON.parse(savedNotes);
           setNotes(new Map(Object.entries(notesData)));
         }
-      } catch (error) {
-      }
+      } catch (_error) {}
     };
     loadNotes();
   }, []);
@@ -139,9 +140,11 @@ export function SavedChats({
   const saveNotesToStorage = async (notesMap: Map<string, string>) => {
     try {
       const notesObject = Object.fromEntries(notesMap);
-      await setEnvironmentSpecificItem('chatbot-dashboard-saved-chat-notes', JSON.stringify(notesObject));
-    } catch (error) {
-    }
+      await setEnvironmentSpecificItem(
+        'chatbot-dashboard-saved-chat-notes',
+        JSON.stringify(notesObject)
+      );
+    } catch (_error) {}
   };
 
   // Update notes for a specific conversation
@@ -159,13 +162,15 @@ export function SavedChats({
 
   // Create saved chat items by combining data from all sources
   const savedChatItems = useMemo((): SavedChatItem[] => {
-    return savedConversationIds.map(conversationId => {
+    return savedConversationIds.map((conversationId) => {
       // Try to find conversation data from uploaded conversations
-      const uploadedConversation = uploadedConversations.find(conv => conv.id === conversationId);
-      
+      const uploadedConversation = uploadedConversations.find((conv) => conv.id === conversationId);
+
       // Try to find thread data from uploaded threads
-      const uploadedThread = uploadedThreads.find(thread => thread.conversationId === conversationId);
-      
+      const uploadedThread = uploadedThreads.find(
+        (thread) => thread.conversationId === conversationId
+      );
+
       // Try to find fetched data
       const fetchedData = fetchedConversationsMap.get(conversationId);
 
@@ -184,14 +189,16 @@ export function SavedChats({
         title = `Thread ${conversationId.slice(0, 8)}`;
         createdAt = uploadedThread.createdAt || createdAt;
         messageCount = uploadedThread.messages?.length || 0;
-        
+
         // Check for UI and linkout in thread messages
-        hasUI = uploadedThread.messages?.some(msg => 
-          msg.content?.some(content => content.type === 'ui')
-        ) || false;
-        hasLinkout = uploadedThread.messages?.some(msg => 
-          msg.content?.some(content => content.type === 'linkout')
-        ) || false;
+        hasUI =
+          uploadedThread.messages?.some((msg) =>
+            msg.content?.some((content) => content.type === 'ui')
+          ) || false;
+        hasLinkout =
+          uploadedThread.messages?.some((msg) =>
+            msg.content?.some((content) => content.type === 'linkout')
+          ) || false;
       } else if (fetchedData) {
         title = fetchedData.title || `Conversation ${conversationId.slice(0, 8)}`;
         createdAt = fetchedData.createdAt || createdAt;
@@ -210,20 +217,27 @@ export function SavedChats({
         messageCount,
         hasUI,
         hasLinkout,
-        notes: notes.get(conversationId) || ''
+        notes: notes.get(conversationId) || '',
       };
     });
-  }, [savedConversationIds, uploadedConversations, uploadedThreads, fetchedConversationsMap, notes]);
+  }, [
+    savedConversationIds,
+    uploadedConversations,
+    uploadedThreads,
+    fetchedConversationsMap,
+    notes,
+  ]);
 
   // Filter saved chats based on search term
   const filteredSavedChats = useMemo(() => {
     if (!searchTerm.trim()) return savedChatItems;
-    
+
     const searchLower = searchTerm.toLowerCase();
-    return savedChatItems.filter(item =>
-      item.title.toLowerCase().includes(searchLower) ||
-      item.conversationId.toLowerCase().includes(searchLower) ||
-      (item.notes && item.notes.toLowerCase().includes(searchLower))
+    return savedChatItems.filter(
+      (item) =>
+        item.title.toLowerCase().includes(searchLower) ||
+        item.conversationId.toLowerCase().includes(searchLower) ||
+        item.notes?.toLowerCase().includes(searchLower)
     );
   }, [savedChatItems, searchTerm]);
 
@@ -238,37 +252,43 @@ export function SavedChats({
 
   const handleConversationClick = (conversationId: string) => {
     // Find the position in the sorted order (matches display order)
-    const position = sortedSavedChats.findIndex(item => item.conversationId === conversationId);
+    const position = sortedSavedChats.findIndex((item) => item.conversationId === conversationId);
     // Create sorted conversation IDs array for navigation
-    const sortedOrder = sortedSavedChats.map(item => item.conversationId);
+    const sortedOrder = sortedSavedChats.map((item) => item.conversationId);
     onConversationSelect?.(conversationId, position, sortedOrder);
   };
 
   const handleUnsaveClick = (conversationId: string, event: React.MouseEvent) => {
     event.stopPropagation(); // Prevent opening the conversation
-    
+
     // Clean up notes for this conversation
     const newNotes = new Map(notes);
     newNotes.delete(conversationId);
     setNotes(newNotes);
     saveNotesToStorage(newNotes);
-    
+
     onUnsaveChat?.(conversationId);
   };
 
   // Copy conversation ID to clipboard
   const handleCopyId = (conversationId: string, event: React.MouseEvent) => {
     event.stopPropagation(); // Prevent opening the conversation
-    navigator.clipboard.writeText(conversationId).then(() => {
-      setCopiedId(conversationId);
-      setTimeout(() => setCopiedId(null), 2000); // Clear after 2 seconds
-    }).catch(err => {
-    });
+    navigator.clipboard
+      .writeText(conversationId)
+      .then(() => {
+        setCopiedId(conversationId);
+        setTimeout(() => setCopiedId(null), 2000); // Clear after 2 seconds
+      })
+      .catch((_err) => {});
   };
 
   // Clear all saved chats
   const handleClearAll = () => {
-    if (window.confirm(`Are you sure you want to remove all ${savedConversationIds.length} saved chats? This action cannot be undone.`)) {
+    if (
+      window.confirm(
+        `Are you sure you want to remove all ${savedConversationIds.length} saved chats? This action cannot be undone.`
+      )
+    ) {
       // Clear all notes as well
       setNotes(new Map());
       saveNotesToStorage(new Map());
@@ -285,17 +305,17 @@ export function SavedChats({
 
     // Define CSV headers
     const headers = ['Title', 'Conversation ID', 'Created Date', 'Created Time', 'Notes'];
-    
+
     // Convert data to CSV format
-    const csvData = sortedSavedChats.map(item => {
+    const csvData = sortedSavedChats.map((item) => {
       const createdDate = new Date(item.createdAt);
       const dateStr = createdDate.toLocaleDateString('en-GB'); // DD/MM/YYYY format
-      const timeStr = createdDate.toLocaleTimeString('en-GB', { 
-        hour: '2-digit', 
-        minute: '2-digit', 
-        second: '2-digit' 
+      const timeStr = createdDate.toLocaleTimeString('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
       }); // HH:MM:SS format
-      
+
       // Escape quotes and commas in text fields for CSV
       const escapeCSV = (text: string) => {
         if (text.includes('"') || text.includes(',') || text.includes('\n')) {
@@ -303,34 +323,32 @@ export function SavedChats({
         }
         return text;
       };
-      
+
       return [
         escapeCSV(item.title),
         escapeCSV(item.conversationId),
         dateStr,
         timeStr,
-        escapeCSV(item.notes || '')
+        escapeCSV(item.notes || ''),
       ];
     });
-    
+
     // Combine headers and data
-    const csvContent = [headers, ...csvData]
-      .map(row => row.join(','))
-      .join('\n');
-    
+    const csvContent = [headers, ...csvData].map((row) => row.join(',')).join('\n');
+
     // Create and download the file
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
-    
+
     if (link.download !== undefined) {
       const url = URL.createObjectURL(blob);
       link.setAttribute('href', url);
-      
+
       // Generate filename with current date
       const now = new Date();
       const timestamp = now.toISOString().slice(0, 10); // YYYY-MM-DD format
       link.setAttribute('download', `saved-chats-${timestamp}.csv`);
-      
+
       link.style.visibility = 'hidden';
       document.body.appendChild(link);
       link.click();
@@ -345,7 +363,8 @@ export function SavedChats({
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Saved Chats</h1>
           <p className="text-gray-600 mt-1">
-            {savedConversationIds.length} saved conversation{savedConversationIds.length !== 1 ? 's' : ''}
+            {savedConversationIds.length} saved conversation
+            {savedConversationIds.length !== 1 ? 's' : ''}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -361,7 +380,7 @@ export function SavedChats({
               Export CSV
             </Button>
           )}
-          
+
           {/* Clear All Button */}
           {savedConversationIds.length > 0 && (
             <Button
@@ -413,9 +432,7 @@ export function SavedChats({
             <div className="text-center py-8">
               <Search className="w-12 h-12 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">No matching saved chats</h3>
-              <p className="text-gray-600">
-                Try adjusting your search terms.
-              </p>
+              <p className="text-gray-600">Try adjusting your search terms.</p>
             </div>
           </CardContent>
         </Card>
@@ -431,8 +448,8 @@ export function SavedChats({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sortedSavedChats.map((item, index) => (
-                  <TableRow 
+                {sortedSavedChats.map((item, _index) => (
+                  <TableRow
                     key={item.conversationId}
                     className="cursor-pointer hover:bg-muted/50"
                     onClick={() => handleConversationClick(item.conversationId)}
@@ -440,10 +457,8 @@ export function SavedChats({
                     {/* Conversation Column */}
                     <TableCell className="py-4">
                       <div className="space-y-2">
-                        <div className="font-medium text-gray-900 truncate">
-                          {item.title}
-                        </div>
-                        
+                        <div className="font-medium text-gray-900 truncate">{item.title}</div>
+
                         {/* Full Conversation ID with Copy Button */}
                         <div className="flex items-center gap-2 mb-2">
                           <span className="select-all bg-gray-50 px-2 py-1 rounded border text-xs font-mono text-gray-700">
@@ -454,11 +469,13 @@ export function SavedChats({
                             size="sm"
                             onClick={(e) => handleCopyId(item.conversationId, e)}
                             className={`h-6 w-6 p-0 transition-colors ${
-                              copiedId === item.conversationId 
-                                ? 'bg-green-100 hover:bg-green-100 text-green-600' 
+                              copiedId === item.conversationId
+                                ? 'bg-green-100 hover:bg-green-100 text-green-600'
                                 : 'hover:bg-gray-100'
                             }`}
-                            title={copiedId === item.conversationId ? "Copied!" : "Copy conversation ID"}
+                            title={
+                              copiedId === item.conversationId ? 'Copied!' : 'Copy conversation ID'
+                            }
                           >
                             {copiedId === item.conversationId ? (
                               <span className="text-xs font-medium">✓</span>
@@ -511,7 +528,10 @@ export function SavedChats({
                     </TableCell>
 
                     {/* Notes Column - Much Wider Now */}
-                    <TableCell className="py-4 align-top" style={{ width: '65%', minWidth: '400px' }}>
+                    <TableCell
+                      className="py-4 align-top"
+                      style={{ width: '65%', minWidth: '400px' }}
+                    >
                       <Textarea
                         placeholder="Add notes about this conversation..."
                         value={item.notes || ''}
@@ -521,11 +541,11 @@ export function SavedChats({
                         }}
                         onClick={(e) => e.stopPropagation()}
                         className="resize-none text-sm"
-                        style={{ 
-                          height: '120px', 
+                        style={{
+                          height: '120px',
                           width: '90%',
                           minWidth: '300px',
-                          maxWidth: '90%'
+                          maxWidth: '90%',
                         }}
                         rows={5}
                       />
@@ -533,14 +553,14 @@ export function SavedChats({
 
                     {/* Actions Column */}
                     <TableCell className="py-4 align-top">
-                      <button 
+                      <button
                         onClick={(e) => handleUnsaveClick(item.conversationId, e)}
                         className="cursor-pointer text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md border border-gray-200 hover:border-red-200 flex items-center justify-center mt-1 transition-colors"
                         style={{
                           height: '48px',
                           width: '48px',
                           minHeight: '48px',
-                          minWidth: '48px'
+                          minWidth: '48px',
                         }}
                         title="Remove from saved chats"
                       >

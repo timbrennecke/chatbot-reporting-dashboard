@@ -1,11 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { UploadedData, Thread, Conversation } from '../lib/types';
-import { 
-  setGlobalOfflineMode, 
-  getApiBaseUrl, 
-  getEnvironmentSpecificItem, 
-  setEnvironmentSpecificItem 
-} from '../lib/api';
+import { useEffect, useRef, useState } from 'react';
+import { getEnvironmentSpecificItem, setGlobalOfflineMode } from '../lib/api';
+import type { Conversation, Thread, UploadedData } from '../lib/types';
 
 export function useAppState() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -13,20 +8,22 @@ export function useAppState() {
   const [selectedConversationId, setSelectedConversationId] = useState<string>();
   const [selectedThread, setSelectedThread] = useState<Thread>();
   const [showConversationOverlay, setShowConversationOverlay] = useState(false);
-  
+
   // Environment and API state
   const [environment, setEnvironment] = useState(() => {
     return localStorage.getItem('chatbot-dashboard-environment') || 'staging';
   });
-  
+
   const [apiKey, setApiKey] = useState('');
-  
+
   const [showApiKey, setShowApiKey] = useState(false);
 
   // Navigation state
   const [allConversations, setAllConversations] = useState<Conversation[]>([]);
   const [currentConversationIndex, setCurrentConversationIndex] = useState<number>(-1);
-  const [fetchedConversationsMap, setFetchedConversationsMap] = useState<Map<string, any>>(new Map());
+  const [fetchedConversationsMap, setFetchedConversationsMap] = useState<Map<string, any>>(
+    new Map()
+  );
   const [threadOrder, setThreadOrder] = useState<string[]>([]);
   const [currentThreads, setCurrentThreads] = useState<Thread[]>([]);
   const [navigationContext, setNavigationContext] = useState<'threads' | 'saved-chats'>('threads');
@@ -62,11 +59,12 @@ export function useAppState() {
         if (savedData) {
           const parsedData = JSON.parse(savedData);
           setUploadedData(parsedData);
-          
-          const hasAnyData = (parsedData.conversations?.length || 0) > 0 || 
-                            !!parsedData.threadsResponse || 
-                            (parsedData.attributesResponses?.length || 0) > 0 || 
-                            (parsedData.bulkAttributesResponses?.length || 0) > 0;
+
+          const hasAnyData =
+            (parsedData.conversations?.length || 0) > 0 ||
+            !!parsedData.threadsResponse ||
+            (parsedData.attributesResponses?.length || 0) > 0 ||
+            (parsedData.bulkAttributesResponses?.length || 0) > 0;
           setGlobalOfflineMode(hasAnyData);
         }
       } catch (error) {
@@ -79,10 +77,11 @@ export function useAppState() {
 
   // Update global offline mode when uploaded data changes
   useEffect(() => {
-    const hasAnyData = (uploadedData.conversations?.length || 0) > 0 || 
-                      !!uploadedData.threadsResponse || 
-                      (uploadedData.attributesResponses?.length || 0) > 0 || 
-                      (uploadedData.bulkAttributesResponses?.length || 0) > 0;
+    const hasAnyData =
+      (uploadedData.conversations?.length || 0) > 0 ||
+      !!uploadedData.threadsResponse ||
+      (uploadedData.attributesResponses?.length || 0) > 0 ||
+      (uploadedData.bulkAttributesResponses?.length || 0) > 0;
     setGlobalOfflineMode(hasAnyData);
   }, [uploadedData]);
 
@@ -123,7 +122,7 @@ export function useAppState() {
     setNavigationContext,
     savedChats,
     setSavedChats,
-    
+
     // Refs
     threadOrderRef,
     selectedConversationIdRef,
