@@ -40,15 +40,6 @@ export function AdvancedMetrics({ stats }: AdvancedMetricsProps) {
         </p>
       </div>
 
-      {/* Errors Card */}
-      <div className="rounded-lg border p-6" style={{ backgroundColor: '#ffffff', borderColor: '#e5e7eb' }}>
-        <p className="text-xs font-medium text-gray-600 mb-3 uppercase tracking-wider">Errors</p>
-        <p className="text-2xl font-light text-gray-900">
-          {stats.conversationsWithErrors}
-          <span className="text-xs text-gray-500 ml-2">({stats.errorPercentage}%)</span>
-        </p>
-      </div>
-
       {/* Avg First Response Card */}
       <div className="rounded-lg border p-6" style={{ backgroundColor: '#ffffff', borderColor: '#e5e7eb' }}>
         <p className="text-xs font-medium text-gray-600 mb-3 uppercase tracking-wider">Avg First Response</p>

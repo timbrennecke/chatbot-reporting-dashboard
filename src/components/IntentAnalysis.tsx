@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 interface IntentAnalysisProps {
   threads: Thread[];
   onTopicClick?: (topicName: string) => void;
+  selectedTopic?: string;
 }
 
 interface TopicFrequency {
@@ -17,7 +18,7 @@ interface TopicFrequency {
   examples: string[];
 }
 
-export function IntentAnalysis({ threads, onTopicClick }: IntentAnalysisProps) {
+export function IntentAnalysis({ threads, onTopicClick, selectedTopic }: IntentAnalysisProps) {
   const [showKeywords, setShowKeywords] = useState(false);
 
   // Prevent background scrolling when modal is open
@@ -78,7 +79,8 @@ export function IntentAnalysis({ threads, onTopicClick }: IntentAnalysisProps) {
       .map(([topic, data]) => ({
         topic,
         count: data.count,
-        percentage: totalMessages > 0 ? Math.round(((data.count / totalMessages) * 100) * 100) / 100 : 0,
+        percentage:
+          totalMessages > 0 ? Math.round((data.count / totalMessages) * 100 * 100) / 100 : 0,
         examples: data.examples,
       }))
       .filter((result) => result.count > 0)
@@ -120,6 +122,7 @@ export function IntentAnalysis({ threads, onTopicClick }: IntentAnalysisProps) {
               Topic Analysis ({totalAnalyzed} chats, {topicsFound} topics)
             </CardTitle>
             <button
+              type="button"
               onClick={() => setShowKeywords(true)}
               className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 transition-colors"
               title="View Keywords"
@@ -132,12 +135,21 @@ export function IntentAnalysis({ threads, onTopicClick }: IntentAnalysisProps) {
         <CardContent className="pt-0">
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {topicAnalysis.map((topic) => (
-              <div
+              <button
                 key={topic.topic}
-                className={`text-center p-3 bg-gray-50 rounded-lg hover:bg-blue-100 transition-colors group relative ${onTopicClick ? 'cursor-pointer hover:shadow-md' : ''}`}
+                type="button"
+                className={`text-center p-3 rounded-lg transition-colors group relative w-full ${
+                  selectedTopic === topic.topic
+                    ? 'bg-blue-100 border-2 border-blue-500 shadow-md'
+                    : 'bg-white border border-gray-200 hover:bg-blue-50'
+                }`}
                 onClick={() => onTopicClick?.(topic.topic)}
                 title={
-                  onTopicClick ? `Click to filter conversations by "${topic.topic}"` : undefined
+                  onTopicClick
+                    ? selectedTopic === topic.topic
+                      ? `Click to remove filter for "${topic.topic}"`
+                      : `Click to filter conversations by "${topic.topic}"`
+                    : undefined
                 }
               >
                 <div className="text-lg font-bold text-gray-900">{topic.count}</div>
@@ -145,10 +157,17 @@ export function IntentAnalysis({ threads, onTopicClick }: IntentAnalysisProps) {
                 <div className="text-xs text-gray-500 mt-1">{topic.percentage}%</div>
                 {onTopicClick && (
                   <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                    <div
+                      className={`w-2 h-2 rounded-full ${selectedTopic === topic.topic ? 'bg-blue-600' : 'bg-blue-500'}`}
+                    ></div>
                   </div>
                 )}
-              </div>
+                {selectedTopic === topic.topic && (
+                  <div className="absolute top-1 right-1">
+                    <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
+                  </div>
+                )}
+              </button>
             ))}
           </div>
         </CardContent>
@@ -156,7 +175,8 @@ export function IntentAnalysis({ threads, onTopicClick }: IntentAnalysisProps) {
 
       {/* Keywords Popup Modal */}
       {showKeywords && (
-        <div
+        <button
+          type="button"
           style={{
             position: 'fixed',
             top: 0,
@@ -169,10 +189,13 @@ export function IntentAnalysis({ threads, onTopicClick }: IntentAnalysisProps) {
             alignItems: 'center',
             justifyContent: 'center',
             padding: '20px',
+            border: 'none',
+            cursor: 'pointer',
           }}
           onClick={() => setShowKeywords(false)}
         >
           <div
+            role="dialog"
             style={{
               backgroundColor: 'white',
               borderRadius: '8px',
@@ -185,7 +208,7 @@ export function IntentAnalysis({ threads, onTopicClick }: IntentAnalysisProps) {
               flexDirection: 'column',
               overflow: 'hidden',
             }}
-            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
           >
             {/* Header */}
             <div
@@ -205,6 +228,7 @@ export function IntentAnalysis({ threads, onTopicClick }: IntentAnalysisProps) {
                 </h3>
               </div>
               <button
+                type="button"
                 onClick={() => setShowKeywords(false)}
                 style={{
                   background: 'none',
@@ -219,7 +243,15 @@ export function IntentAnalysis({ threads, onTopicClick }: IntentAnalysisProps) {
                   e.currentTarget.style.backgroundColor = '#f3f4f6';
                   e.currentTarget.style.color = '#374151';
                 }}
+                onFocus={(e) => {
+                  e.currentTarget.style.backgroundColor = '#f3f4f6';
+                  e.currentTarget.style.color = '#374151';
+                }}
                 onMouseOut={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.color = '#6b7280';
+                }}
+                onBlur={(e) => {
                   e.currentTarget.style.backgroundColor = 'transparent';
                   e.currentTarget.style.color = '#6b7280';
                 }}
@@ -282,6 +314,7 @@ export function IntentAnalysis({ threads, onTopicClick }: IntentAnalysisProps) {
               }}
             >
               <button
+                type="button"
                 onClick={() => setShowKeywords(false)}
                 style={{
                   padding: '8px 16px',
@@ -296,7 +329,13 @@ export function IntentAnalysis({ threads, onTopicClick }: IntentAnalysisProps) {
                 onMouseOver={(e) => {
                   e.currentTarget.style.backgroundColor = '#1d4ed8';
                 }}
+                onFocus={(e) => {
+                  e.currentTarget.style.backgroundColor = '#1d4ed8';
+                }}
                 onMouseOut={(e) => {
+                  e.currentTarget.style.backgroundColor = '#2563eb';
+                }}
+                onBlur={(e) => {
                   e.currentTarget.style.backgroundColor = '#2563eb';
                 }}
               >
@@ -304,7 +343,7 @@ export function IntentAnalysis({ threads, onTopicClick }: IntentAnalysisProps) {
               </button>
             </div>
           </div>
-        </div>
+        </button>
       )}
     </>
   );

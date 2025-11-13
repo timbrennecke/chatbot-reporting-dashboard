@@ -4,6 +4,7 @@ import type { ConversationData, ConversationMetric } from '../utils/statisticsUt
 import {
   calculateAllConversationMetrics,
   calculateConversationsPerDay,
+  calculateConversationsPerHour,
   filterConversationsByDateRange,
   filterThreadsByDateRange,
 } from '../utils/statisticsUtils';
@@ -27,6 +28,13 @@ export function useStatisticsCalculations(
   contactTools?: ContactToolsData,
   travelAgentTools?: TravelAgentToolsData
 ) {
+  // Determine if we're using hourly or daily granularity
+  const isHourlyMode = useMemo(() => {
+    if (!startDate || !endDate) return false;
+    const daysDifference = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+    return daysDifference <= 3;
+  }, [startDate, endDate]);
+
   // Filter data based on selected time range
   const filteredThreads = useMemo(
     () => filterThreadsByDateRange(threads, startDate, endDate),
@@ -44,11 +52,19 @@ export function useStatisticsCalculations(
     [filteredUploadedConversations, fetchedConversations]
   );
 
-  // Conversations per day data - only calculate if we have fetched conversations
+  // Conversations per day/hour data - only calculate if we have fetched conversations
+  // Use hourly granularity for 3 days or less, daily for more than 3 days
   const conversationsPerDay = useMemo(() => {
     if (!startDate || !endDate || fetchedConversations.length === 0) return [];
+    
+    // Use hourly granularity for 3 days or less
+    if (isHourlyMode) {
+      return calculateConversationsPerHour(fetchedConversations, startDate, endDate);
+    }
+    
+    // Use daily granularity for more than 3 days
     return calculateConversationsPerDay(fetchedConversations, startDate, endDate);
-  }, [fetchedConversations, startDate, endDate]);
+  }, [fetchedConversations, startDate, endDate, isHourlyMode]);
 
   // Calculate conversation metrics
   const conversationMetrics = useMemo(
@@ -64,9 +80,10 @@ export function useStatisticsCalculations(
       conversationsPerDay,
       conversationMetrics,
       contactTools,
-      travelAgentTools
+      travelAgentTools,
+      isHourlyMode
     );
-  }, [filteredThreads, allConversations, conversationsPerDay, conversationMetrics, contactTools, travelAgentTools]);
+  }, [filteredThreads, allConversations, conversationsPerDay, conversationMetrics, contactTools, travelAgentTools, isHourlyMode]);
 
   return {
     filteredThreads,
@@ -75,6 +92,7 @@ export function useStatisticsCalculations(
     conversationsPerDay,
     conversationMetrics,
     stats,
+    isHourlyMode,
   };
 }
 
@@ -84,7 +102,8 @@ function calculateSummaryStats(
   conversationsPerDay: Array<{ conversations: number; formattedDate: string }>,
   conversationMetrics: ConversationMetric[],
   contactTools?: ContactToolsData,
-  travelAgentTools?: TravelAgentToolsData
+  travelAgentTools?: TravelAgentToolsData,
+  isHourlyMode: boolean = false
 ) {
   const totalConversations = new Set([
     ...filteredThreads.map((t) => t.conversationId),
@@ -150,7 +169,32 @@ function calculateSummaryStats(
         ) / 100
       : 0;
 
-  const activeDays = conversationsPerDay.filter((day) => day.conversations > 0).length;
+  // Count unique hours or days with conversations
+  let activePeriods = 0;
+  if (isHourlyMode) {
+    // Count unique hours with conversations
+    const uniqueHoursWithConversations = new Set(
+      allConversations.map((conv) => {
+        const date = new Date(conv.createdAt || conv.created_at || Date.now());
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hour = String(date.getHours()).padStart(2, '0');
+        return `${year}-${month}-${day}-${hour}`;
+      })
+    ).size;
+    activePeriods = uniqueHoursWithConversations || 0;
+  } else {
+    // Count unique calendar days with conversations (not hourly data points)
+    const uniqueDaysWithConversations = new Set(
+      allConversations.map((conv) => {
+        const date = new Date(conv.createdAt || conv.created_at || Date.now());
+        return date.toDateString();
+      })
+    ).size;
+    activePeriods = uniqueDaysWithConversations || 0;
+  }
+
   const fetchedConversationsCount = allConversations.length;
 
   return {
@@ -158,7 +202,9 @@ function calculateSummaryStats(
     totalThreads,
     avgConversationsPerDay,
     peakDay,
-    activeDays,
+    activeDays: activePeriods,
+    activePeriods,
+    isHourlyMode,
     totalUserMessages,
     totalAssistantMessages,
     conversationsWithErrors: conversationsWithErrors.length,

@@ -18,6 +18,13 @@ export function countMessagesExcludingUI(messages: Message[]): number {
 }
 
 /**
+ * Count only user and assistant messages (excluding system messages)
+ */
+export function countUserAndAssistantMessages(messages: Message[]): number {
+  return messages.filter((msg) => msg.role === 'user' || msg.role === 'assistant').length;
+}
+
+/**
  * Check if a system message contains error information
  */
 export function systemMessageHasErrors(message: Message): boolean {

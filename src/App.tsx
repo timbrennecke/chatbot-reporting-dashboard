@@ -92,6 +92,20 @@ export default function App() {
     loadNotes();
   }, [selectedConversationId]);
 
+  // Prevent body scroll when conversation overlay is open
+  useEffect(() => {
+    if (showConversationOverlay) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+
+    // Cleanup on unmount
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [showConversationOverlay]);
+
   // Reset app state function
   const resetAppState = useCallback(() => {
     setSelectedConversationId(undefined);
@@ -308,7 +322,7 @@ export default function App() {
           <div className="flex">
             {[
               { id: 'dashboard', label: 'Dashboard' },
-              { id: 'conversation-search', label: 'Search Threads' },
+              { id: 'conversation-search', label: 'Search Conversation' },
               { id: 'saved-chats', label: 'Saved Chats' },
               { id: 'statistics', label: 'Statistics' },
             ].map((tab, index) => (
@@ -463,7 +477,7 @@ export default function App() {
 
       {/* Conversation Detail Overlay */}
       {showConversationOverlay && (
-        <div className="fixed inset-0 bg-background z-50 overflow-y-auto">
+        <div id="conversation-overlay" className="fixed inset-0 bg-background z-50 overflow-y-auto">
           <div className="container mx-auto px-4 py-6">
             <div className="flex items-center gap-4 mb-6">
               <Button

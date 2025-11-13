@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 // Hooks
 import { useApiKey } from '../hooks/useApiKey';
 import { useContextData } from '../hooks/useContextData';
+import { useScrollToTop } from '../hooks/useScrollToTop';
 import {
   useConversationAnalytics,
   useFilteredMessages,
@@ -23,14 +24,16 @@ import {
 import { useConversationFetch } from '../hooks/useConversationFetch';
 import type { Conversation, Message, Thread } from '../lib/types';
 import { formatTimestamp } from '../lib/utils';
-import { countMessagesExcludingUI } from '../utils/conversationUtils';
+import { countUserAndAssistantMessages } from '../utils/conversationUtils';
 // Components
 import {
   BookmarkButton,
   CategoryBadge,
   CopyButton,
+  FloatingNavigationButtons,
   MessageBubble,
   NavigationButtons,
+  ScrollToTopButton,
 } from './conversation';
 import { Alert, AlertDescription } from './ui/alert';
 import { Badge } from './ui/badge';
@@ -87,6 +90,9 @@ export function ConversationDetail({
   const [showNotesPanel, setShowNotesPanel] = useState(false);
   const [notes, setNotes] = useState(initialNotes);
 
+  // Scroll to top hook (threshold: 200px = show button after scrolling down a bit)
+  const { showButton, scrollToTop } = useScrollToTop(200);
+
   // Custom hooks
   const { apiKey, showApiKey, setShowApiKey } = useApiKey();
   const {
@@ -114,6 +120,18 @@ export function ConversationDetail({
     searchContextKeys,
     displayContextValue,
   } = useContextData(apiKey);
+
+  // Handle ESC key to close context popup
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showContextPopup) {
+        setShowContextPopup(false);
+      }
+    };
+    
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [showContextPopup, setShowContextPopup]);
 
   // Determine active conversation
   const activeConversation = useMemo(() => {
@@ -355,7 +373,7 @@ export function ConversationDetail({
                 </div>
 
                 <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-300">
-                  {countMessagesExcludingUI(activeConversation.messages || [])} messages
+                  {countUserAndAssistantMessages(activeConversation.messages || [])} messages
                 </Badge>
               </div>
             </CardHeader>
@@ -434,10 +452,7 @@ export function ConversationDetail({
             <CardHeader className="bg-slate-50/50">
               <div className="flex justify-between items-start">
                 <div>
-                  <CardTitle className="text-slate-800">💬 Message Timeline</CardTitle>
-                  <CardDescription className="text-slate-600">
-                    Chronological view of conversation messages
-                  </CardDescription>
+                  <CardTitle className="text-slate-800">Message Timeline</CardTitle>
                 </div>
                 <div className="flex gap-2">
                   <Button
@@ -484,8 +499,8 @@ export function ConversationDetail({
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="bg-gradient-to-b from-slate-100/90 to-slate-200/60 rounded-lg">
-              <div className="max-h-[70vh] overflow-y-auto px-6 py-8 space-y-4">
+            <CardContent className="bg-gradient-to-b from-slate-100/90 to-slate-200/60 rounded-lg relative">
+              <div className="px-6 py-8 space-y-4">
                 {filteredMessages.length === 0 ? (
                   <div className="text-center py-8 text-slate-500">
                     <p>No messages to display</p>
@@ -660,70 +675,71 @@ export function ConversationDetail({
       {/* Context Popup Overlay */}
       {showContextPopup && (
         <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
           onClick={() => setShowContextPopup(false)}
         >
           <div
-            className="bg-white rounded-lg shadow-2xl flex flex-col w-[600px] h-[500px] max-w-[90vw] max-h-[90vh]"
+            className="bg-white rounded-xl shadow-2xl flex flex-col w-[90%] sm:w-[500px] max-h-[85vh] border border-gray-200"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex justify-between items-center p-4 border-b bg-gray-50">
+            <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200 bg-gray-50 flex-shrink-0 rounded-t-xl">
               <h2 className="text-lg font-semibold text-gray-900">Context Data</h2>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setShowContextPopup(false)}
-                className="h-8 w-8 p-0"
+                className="h-8 w-8 p-0 hover:bg-gray-200"
               >
                 <X className="h-4 w-4" />
               </Button>
             </div>
 
             {/* Content */}
-            <div className="flex-1 p-4 overflow-hidden flex flex-col bg-white">
+            <div className="flex-1 p-6 overflow-auto bg-gray-50">
               {contextError ? (
                 <div className="p-4 rounded-lg border bg-red-50 border-red-200 text-red-900">
                   <div className="flex items-center gap-2">
-                    <AlertCircle className="h-4 w-4" />
-                    <span>{contextError}</span>
+                    <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                    <span className="text-sm">{contextError}</span>
                   </div>
                 </div>
               ) : contextData ? (
                 <>
-                  <div className="flex justify-between items-center mb-3 flex-shrink-0">
-                    <h3 className="text-base font-medium text-gray-900">JSON Response</h3>
+                  <div className="flex justify-between items-center mb-4 gap-4">
+                    <h3 className="text-base font-medium text-gray-900 flex-shrink-0">JSON Response</h3>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() =>
                         copyToClipboard(JSON.stringify(contextData, null, 2), 'context-data')
                       }
-                      className="flex items-center gap-2"
+                      className="flex items-center gap-2 flex-shrink-0"
                     >
                       {copiedId === 'context-data' ? (
                         <>
                           <Check className="h-4 w-4 text-green-600" />
-                          <span className="text-green-600">Copied!</span>
+                          <span className="text-green-600 text-xs sm:text-sm">Copied!</span>
                         </>
                       ) : (
                         <>
                           <Copy className="h-4 w-4" />
-                          Copy JSON
+                          <span className="hidden sm:inline">Copy JSON</span>
+                          <span className="sm:hidden">Copy</span>
                         </>
                       )}
                     </Button>
                   </div>
-                  <div className="flex-1 rounded-lg border bg-gray-50 overflow-hidden min-h-0">
-                    <div className="h-full overflow-auto p-3 bg-white">
-                      <pre className="text-xs font-mono whitespace-pre-wrap break-words text-gray-700 m-0">
+                  <div className="rounded-lg border border-gray-300 bg-white overflow-hidden">
+                    <div className="overflow-auto max-h-[calc(85vh-200px)] bg-white">
+                      <pre className="text-xs font-mono whitespace-pre-wrap break-words text-gray-700 p-4 m-0">
                         {JSON.stringify(contextData, null, 2)}
                       </pre>
                     </div>
                   </div>
                 </>
               ) : (
-                <div className="flex items-center justify-center h-32">
+                <div className="flex items-center justify-center py-12">
                   <p className="text-gray-500">No context data available</p>
                 </div>
               )}
@@ -731,6 +747,18 @@ export function ConversationDetail({
           </div>
         </div>
       )}
+
+      {/* Scroll to Top Button */}
+      <ScrollToTopButton show={showButton} onClick={scrollToTop} />
+
+      {/* Floating Navigation Buttons */}
+      <FloatingNavigationButtons
+        show={showButton}
+        onPrevious={onPreviousConversation}
+        onNext={onNextConversation}
+        hasPrevious={hasPreviousConversation}
+        hasNext={hasNextConversation}
+      />
     </div>
   );
 }

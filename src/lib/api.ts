@@ -105,8 +105,15 @@ async function apiRequest<T>(
     timestamp: new Date().toISOString(),
   });
 
+  // Get API key from storage
+  const apiKey = getEnvironmentSpecificItem('chatbot-dashboard-api-key');
+  if (!apiKey?.trim()) {
+    throw new ApiError('API key is required', 401, endpoint);
+  }
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    Authorization: `Bearer ${apiKey.trim()}`,
     ...(options.headers as Record<string, string>),
   };
 
