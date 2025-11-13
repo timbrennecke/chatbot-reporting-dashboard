@@ -1,4 +1,4 @@
-import { RefreshCw } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -18,6 +18,7 @@ interface DateRangeFilterProps {
   };
   chunkStatuses?: Array<{ chunk: number; status: string; date: string }>;
   fetchStartTime?: Date | null;
+  onShowChunkStatus?: () => void;
 }
 
 export function DateRangeFilter({
@@ -31,6 +32,7 @@ export function DateRangeFilter({
   loadingProgress,
   chunkStatuses = [],
   fetchStartTime,
+  onShowChunkStatus,
 }: DateRangeFilterProps) {
   const formatDateForInput = (date: Date | null): string => {
     if (!date) return '';
@@ -59,7 +61,11 @@ export function DateRangeFilter({
 
   const setPresetDateRange = (hours?: number, days?: number) => {
     const end = new Date();
-    end.setHours(23, 59, 59, 999);
+    // Keep the current time for hourly presets, use end of day for daily presets
+    if (!hours && (days === undefined || days > 0)) {
+      end.setHours(23, 59, 59, 999);
+    }
+    // For hourly presets, keep current time as-is (don't modify hours/minutes)
     const start = new Date();
 
     if (hours) {
@@ -133,13 +139,39 @@ export function DateRangeFilter({
         >
           {isLoading ? (
             <>
-              <RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />
+              <Loader2 
+                className="mr-2 h-4 w-4" 
+                style={{
+                  animation: 'spin 1s linear infinite',
+                }}
+              />
               Fetching...
             </>
           ) : (
             'Analyze'
           )}
         </Button>
+
+        {chunkStatuses.length > 0 && onShowChunkStatus && (
+          <button
+            onClick={onShowChunkStatus}
+            className="px-4 h-9 text-sm font-medium text-gray-600 hover:text-gray-900 rounded-lg border border-gray-300"
+            style={{ 
+              backgroundColor: 'transparent',
+              transition: 'all 0.2s ease-in-out',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#f3f4f6';
+              e.currentTarget.style.borderColor = '#9ca3af';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+              e.currentTarget.style.borderColor = '#d1d5db';
+            }}
+          >
+            Chunk Status ({chunkStatuses.length})
+          </button>
+        )}
       </div>
 
       {/* Quick Presets */}
@@ -209,7 +241,7 @@ export function DateRangeFilter({
           Last 24h
         </Button>
         <Button
-          onClick={() => setPresetDateRange(undefined, 3)}
+          onClick={() => setPresetDateRange(undefined, 2)}
           disabled={isLoading}
           variant="outline"
           size="sm"
@@ -349,7 +381,7 @@ export function DateRangeFilter({
           )}
 
           <div className="flex items-center gap-2">
-            <div className="animate-spin rounded-full h-5 w-5 border-2 border-gray-300 border-t-gray-900" />
+            <div className="animate-spin rounded-full h-5 w-5 border-2 border-gray-300 border-t-2 border-t-gray-900" />
             <span className="text-sm font-medium text-gray-900">
               Fetching conversations...
             </span>

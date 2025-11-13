@@ -148,6 +148,60 @@ export function filterConversationsByDateRange(
 }
 
 /**
+ * Calculate conversations per hour
+ */
+export function calculateConversationsPerHour(
+  conversations: ConversationData[],
+  startDate: Date,
+  endDate: Date
+): DailyConversation[] {
+  // Create a map for actual conversation counts by hour
+  const hourlyCounts: Record<string, Set<string>> = {};
+
+  conversations.forEach((conversation) => {
+    if (conversation.id) {
+      const date = new Date(
+        conversation.createdAt || conversation.created_at || Date.now()
+      );
+      // Create a key for each hour: "YYYY-MM-DD-HH"
+      const hourKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}-${String(date.getHours()).padStart(2, '0')}`;
+      
+      if (!hourlyCounts[hourKey]) {
+        hourlyCounts[hourKey] = new Set();
+      }
+      hourlyCounts[hourKey].add(conversation.id);
+    }
+  });
+
+  // Generate ALL hours in the date range (including zeros)
+  const result: DailyConversation[] = [];
+  const currentDate = new Date(startDate);
+  currentDate.setMinutes(0, 0, 0); // Reset to start of the hour
+  const endDateTime = new Date(endDate);
+
+  while (currentDate <= endDateTime) {
+    const hourKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}-${String(currentDate.getHours()).padStart(2, '0')}`;
+    const conversationCount = hourlyCounts[hourKey] ? hourlyCounts[hourKey].size : 0;
+
+    // Format as "Nov 12, 14:00" with 24-hour format
+    const month = currentDate.toLocaleDateString('en-US', { month: 'short' });
+    const day = String(currentDate.getDate()).padStart(2, '0');
+    const hour = String(currentDate.getHours()).padStart(2, '0');
+
+    result.push({
+      date: new Date(currentDate),
+      formattedDate: `${month} ${day}, ${hour}:00`,
+      conversations: conversationCount,
+    });
+
+    // Move to next hour
+    currentDate.setHours(currentDate.getHours() + 1);
+  }
+
+  return result;
+}
+
+/**
  * Calculate conversations per day
  */
 export function calculateConversationsPerDay(

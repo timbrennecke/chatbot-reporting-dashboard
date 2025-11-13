@@ -14,6 +14,14 @@ interface ChunkResult {
   index: number;
   chunk: DateChunk;
   error?: string;
+  status?: string;
+  statusCode?: number;
+}
+
+export interface ChunkStatus {
+  chunk: number;
+  status: string;
+  date: string;
 }
 
 export function useStatisticsFetch() {
@@ -21,6 +29,7 @@ export function useStatisticsFetch() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastSearchKey, setLastSearchKey] = useState<string>('');
+  const [chunkStatuses, setChunkStatuses] = useState<ChunkStatus[]>([]);
   const [loadingProgress, setLoadingProgress] = useState<FetchProgress>({
     current: 0,
     total: 0,
@@ -80,7 +89,7 @@ export function useStatisticsFetch() {
                 total: chunks.length,
                 currentDate: `Failed: ${chunk.dateStr}`,
               });
-              return { conversations: [], index, chunk };
+              return { conversations: [], index, chunk, statusCode: response.status, status: response.status.toString() };
             }
 
             const chunkData = await response.json();
@@ -97,7 +106,7 @@ export function useStatisticsFetch() {
               currentDate: `Completed: ${chunk.dateStr}`,
             });
 
-            return { conversations: chunkConversations, index, chunk };
+            return { conversations: chunkConversations, index, chunk, statusCode: 200, status: '200' };
           } catch (chunkError) {
             const errorMessage = chunkError instanceof Error ? chunkError.message : 'Unknown error';
             const isTimeout = errorMessage.includes('504') || errorMessage.includes('timeout');
@@ -108,7 +117,7 @@ export function useStatisticsFetch() {
               total: chunks.length,
               currentDate: `⚠️ ${isTimeout ? 'Timeout' : 'Error'}: ${chunk.dateStr}`,
             });
-            return { conversations: [], index, chunk, error: errorMessage };
+            return { conversations: [], index, chunk, error: errorMessage, statusCode: isTimeout ? 504 : 500, status: isTimeout ? '504' : '500' };
           }
         };
 
@@ -129,12 +138,22 @@ export function useStatisticsFetch() {
         results.sort((a, b) => a.index - b.index);
 
         const allConversations: ConversationData[] = [];
-        results.forEach((result) => {
+        const statusList: ChunkStatus[] = [];
+        
+        results.forEach((result, idx) => {
           allConversations.push(...result.conversations);
+          
+          // Collect chunk status - must match ChunkStatusModal format exactly
+          statusList.push({
+            chunk: idx + 1,
+            status: result.status || 'Unknown',
+            date: result.chunk.dateStr,
+          });
         });
 
         setLoadingProgress({ current: 0, total: 0, currentDate: '' });
         setFetchedConversations(allConversations);
+        setChunkStatuses(statusList);
         setLastSearchKey(searchKey);
       } catch (fetchError) {
         setError(
@@ -152,6 +171,7 @@ export function useStatisticsFetch() {
     isLoading,
     error,
     loadingProgress,
+    chunkStatuses,
     fetchConversationsForStats,
   };
 }

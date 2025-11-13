@@ -22,11 +22,11 @@ interface StatisticsProps {
 
 export function Statistics({ threads, uploadedConversations = [] }: StatisticsProps) {
   const { startDate, setStartDate, endDate, setEndDate } = useDateRange();
-  const { fetchedConversations, isLoading, error, loadingProgress, fetchConversationsForStats } =
+  const { fetchedConversations, isLoading, error, loadingProgress, chunkStatuses, fetchConversationsForStats } =
     useStatisticsFetch();
   const { toolStats, workflowStats, contactTools, travelAgentTools } = useToolAndWorkflowAnalysis(fetchedConversations);
 
-  const { conversationsPerDay, stats } = useStatisticsCalculations(
+  const { conversationsPerDay, stats, isHourlyMode } = useStatisticsCalculations(
     threads,
     uploadedConversations,
     fetchedConversations,
@@ -40,15 +40,28 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
   const [showToolDetails, setShowToolDetails] = useState(false);
   const [showWorkflowDetails, setShowWorkflowDetails] = useState(false);
   const [showChunkStatus, setShowChunkStatus] = useState(false);
-  const [chunkStatuses, setChunkStatuses] = useState<Array<{ chunk: number; status: string; date: string }>>([]);
 
   const handleFetch = async () => {
-    setChunkStatuses([]); // Reset chunk statuses
     await fetchConversationsForStats(startDate, endDate);
   };
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-white relative">
+      {/* Loading Overlay */}
+      {isLoading && (
+        <div className="fixed inset-0 bg-white bg-opacity-90 z-50 flex items-center justify-center">
+          <div className="text-center">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-gray-300 border-t-gray-900 mb-4"></div>
+            <p className="text-sm font-medium text-gray-900">Analyzing conversations...</p>
+            {loadingProgress && loadingProgress.total > 0 && (
+              <p className="text-xs text-gray-500 mt-2">
+                Processing chunk {loadingProgress.current} of {loadingProgress.total}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="px-8 py-12 max-w-[1200px] mx-auto">
         {/* Header */}
         <div className="mb-12">
@@ -69,6 +82,7 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
             loadingProgress={loadingProgress}
             chunkStatuses={chunkStatuses}
             fetchStartTime={null}
+            onShowChunkStatus={() => setShowChunkStatus(true)}
           />
         </div>
 
@@ -99,21 +113,27 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
                 <div style={{ width: '28px', height: '3px', backgroundColor: '#dc2626', borderRadius: '2px' }}></div>
               </div>
 
-              {/* Daily Average */}
+              {/* Daily/Hourly Average */}
               <div className="p-6 rounded-lg border" style={{ backgroundColor: '#ffffff', borderColor: '#e5e7eb' }}>
-                <p className="text-xs font-medium text-gray-600 uppercase tracking-wider mb-2">Avg/Day</p>
+                <p className="text-xs font-medium text-gray-600 uppercase tracking-wider mb-2">
+                  {isHourlyMode ? 'Avg/Hour' : 'Avg/Day'}
+                </p>
                 <p className="text-2xl font-light text-gray-900">{stats.avgConversationsPerDay}</p>
               </div>
 
-              {/* Active Days */}
+              {/* Active Days/Hours */}
               <div className="p-6 rounded-lg border" style={{ backgroundColor: '#ffffff', borderColor: '#e5e7eb' }}>
-                <p className="text-xs font-medium text-gray-600 uppercase tracking-wider mb-2">Active Days</p>
+                <p className="text-xs font-medium text-gray-600 uppercase tracking-wider mb-2">
+                  {isHourlyMode ? 'Active Hours' : 'Active Days'}
+                </p>
                 <p className="text-2xl font-light text-gray-900">{stats.activeDays}</p>
               </div>
 
-              {/* Peak Day */}
+              {/* Peak Day/Hour */}
               <div className="p-6 rounded-lg border" style={{ backgroundColor: '#ffffff', borderColor: '#e5e7eb' }}>
-                <p className="text-xs font-medium text-gray-600 uppercase tracking-wider mb-2">Peak Day</p>
+                <p className="text-xs font-medium text-gray-600 uppercase tracking-wider mb-2">
+                  {isHourlyMode ? 'Peak Hour' : 'Peak Day'}
+                </p>
                 <p className="text-2xl font-light text-gray-900">{stats.peakDay.conversations}</p>
                 <p className="text-xs text-gray-500 mt-1 truncate">{stats.peakDay.formattedDate}</p>
               </div>
@@ -151,25 +171,6 @@ export function Statistics({ threads, uploadedConversations = [] }: StatisticsPr
           <div style={{ marginBottom: '60px' }}>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-sm font-medium text-gray-900">Conversation Activity</h2>
-              {chunkStatuses.length > 0 && (
-                <button
-                  onClick={() => setShowChunkStatus(true)}
-                  className="px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 rounded-lg"
-                  style={{ 
-                    backgroundColor: 'transparent',
-                    transition: 'all 0.2s ease-in-out',
-                    border: 'none'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = '#f3f4f6';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = 'transparent';
-                  }}
-                >
-                  Chunk Status ({chunkStatuses.length})
-                </button>
-              )}
             </div>
             <div className="rounded-lg border p-6" style={{ backgroundColor: '#ffffff', borderColor: '#e5e7eb' }}>
               <ConversationsChart data={conversationsPerDay} />

@@ -39,7 +39,6 @@ export function extractWorkflowsFromMessages(messages: Message[]): Set<string> {
                 workflowNames.forEach((workflowName) => {
                   if (workflowName.length > 1) {
                     workflows.add(workflowName);
-                    console.log('🔍 Found workflow from pattern:', workflowName);
                   }
                 });
               }
@@ -54,7 +53,6 @@ export function extractWorkflowsFromMessages(messages: Message[]): Set<string> {
             const workflowName = match[0];
             if (workflowName && workflowName.length > 1) {
               workflows.add(workflowName);
-              console.log('🔍 Found workflow standalone:', workflowName);
             }
           }
         }
@@ -153,18 +151,11 @@ export function categorizeConversation(messages: Message[]): string | null {
 
   // Special handling for workflow-based categories
   if (workflows.has('workflow-travel-agent')) {
-    console.log('✅ Categorizing as Inspiration/Reiseberatung due to workflow-travel-agent');
     return 'Inspiration/Reiseberatung';
   }
 
   if (workflows.has('workflow-contact-customer-service')) {
-    console.log('✅ Categorizing as Kundenberatung/Customer Support due to workflow-contact-customer-service');
     return 'Kundenberatung/Customer Support';
-  }
-  
-  // Debug: log workflows found if any
-  if (workflows.size > 0) {
-    console.log('⚠️ Found workflows but not matching known ones:', Array.from(workflows));
   }
 
   // Get first user message

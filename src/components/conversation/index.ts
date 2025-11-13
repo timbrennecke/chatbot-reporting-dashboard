@@ -1,7 +1,9 @@
 export { BookmarkButton } from './BookmarkButton';
 export { CategoryBadge } from './CategoryBadge';
 export { CopyButton } from './CopyButton';
+export { FloatingNavigationButtons } from './FloatingNavigationButtons';
 export { MessageBubble } from './MessageBubble';
 export { MessageContentRenderer } from './MessageContentRenderer';
 export { NavigationButtons } from './NavigationButtons';
 export { NotesPanel } from './NotesPanel';
+export { ScrollToTopButton } from './ScrollToTopButton';
